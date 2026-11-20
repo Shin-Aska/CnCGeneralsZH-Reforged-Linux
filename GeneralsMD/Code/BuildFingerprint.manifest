@@ -1546,6 +1546,7 @@ Data/Window/Menus/Defeat.wnd
 Data/Window/Menus/DisconnectScreen.wnd
 Data/Window/Menus/GameSpyGameOptionsMenu.wnd
 Data/Window/Menus/GameSpyLoginProfile.wnd
+Data/Window/Menus/HDAssetsMenu.wnd
 Data/Window/Menus/LanGameOptionsMenu.wnd
 Data/Window/Menus/LanMapSelectMenu.wnd
 Data/Window/Menus/LocalDefeat.wnd
@@ -2420,6 +2421,7 @@ GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/DisconnectWindow.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/DownloadMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/EstablishConnectionsWindow.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/GameInfoWindow.cpp
+GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/HDAssetsMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanGameOptionsMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanLobbyMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanMapSelectMenu.cpp
@@ -5482,6 +5484,7 @@ Tools/generals-icon.py
 Tools/gentrigtables.py
 Tools/guard_marker.py
 Tools/hazard-cloud-check.py
+Tools/hdassets_layout.py
 Tools/hud_command_bar.py
 Tools/hud_sidebar.py
 Tools/include_case_check.py

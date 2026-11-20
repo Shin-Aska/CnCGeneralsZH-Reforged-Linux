@@ -299,8 +299,23 @@ Settings, saves and replays go to
 For automated checks, use separate test data as described in the
 [Linux guide](docs/linux.md#checks-with-game-data).
 
-Upscaled art is optional. Put existing `Reforged*.big` archives in `ReforgedArt/` inside the user
-data folder to use it; without them the game uses the original textures.
+### Optional HD assets
+
+On first launch, choose **Download Textures (1.30 GB)**, **Choose Packs**, or **Skip**. The full
+collection is **10.63 GB**; Choose Packs lets you download individual groups. You can return to
+**Options → Graphics → Manage HD Assets** at any time. Downloads and removals take effect after
+restarting the game. To see the enhanced art, turn off **Classic Graphics** and enable **HD Textures**
+and **Detailed Models** under **Options → Display**, then restart.
+
+The manager stores packs in `ReforgedArt/` inside the user-data folder. Existing manually supplied
+archives also work when they match the verified packs; **Open Folder** opens their location. Only
+packs downloaded by the manager can be removed through it, and removal happens on the next restart.
+Without HD packs, the game uses the original art.
+
+**Download Sources** lets you add, edit or remove a custom HTTPS folder URL. The official source is
+always tried first; custom sources use the same fixed upstream file hashes for verification.
+The thin executable, standalone folder and portable archive use the same manager and user-data
+location described above. A portable release's `UserData/` folder overrides the usual location.
 
 ## Tests
 

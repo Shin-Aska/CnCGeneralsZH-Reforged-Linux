@@ -111,6 +111,16 @@ extern void PopupCommunicatorShutdown( WindowLayout *layout, void *userData );
 extern WindowMsgHandledType PopupCommunicatorSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
 extern WindowMsgHandledType PopupCommunicatorInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
 
+// Native optional HD artwork modal; independent of shell navigation and unsaved options.
+extern bool HDAssetsMenuAvailable();
+extern void HDAssetsMenuOpen(bool invitation = false);
+extern void HDAssetsMenuOfferInvitation(WindowLayout *layout);
+extern void HDAssetsMenuInit(WindowLayout *layout, void *userData);
+extern void HDAssetsMenuUpdate(WindowLayout *layout, void *userData);
+extern void HDAssetsMenuShutdown(WindowLayout *layout, void *userData);
+extern WindowMsgHandledType HDAssetsMenuSystem(GameWindow *, UnsignedInt, WindowMsgData, WindowMsgData);
+extern WindowMsgHandledType HDAssetsMenuInput(GameWindow *, UnsignedInt, WindowMsgData, WindowMsgData);
+
 // SkirmishGameOptionsMenu
 extern void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData );
 extern void SkirmishGameOptionsMenuUpdate( WindowLayout *layout, void *userData );

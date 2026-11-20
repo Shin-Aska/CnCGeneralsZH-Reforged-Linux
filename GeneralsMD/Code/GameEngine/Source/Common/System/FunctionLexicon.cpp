@@ -98,6 +98,7 @@ static FunctionLexicon::TableEntry gameWinSystemTable[] =
 	{ NAMEKEY_INVALID, "MOTDSystem",										(void *)MOTDSystem },
 	{ NAMEKEY_INVALID, "MainMenuSystem",								(void *)MainMenuSystem },
 	{ NAMEKEY_INVALID, "OptionsMenuSystem",							(void *)OptionsMenuSystem },
+	{ NAMEKEY_INVALID, "HDAssetsMenuSystem",							(void *)HDAssetsMenuSystem },
 	{ NAMEKEY_INVALID, "SinglePlayerMenuSystem",				(void *)SinglePlayerMenuSystem },
 	{ NAMEKEY_INVALID, "QuitMenuSystem",								(void *)QuitMenuSystem },
 	{ NAMEKEY_INVALID, "MapSelectMenuSystem",						(void *)MapSelectMenuSystem },
@@ -175,6 +176,7 @@ static FunctionLexicon::TableEntry gameWinInputTable[] =
 	{ NAMEKEY_INVALID, "MainMenuInput",									(void *)MainMenuInput },
 	{ NAMEKEY_INVALID, "MapSelectMenuInput",						(void *)MapSelectMenuInput },
 	{ NAMEKEY_INVALID, "OptionsMenuInput",							(void *)OptionsMenuInput },
+	{ NAMEKEY_INVALID, "HDAssetsMenuInput",							(void *)HDAssetsMenuInput },
 	{ NAMEKEY_INVALID, "SinglePlayerMenuInput",					(void *)SinglePlayerMenuInput },
 	{ NAMEKEY_INVALID, "LanLobbyMenuInput",							(void *)LanLobbyMenuInput },
 	{ NAMEKEY_INVALID, "ReplayMenuInput",								(void *)ReplayMenuInput },
@@ -242,6 +244,7 @@ static FunctionLexicon::TableEntry winLayoutInitTable[] =
 
 	{ NAMEKEY_INVALID, "MainMenuInit",									(void *)MainMenuInit },
 	{ NAMEKEY_INVALID, "OptionsMenuInit",								(void *)OptionsMenuInit },
+	{ NAMEKEY_INVALID, "HDAssetsMenuInit",								(void *)HDAssetsMenuInit },
 	{ NAMEKEY_INVALID, "SaveLoadMenuInit",              (void *)SaveLoadMenuInit },
 	{ NAMEKEY_INVALID, "SaveLoadMenuFullScreenInit",    (void *)SaveLoadMenuFullScreenInit },
 
@@ -293,6 +296,7 @@ static FunctionLexicon::TableEntry winLayoutUpdateTable[] =
 
 	{ NAMEKEY_INVALID, "MainMenuUpdate",								(void *)MainMenuUpdate },
 	{ NAMEKEY_INVALID, "OptionsMenuUpdate",							(void *)OptionsMenuUpdate },
+	{ NAMEKEY_INVALID, "HDAssetsMenuUpdate",							(void *)HDAssetsMenuUpdate },
 	{ NAMEKEY_INVALID, "SinglePlayerMenuUpdate",				(void *)SinglePlayerMenuUpdate },
 	{ NAMEKEY_INVALID, "MapSelectMenuUpdate",						(void *)MapSelectMenuUpdate },
 	{ NAMEKEY_INVALID, "LanLobbyMenuUpdate",						(void *)LanLobbyMenuUpdate },
@@ -334,6 +338,7 @@ static FunctionLexicon::TableEntry winLayoutShutdownTable[] =
 
 	{ NAMEKEY_INVALID, "MainMenuShutdown",							(void *)MainMenuShutdown },
 	{ NAMEKEY_INVALID, "OptionsMenuShutdown",						(void *)OptionsMenuShutdown },
+	{ NAMEKEY_INVALID, "HDAssetsMenuShutdown",						(void *)HDAssetsMenuShutdown },
 	{ NAMEKEY_INVALID, "SaveLoadMenuShutdown",          (void *)SaveLoadMenuShutdown },
 	{ NAMEKEY_INVALID, "PopupCommunicatorShutdown",     (void *)PopupCommunicatorShutdown },      
 	{ NAMEKEY_INVALID, "SinglePlayerMenuShutdown",			(void *)SinglePlayerMenuShutdown },

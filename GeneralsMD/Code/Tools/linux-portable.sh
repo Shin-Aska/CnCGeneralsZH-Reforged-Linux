@@ -291,9 +291,10 @@ WHERE YOUR ZERO HOUR IS
   a folder named GameData here, and the original Generals' .big files into GameData/ZH_Generals.
 
 THE UPSCALED ART
-  A folder built without the art (every Linux package) does not download it. The game reads the
-  Reforged*.big files from ReforgedArt/ in the settings folder below when they are there, and plays at
-  the original textures when they are not.
+  HD art is optional. Download it from Options > Graphics > Manage HD Assets, then restart to apply
+  it. Packs are stored in ReforgedArt/ in the settings folder below (UserData/ReforgedArt in portable
+  mode). Existing verified Reforged*.big packs work there too. Without HD packs, the game uses the
+  original art.
 
 FILES
   Settings, saves, replays and logs:  UserData/ in this folder (the portable mode). Delete UserData to

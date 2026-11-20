@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include <string>
 
 #include "gamespy/ghttp/ghttp.h"
 
@@ -377,6 +378,36 @@ static void showOptionsPage( Int which )
 		if( optionsTab[ i ] )
 			optionsTab[ i ]->winEnable( i != which );
 	}
+    GameWindow *manage = TheWindowManager->winGetWindowFromId(NULL,
+        TheNameKeyGenerator->nameToKey(AsciiString("OptionsMenu.wnd:ButtonHDAssets")));
+    if (manage) {
+        manage->winHide(which != 1);
+        manage->winEnable(HDAssetsMenuAvailable());
+        // The other pages keep the existing three-action footer. Graphics shares its width
+        // between four native buttons; derive the scale from the loaded window bounds.
+        const char *names[] = {"ButtonDefaults", "ButtonBack", "ButtonAccept"};
+        GameWindow *buttons[3] = {NULL, NULL, NULL};
+        for (int i = 0; i < 3; ++i)
+            buttons[i] = TheWindowManager->winGetWindowFromId(NULL,
+                TheNameKeyGenerator->nameToKey(AsciiString((std::string("OptionsMenu.wnd:") + names[i]).c_str())));
+        if (buttons[0] && buttons[1] && buttons[2]) {
+            Int left, top, acceptLeft, acceptTop, width, height;
+            buttons[0]->winGetPosition(&left, &top);
+            buttons[2]->winGetPosition(&acceptLeft, &acceptTop);
+            buttons[2]->winGetSize(&width, &height);
+            const Int right = acceptLeft + width;
+            const float scale = (right - left) / 728.0f;
+            const Int buttonWidth = (Int)((which == 1 ? 176 : 180) * scale + 0.5f);
+            const Int gap = (Int)((which == 1 ? 8 : 16) * scale + 0.5f);
+            buttons[0]->winSetSize(buttonWidth, height);
+            buttons[1]->winSetSize(buttonWidth, height);
+            buttons[2]->winSetSize(buttonWidth, height);
+            buttons[1]->winSetPosition(right - 2 * buttonWidth - gap, top);
+            buttons[2]->winSetPosition(right - buttonWidth, top);
+            manage->winSetPosition(left + buttonWidth + gap, top);
+            manage->winSetSize(buttonWidth, height);
+        }
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3454,6 +3485,11 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 			if( OptionsHotkeysSystem( msg, control, mData2 ) )
 				return MSG_HANDLED;
 
+            if (control == TheWindowManager->winGetWindowFromId(NULL,
+                TheNameKeyGenerator->nameToKey(AsciiString("OptionsMenu.wnd:ButtonHDAssets")))) {
+                HDAssetsMenuOpen();
+                return MSG_HANDLED;
+            }
 			if( controlID == buttonBack )
 			{
 				OptionsHotkeysClose();

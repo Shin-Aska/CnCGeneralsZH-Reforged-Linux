@@ -1192,6 +1192,9 @@ void MainMenuUpdate( WindowLayout *layout, void *userData )
 //	if(winVidManager)
 //		winVidManager->update();
 
+    // Offer optional artwork only after the real, interactive main menu is ready.
+    if (!justEntered && !dontAllowTransitions && !startGame && !isShuttingDown)
+        HDAssetsMenuOfferInvitation(layout);
 }  // end MainMenuUpdate
 
 //-------------------------------------------------------------------------------------------------

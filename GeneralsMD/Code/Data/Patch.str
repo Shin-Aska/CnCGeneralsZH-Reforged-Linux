@@ -6646,3 +6646,195 @@ END
 GUI:GroupTrayTraining
 "+%d in production"
 END
+
+GUI:HDAssetsManage
+"Manage HD Assets"
+END
+
+TOOLTIP:HDAssetsManage
+"Download or remove HD textures, terrain, models, and skins. Manage download mirrors."
+END
+
+GUI:HDAssetsSources
+"Download Sources"
+END
+
+GUI:HDAssetsWelcome
+"Optional HD Assets"
+END
+
+GUI:HDAssetsRemoveTitle
+"Remove HD Assets"
+END
+
+GUI:HDAssetsDetails
+"Details"
+END
+
+GUI:HDAssetsDownload
+"Download"
+END
+
+GUI:HDAssetsRemove
+"Remove"
+END
+
+GUI:HDAssetsOpenFolder
+"Open Folder"
+END
+
+GUI:HDAssetsBack
+"Back"
+END
+
+GUI:HDAssetsFullSet
+"Download Full Set (10.63 GB)"
+END
+
+GUI:HDAssetsPause
+"Pause"
+END
+
+GUI:HDAssetsResume
+"Resume"
+END
+
+GUI:HDAssetsCancel
+"Cancel"
+END
+
+GUI:HDAssetsRestartNote
+"New packs are used after restarting the game."
+END
+
+GUI:HDAssetsRestartRequired
+"Restart the game to apply HD asset changes."
+END
+
+GUI:HDAssetsRestartRequiredTitle
+"Restart Required"
+END
+
+GUI:HDAssetsRestartPrompt
+"HD asset changes are ready. Restart the game when convenient to apply them.\n\nFor HD textures and models, turn off Classic Graphics under Options > Graphics before restarting."
+END
+
+GUI:HDAssetsOfficial
+"Official server"
+END
+
+GUI:HDAssetsOfficialHost
+"zerohour.gg"
+END
+
+GUI:HDAssetsDefault
+"Default"
+END
+
+GUI:HDAssetsEdit
+"Edit"
+END
+
+GUI:HDAssetsMirrorUrl
+"Mirror folder URL"
+END
+
+GUI:HDAssetsAddMirror
+"Add Mirror"
+END
+
+GUI:HDAssetsSaveChanges
+"Save Changes"
+END
+
+GUI:HDAssetsFallback
+"Mirrors are tried if the official server is unavailable."
+END
+
+GUI:HDAssetsPrevious
+"Prev"
+END
+
+GUI:HDAssetsNext
+"Next"
+END
+
+GUI:HDAssetsInvitationText
+"Optional HD artwork is available.\n\nDownload Textures & Terrain (1.30 GB), choose individual packs, or skip. Packs can be managed later in Options > Graphics.\n\nFull set: approximately 10.63 GB."
+END
+
+GUI:HDAssetsInviteTextures
+"Download Textures (1.30 GB)"
+END
+
+GUI:HDAssetsChoosePacks
+"Choose Packs"
+END
+
+GUI:HDAssetsSkip
+"Skip"
+END
+
+GUI:HDAssetsRemovalText
+"The downloaded files will be removed at the next game restart. Manually installed files are preserved. Restart the game yourself when ready."
+END
+
+GUI:HDAssetsTextures
+"HD Textures & Terrain"
+END
+
+GUI:HDAssetsUnits
+"Detailed Unit Models"
+END
+
+GUI:HDAssetsMaps
+"Detailed Map Models"
+END
+
+GUI:HDAssetsSkins
+"Online Skins"
+END
+
+GUI:HDAssetsMissing
+"Not installed"
+END
+
+GUI:HDAssetsChecking
+"Checking files"
+END
+
+GUI:HDAssetsQueued
+"Queued"
+END
+
+GUI:HDAssetsDownloading
+"Downloading"
+END
+
+GUI:HDAssetsPaused
+"Paused"
+END
+
+GUI:HDAssetsVerifying
+"Verifying files"
+END
+
+GUI:HDAssetsInstalled
+"Installed"
+END
+
+GUI:HDAssetsManual
+"Installed manually"
+END
+
+GUI:HDAssetsRemovalPending
+"Removal queued for next restart"
+END
+
+GUI:HDAssetsError
+"Download failed"
+END
+
+GUI:HDAssetsRemoveDownloaded
+"Remove downloaded"
+END

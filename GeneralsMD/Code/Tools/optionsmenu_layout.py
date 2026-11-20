@@ -59,6 +59,7 @@ TAB_TOP, TAB_HEIGHT, TAB_GAP = 108, 28, 4
 PAGE = (INNER_LEFT, 142, INNER_WIDTH, 320)
 BUTTON_TOP, BUTTON_HEIGHT, BUTTON_WIDTH = 478, 32, 180
 VERSION = (INNER_LEFT, 518, INNER_WIDTH, 16)
+HD_ASSETS_TOOLTIP = "TOOLTIP:HDAssetsManage"
 
 TABS = [
     ("PageDisplay",  "TabDisplay",  "GUI:OptionsTabDisplay"),
@@ -861,9 +862,25 @@ def reflow_existing_pages(layout, page_names):
         raise ValueError("Unplaced controls: %s" % ", ".join(sorted(controls)))
 
 
+def build_hdassets_footer(layout, template):
+    """Four native actions on the common footer; the manager is shown on Graphics only."""
+    parent = layout.find("OptionsMenuParentOld")
+    manage = layout.find("ButtonHDAssets")
+    if manage is None:
+        manage = clone(template, _named("ButtonHDAssets"))
+        manage.put_prop("TEXT", '"GUI:HDAssetsManage"')
+        manage.children = []
+        parent.children.append(manage)
+    manage.put_prop("TOOLTIPTEXT", '"%s"' % HD_ASSETS_TOOLTIP)
+    width, gap = 176, 8
+    for index, name in enumerate(("ButtonDefaults", "ButtonHDAssets", "ButtonBack", "ButtonAccept")):
+        layout.find(name).place(INNER_LEFT + index * (width + gap), BUTTON_TOP, width, BUTTON_HEIGHT)
+
+
 def build(layout):
     if layout.find("PageDisplay"):
         reflow_existing_pages(layout, ("PageDisplay", "PageInterface"))
+        build_hdassets_footer(layout, layout.find("ButtonDefaults"))
         return update_water_page(layout)
     old = layout.find("OptionsMenuParentOld")
     templates = dict((name, layout.find(name))
@@ -969,9 +986,7 @@ def build(layout):
     layout.find("LabelTitle").place(*TITLE)
     layout.find("Line").place(*RULE)
     right = INNER_LEFT + INNER_WIDTH
-    layout.find("ButtonDefaults").place(INNER_LEFT, BUTTON_TOP, BUTTON_WIDTH, BUTTON_HEIGHT)
-    layout.find("ButtonAccept").place(right - BUTTON_WIDTH, BUTTON_TOP, BUTTON_WIDTH, BUTTON_HEIGHT)
-    layout.find("ButtonBack").place(right - 2 * BUTTON_WIDTH - 16, BUTTON_TOP, BUTTON_WIDTH, BUTTON_HEIGHT)
+    build_hdassets_footer(layout, templates["ButtonDefaults"])
     layout.find("LabelVersion").place(*VERSION)
 
     # last in the file is topmost: drawWindow walks the child list from the tail back to the head,
@@ -1097,6 +1112,12 @@ def selfcheck():
     for _page, _tab, text in TABS:
         if text not in keys:
             problems.append("tab caption %s is not in Patch.str" % text)
+
+    manage = layout.find("ButtonHDAssets")
+    if manage is None or manage.prop("TOOLTIPTEXT") != 'TOOLTIPTEXT = "%s";' % HD_ASSETS_TOOLTIP:
+        problems.append("ButtonHDAssets is missing its %s tooltip" % HD_ASSETS_TOOLTIP)
+    if HD_ASSETS_TOOLTIP not in keys:
+        problems.append("%s is not in Patch.str" % HD_ASSETS_TOOLTIP)
 
     for row in rows:
         widget, label = row["widget"], row["label"]

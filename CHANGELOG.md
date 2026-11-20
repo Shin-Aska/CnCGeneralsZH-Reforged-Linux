@@ -6,6 +6,17 @@ See [upstream status](docs/upstream-status.md) for which Linux features have bee
 
 ---
 
+## Linux 4.2.0 release
+
+Synchronizes with upstream 4.2.0 and keeps the Linux graphics and campaign improvements.
+
+- Optional HD art can now be downloaded from inside the game. On first launch, download the
+  1.30 GB texture pack, choose individual packs from the 10.63 GB collection, or skip. Return to
+  **Manage HD Assets** under **Options → Graphics** to add packs or schedule downloaded packs for
+  removal on the next restart. Existing manually supplied packs remain available.
+- **Download Sources** lets you add, edit or remove custom HTTPS download folders. The official
+  source is tried first, and every pack is checked against the same upstream hashes.
+
 ## Linux 4.1.0 release
 
 Synchronizes with upstream 4.1.0 and carries forward the Linux graphics improvements from 4.0.1.
