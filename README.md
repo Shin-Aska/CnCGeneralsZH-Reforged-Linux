@@ -304,8 +304,10 @@ For automated checks, use separate test data as described in the
 On first launch, choose **Download Textures (1.30 GB)**, **Choose Packs**, or **Skip**. The full
 collection is **10.63 GB**; Choose Packs lets you download individual groups. You can return to
 **Options → Graphics → Manage HD Assets** at any time. Downloads and removals take effect after
-restarting the game. To see the enhanced art, turn off **Classic Graphics** and enable **HD Textures**
-and **Detailed Models** under **Options → Display**, then restart.
+restarting the game. To see the enhanced art, turn off **Classic Graphics** on the Graphics tab,
+enable **HD Textures** and **Detailed Models** on the Display tab, then restart.
+
+![The in-game Manage HD Assets panel on the Graphics tab, with individual downloads and Download Sources](.github/media/releases/v4.2.0-launch.png)
 
 The manager stores packs in `ReforgedArt/` inside the user-data folder. Existing manually supplied
 archives also work when they match the verified packs; **Open Folder** opens their location. Only
