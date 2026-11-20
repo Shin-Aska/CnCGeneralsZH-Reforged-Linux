@@ -6,6 +6,12 @@ See [upstream status](docs/upstream-status.md) for which Linux features have bee
 
 ---
 
+## Linux 4.2.1 release
+
+- Fixed a visual issue inherited from retail Zero Hour. At wide zoom, the Super Weapon General's
+  Cold Fusion Reactor could show the blue upgrade glow with the rods still retracted. The glow
+  now appears when the rods start extending after purchase. See the [release notes](docs/releases/v4.2.1.md).
+
 ## Linux 4.2.0 release
 
 Synchronizes with upstream 4.2.0 and keeps the Linux graphics and campaign improvements.
