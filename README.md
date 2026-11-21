@@ -4,9 +4,8 @@ A **Linux-only experimental fork** of [Zero Hour Reforged at zerohour.gg](https:
 based on its [upstream source](https://github.com/olcayseygan/CnCGeneralsZH-Reforged) and EA's released code.
 Generals and Zero Hour run natively on **64-bit Linux with SDL3 and Vulkan**. No Wine or Proton required.
 
-This fork develops and tests new graphical effects on Linux, often before they are offered upstream.
-It also brings effects from upstream's Windows Direct3D 11 renderer to Linux and carries campaign fixes.
-Some changes are accepted upstream; others remain experimental or specific to this fork.
+This fork develops and tests new graphical effects on Linux and contributes SDL renderer ports
+and campaign fixes to upstream.
 
 **Experimental graphics can reduce performance.** Some effects are still being tuned for Zero Hour's
 renderer and large battles. Frame rate and memory use depend on the map, GPU, settings and number of
@@ -30,49 +29,34 @@ an earlier selection. See the [release notes](docs/releases/v4.2.1.md) and [upst
 
 ## Experimental features
 
-These additions are available in this fork and have not been accepted upstream as of **2026-11-16**.
-The [upstream-status tracker](docs/upstream-status.md) distinguishes work not yet submitted from
-pull requests that were closed without merging, and records the supporting checks.
-
-### Graphics
-
 | Feature | What this fork adds |
 |:--|:--|
-| **Linux ports of Direct3D 11 effects** | Native SDL3/Vulkan support for effects previously restricted to upstream's Windows renderer: weather and atmosphere, enhanced lighting, particles, post-processing and more. Details below. |
-| **Underwater clarity** | Submerged ruins and seabed remain visible on raised shallow shelves, restoring the readable transparency available with Classic water while retaining Modern waves and reflections. Deep water keeps its opacity. |
-| **Reworked FFT water** | Reworks the original Modern-water wave pipeline with a shared FFT ocean, a revised wave spectrum, depth-aware wave attenuation, filtered sun glints and wave-driven foam. This newer implementation has not been accepted upstream. |
-| **Map-aware water movement** | Wind-driven wave patterns follow channels, bend toward shores and respond to open-sea exposure and shelter. Independent coastal water bodies can have different headings. |
-| **Toxic-water materials** | Map water colours and texture names select material rules. Toxic water can be murkier, duller and less responsive to wind, with bubbles retained as its visual indicator. |
+| **Expanded weather** | Gusts, intermittent rain with land and water contacts, layered snow, blowing sand, ambience and weather-driven haze extend the baseline weather effects. |
+| **Clean FFT water** | A shared FFT ocean gives Modern water depth-aware waves, filtered sun glints and foam on wave crests. |
+| **Tuned toxic water and live preview** | The fork ships murkier, duller toxic water that responds less to wind and keeps its bubbles. The preview uses the game renderer and lets you tune material rules live. |
 | **Path-traced water reflections** | An experimental water-only reflection mode alongside Legacy, SSR and Hybrid. It has a higher rendering cost and approximate scene coverage. |
 | **Extended volumetric toxin effects** | Toxin Tractor Contaminate, toxin impacts and attached toxin puddles use volumetric clouds, in addition to the toxin and radiation fields already supported upstream. |
 | **Asset Preloading** | Audio files are cached and common renderer pipelines are warmed during loading to prepare for first use. This moves work into loading and can increase load time and memory use. |
 
-The Linux effects port includes:
-
-- **Weather and atmosphere:** rain spells, drifting snow, blowing sand, gusts, matching ambience and haze/sky lighting.
-- **Lighting and post-processing:** per-pixel lighting, Firelight, sky/ground lighting, ambient occlusion and internal HDR tone mapping.
-- **Particles and distortion:** soft particles, procedural fire, GPU particles, heat haze and blast distortion.
-- **Battlefield detail:** model status effects and team glow, defence-range overlays, Battle Marks, Classic-water foam and impact splashes, and building-collapse camera effects.
-
-[Linux effects and validation](docs/linux.md#native-enhancement-validation-2026-11-15) ·
 [Weather](docs/linux.md#weather) · [Asset preloading](docs/linux.md#asset-preloading)
 
 ### Water that responds to the map
 
-The water shown here uses this fork's reworked FFT implementation of the original Modern-water renderer.
-Open water, islands, channels and sheltered basins shape the visible wave pattern. Wind settings drive
-the wave spectrum, while the map's water layout guides its travel. Material rules control the liquid's
-appearance and response to wind. This is a cosmetic wave model; it does not change unit movement.
+These Linux captures use the fork's **Clean FFT** renderer. Wind settings drive the wave spectrum,
+and the map guides how waves bend toward shores, run through channels and weaken behind islands.
+The wave simulation is cosmetic.
+Upstream `main` offers **Map-Aware Waves** and **Underwater Clarity** on the Water tab, both off by
+default. [Upstream water options](docs/upstream-status.md#after-upstream-v420)
 
 ![Wave travel around islands and submerged ruins: red arrows mark dominant movement and purple arrows mark subtler movement where patterns meet](.github/media/readme/water-movement.png)
 
-*Red: dominant wave travel. Purple: subtler local movement where wave patterns meet. The arrows follow
-the maintainer's observations in this match.*
+*Red arrows mark dominant wave travel. Purple arrows mark subtler movement where wave patterns meet.
+The arrows follow the maintainer's observations in this match.*
 
 | Clear shallows | Toxic industrial water |
 |:--|:--|
 | ![Submerged stone ruins and rocky seabed visible beneath blue Modern water](.github/media/readme/underwater-clarity.png) | ![Murky green water around industrial buildings and a bridge, with small bubble rings](.github/media/readme/toxic-water.png) |
-| Raised shallows reveal terrain and ruins beneath the surface. | Toxic materials retain bubbles while reducing clarity, glints and wind-wave motion. |
+| Underwater Clarity reveals submerged terrain and ruins on raised shelves. | The fork's tuned `PollutedWater` rule retains bubbles while reducing clarity, glints and wind-wave motion. |
 
 [FFT rework](docs/modern-water-clean-fft-report.md) · [Map-aware movement](docs/linux.md#boundary-aware-water) · [Water settings](docs/linux.md#modern-water-options) ·
 [Reflections and live material preview](docs/water-preview.md)
@@ -90,29 +74,42 @@ their sources and actual effect lifetimes; damage and weapon timing stay the sam
 
 [Cloud effects and their limits](docs/hazard-clouds.md) · [Cloud preview](docs/cloud-preview.md)
 
-### Campaign
+## Campaign
 
-- **Original USA campaign startup:** fixes a crash in this fork's Linux Modern-water path when starting the first original Generals USA mission and other inland maps.
-- **Briefing narration:** restores the configured spoken briefings for the original Generals campaigns, including loading paths where the voice never started.
-- **Speech timing:** fixes premature briefing waits and frozen-world countdowns that could cut lines short or make them overlap. Preloaded dialogue can also start without waiting behind unrelated audio loads.
-- **Smoother mission openings:** smooths scripted camera turns, zooms and tilts, and reduces animation jitter in normal single-player cinematics, including the carrier introduction and Raptor flyover.
+The campaign fixes shared with upstream restore original Generals briefing narration, reset speech
+waits when their cues play and keep countdowns on time while the world is frozen. Single-player
+cinematics have smoother scripted camera motion and model animation, including during the carrier
+introduction and Raptor flyover.
+[Upstream campaign changes](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/2fc8ef983d73049549c6064a02d221e84cccfdb2/CHANGELOG.md#L106-L110)
+
+- **Clean FFT startup guard** fixes a shoreline calculation crash in the first original Generals USA
+  mission and other inland maps in this fork.
+- **Preloaded dialogue** can start from the fork's encoded-audio cache while unrelated audio loads.
 
 [Campaign fixes and upstream handoff](docs/campaign-fixes-upstream-handoff.md) ·
 [Campaign opening audit](docs/campaign-opening-audit.md) · [Cinematic smoothing](docs/campaign-cinematic-smoothing.md)
 
 ## Already upstream
 
-The following work has been accepted into the upstream project:
+**On upstream `main` after v4.2.0**
+
+- **SDL renderer ports** bring HDR, AO, lighting, particles, distortion and battlefield effects to
+  native SDL GPU. The Linux ports also include baseline weather, atmosphere and Warm Light.
+  [Upstream renderer changes](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/2fc8ef983d73049549c6064a02d221e84cccfdb2/CHANGELOG.md#L114-L127) ·
+  [Linux effects and validation](docs/linux.md#native-enhancement-validation-2026-11-15)
+- **Campaign fixes** cover briefing playback, script timing and cinematic motion. [Campaign](#campaign)
+- **Modern-water controls** add Underwater Clarity, Map-Aware Waves and four optional toxic-material
+  fields for custom rules. [Water PRs and port details](docs/upstream-status.md#after-upstream-v420)
+
+**Earlier contributions**
 
 - **Linux Modern water:** waves, shore foam, ship wakes and material rules ([#120](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/120)).
-- **Legacy, SSR and Hybrid water reflections**, the Water tab and quality controls ([#172](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/172)). Underwater clarity was left out of that port.
+- **Legacy, SSR and Hybrid water reflections**, the Water tab and quality controls ([#172](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/172)).
 - **Volumetric radiation and toxin clouds** ([#121](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/121)), followed by the shared SDL volume for crowded fields ([#170](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/170)).
 - **Linux shadow parity with Windows Direct3D 11:** mapped sun shadows, tree silhouettes and smoke shadows ([#119](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/119)).
 - **Modern-water render caches and load-time preparation** ([#173](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/173)), separate from the fork's optional audio/pipeline preloading.
 
-See [upstream-status.md](docs/upstream-status.md) for dates, accepted portions, closed proposals and
-remaining fork-only changes. Earlier accepted Linux effects are separate from the broader effects port
-listed above.
+For merge dates, port details and pending work, see the [upstream status tracker](docs/upstream-status.md).
 
 ## Downloads
 

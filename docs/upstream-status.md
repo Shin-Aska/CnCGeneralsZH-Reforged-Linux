@@ -2,47 +2,100 @@
 
 This Linux-only experimental fork of [Zero Hour Reforged / zerohour.gg](https://zerohour.gg)
 develops graphics work before offering selected changes to the
-[upstream repository](https://github.com/olcayseygan/CnCGeneralsZH-Reforged). Acceptance is tracked
-per feature: an accepted foundation does not mean every later extension was also taken.
+[upstream repository](https://github.com/olcayseygan/CnCGeneralsZH-Reforged).
 
-The [4.1.0 upstream submission plan](upstream-submission-plan-4.1.0.md) lists the proposed PR order,
-worktree branch names and acceptance checks.
+The [4.1.0 upstream submission plan](upstream-submission-plan-4.1.0.md) records the PR order,
+worktree branch names and acceptance checks for that submission.
 
-**Status reviewed 2026-11-16.** GitHub reports #119, #120, #121, #170, #172 and #173 merged;
-#169 and #171 are closed without merging. Source spot checks use upstream `main` pinned at
-[`e4341a1f`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f).
-The author's public pull-request history was also checked; the later parity, weather, campaign
-and water-material work has no new submission there. This was a status/source review, not an
-upstream build or runtime validation. Historical benchmarks retain their original dates and binaries.
+**Status reviewed 2026-11-21.** All 24 PRs from #241 through #264 merged on November 20–21 UTC.
+Their merge commits and the manual port of #266 are on upstream `main` after the v4.2.0 release.
+[Source snapshot `2fc8ef983`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/2fc8ef983d73049549c6064a02d221e84cccfdb2) ·
+[Changes since upstream v4.2.0](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/compare/v4.2.0...2fc8ef983d73049549c6064a02d221e84cccfdb2)
 
-The detailed campaign-fix audit remains pinned to its own 2026-11-14 review of
-[`2788b259`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/2788b25956f81fc49031a9025fd3c738a8440299).
-The current source still lacks the fork's speech-request wait reset in
-[`doSpeechPlay`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f/GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/ScriptActions.cpp#L2860).
-This spot check does not replace that audit's port boundaries or establish an upstream campaign bug at runtime.
+## Accepted
+
+### After upstream v4.2.0
+
+| Feature | Pull request | Upstream result |
+|---|---|---|
+| Battle Marks on SDL GPU | [#241](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/241) | `0e9619694`. Enables craters, stains and treads. |
+| Native scene post-processing | [#242](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/242) | `23fd5bb25`. Ports Glow, Internal HDR and Reforged local contrast. The maintainer reworked the shader move in `86c323c39`. |
+| Native ambient occlusion | [#243](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/243) | `575dfdc08`. Adds the SDL opaque-scene AO pass. |
+| Soft particles and procedural FireLook | [#244](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/244) | `0edc4e5ae`. Adds depth fades and the procedural fire effect to SDL GPU. |
+| Defence-range overlays | [#245](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/245) | `64b1fd82f`. Ports the smooth distance-field rings. |
+| Classic-water foam | [#246](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/246) | `e9969f03d`. Ports shore foam for ponds and rivers. |
+| Classic-water splashes | [#247](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/247) | `93832653a`. Enables impact spray, foam and rings. |
+| Building collapse feedback | [#248](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/248) | `4e1427075`. Enables the collapse effect and large-building camera jolt. |
+| Per-pixel dynamic lighting and Firelight | [#249](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/249) | `ff6a3d258`. Ports headlights, blast lighting and Firelight. |
+| Hemispheric ambient lighting | [#250](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/250) | `4faaa368f`. Enables Sky and Ground Light. |
+| Model status effects | [#251](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/251) | `1c357124b`. Ports EMP, outage, cloak and reveal effects. |
+| Team Glow | [#252](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/252) | `eec12000e`. Enables the team-colour glow on SDL GPU. |
+| Atmosphere and Warm Light | [#253](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/253) | `dea86201d`. Enables sky, horizon fade and haze on Linux. |
+| Baseline weather | [#254](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/254) | `a4c1190d7`. Enables the existing rain, sand, snow and visual wind on Linux. |
+| Heat haze and blast distortion | [#255](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/255) | `4f05fa27a`. On SDL, the Heat Haze checkbox is greyed out and `-heathaze` enables the effect with post-processing active. |
+| Native GPU particles | [#256](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/256) | `f7f0c4361`. Adds the SDL GPU overflow path with a CPU fallback. |
+| Matching speech-cue wait reset | [#257](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/257) | `337a2ab45`. Restarts the wait for the requested line. |
+| Frozen-world countdown timing | [#258](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/258) | `c03937468`. Keeps countdowns at the selected game speed while the world is frozen. |
+| Briefing narration | [#259](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/259) | `3ede49e98`. Restores original Generals briefing voices and the Zero Hour Training voice. |
+| Scripted camera smoothing | [#260](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/260) | `f4dec205a`. Interpolates camera motion in single-player missions. |
+| Repeated-frame animation | [#261](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/261) | `0b89fa1df`. Smooths model animation between ticks during single-player missions. |
+| Reskin startup validation | [#262](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/262) | `b4f882a65`. Partial port. Upstream exempts explicit `RemoveModule` tags and still reports later parent additions missing from the reskin. The fork checks the copy-time baseline. [Maintainer review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/262#issuecomment-7049271501) |
+| Underwater Clarity | [#263](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/263) | `ea3383647`. Linux Water-tab option, off by default. This is the rework requested in #172. |
+| Map-Aware Waves | [#264](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/264) | `9fdc3fa94`. Linux Water-tab option, off by default. Waves follow shorelines, channels and shelter. |
+| Optional toxic-water material controls | [#266](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/266), closed | Hand-ported as [`60ba30689`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/60ba30689b336cb05e4085d4954c0f40128aeac4). Custom rules can set `Turbidity`, `SurfaceRoughness`, `RippleDamping` and `WindResistance`. All four default to zero and the shipped rules leave them unset. The PR closed with Clean FFT still in its branch. |
+
+The maintainer combined Battle Marks, Classic-water splashes and collapse in `b998791fe` and recorded
+the three PR merges above. For the renderer stack, the maintainer ran Windows x64 Release checks.
+The SDL evidence in the PRs comes from earlier Linux builds. The rebased Linux CI runs stopped at the
+`test_bigfilesystem` link. [Combined port review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/241#issuecomment-7052436774) ·
+[Renderer stack review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/254#issuecomment-7052435876)
+
+### Earlier contributions
+
+| Feature | Pull request | Upstream result |
+|---|---|---|
+| Preserve composed model poses when pausing | [#124](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/124) | Merged 2026-10-22 as `20981c9b5`. |
+| Linux mapped sun and smoke shadows, including tree silhouettes | [#119](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/119) | Merged 2026-10-23 as `1713e26d`. |
+| Linux Modern water waves, shore foam, ship wakes and material rules | [#120](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/120) | Merged 2026-10-23 as `6b3eeba0`. |
+| Volumetric toxin, anthrax and radiation fields | [#121](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/121) | Merged 2026-10-23 as `d5d90427`. The baseline includes nuclear embers and heat shimmer. |
+| POSIX D3D9 reset and depth compatibility | [#134](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/134) | Merged 2026-10-25 as `bfe73a5c0`. |
+| Shared volumetric cloud volume | [#170](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/170) | Ported as `b0e9f004` and merged 2026-11-06 as `acae6731c`. The shared volume removes the eight-field limit on SDL. Direct3D 11 keeps its eight-layer path. |
+| Modern-water reflections (Legacy, SSR and Hybrid), the Water tab and quality controls | [#172](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/172) | Ported as `c6f4f4ca1` and merged 2026-11-06 as `234d55a20`. The maintainer rewrote the Turkish strings, with Legacy labelled "Orijinal". The original clarity commit `5d8a58e7` was held for an opt-in rework that landed in #263. |
+| Modern-water render caches and load-time preparation | [#173](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/173) | Ported as `fcd05658f` and merged 2026-11-06 as `0244f2a9f`. |
+
+The maintainer ported #170, #172 and #173 by hand and credited this fork's author as co-author.
+They were prepared against v3.8.0 (`e3e1a898`) and shipped in the following release. The SDL side
+relied on this fork's testing.
 
 ## Current fork-only feature overview
 
 | Feature | Upstream disposition / evidence |
 |---|---|
-| Native Linux ports of the broader DX11 effects, including weather, Firelight, AO, HDR, soft/GPU particles, distortion, range overlays, Battle Marks and Classic-water foam/splashes | Not offered upstream. These are the native-provider changes validated on 2026-11-15; the earlier sun/smoke-shadow port is already accepted separately. Upstream's [SDL renderer directory](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/tree/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render) does not contain these new providers. |
-| Expanded weather: gusts, intermittent rain, snow/sand layers, contacts, ambience and haze/sky coupling | Not offered upstream; extends this fork's Linux effects port. See the dated weather evidence below. |
-| Underwater clarity | Left out of #172. Upstream's [material configuration](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f/GeneralsMD/Code/Libraries/Include/Platform/ModernWaterConfig.h) has no clarity field. |
-| Reworked FFT water (Clean FFT) | Not offered upstream. Reworks the original Modern-water wave pipeline with a shared FFT ocean, JONSWAP spectrum, depth-aware attenuation, filtered glints and wave-driven foam. The accepted baseline Modern-water port does not include this rework. See the [implementation report](modern-water-clean-fft-report.md). |
-| Map-aware water movement | Not offered upstream. The newer wave-heading and depth/rotation fields remain fork work; the baseline Modern-water port is already accepted. |
-| Toxic-material turbidity, roughness, ripple damping and wind resistance; live production-water preview | Committed in this fork as `6e49914d` on 2026-11-16, not offered upstream. These controls are absent from the pinned upstream material configuration. |
-| Path-traced water reflections | Not offered upstream. Upstream's [reflection modes](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f/GeneralsMD/Code/Libraries/Include/Platform/WaterScreenReflection.h#L8) include Mirror, ScreenSpace, Hybrid and SkyOnly, without this path-tracing mode. |
-| Volumetric Contaminate, toxin impacts and attached puddles | #171 closed without merging. The shared renderer itself was accepted as #170; upstream's [recognition policy](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f/GeneralsMD/Code/Libraries/Include/Platform/HazardCloudPolicy.h) retains the narrower source set. |
-| Asset Preloading: encoded-audio cache and renderer pipeline warmup | #169 closed without merging. This is separate from accepted water-specific cache preparation in #173. |
-| Campaign narration, speech timing, cinematic smoothing and the fork's Modern-water startup guard | No new upstream submission. The detailed handoff below distinguishes adaptable candidates from fork-only dependencies; the USA01 crash guard fixes this fork's water helper, which is absent upstream. |
+| Expanded weather | Gusts, intermittent rain, snow and sand layers, land/water contacts, ambience and haze/sky coupling extend the baseline SDL weather port. [Weather guide](linux.md#weather) |
+| Clean FFT water and its shoreline startup guard | The reworked wave pipeline uses a shared JONSWAP spectrum, depth-aware waves, filtered glints and wave-driven foam. #265 was declined. [Implementation report](modern-water-clean-fft-report.md) |
+| Tuned toxic-water material and live production-water preview | The fork ships a tuned `PollutedWater` rule, a matching fallback and the preview's Toxic Look preset. [Material guide](water-preview.md) |
+| Path-traced water reflections | Experimental reflection mode. The pinned upstream source lists Mirror, ScreenSpace, Hybrid and SkyOnly. [Upstream reflection modes](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/2fc8ef983d73049549c6064a02d221e84cccfdb2/GeneralsMD/Code/Libraries/Include/Platform/WaterScreenReflection.h#L8) |
+| Volumetric Contaminate, toxin impacts and attached puddles | #171 closed without merging. The shared volume for toxin and radiation fields landed in #170. [Upstream recognition policy](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/2fc8ef983d73049549c6064a02d221e84cccfdb2/GeneralsMD/Code/Libraries/Include/Platform/HazardCloudPolicy.h) |
+| Asset Preloading | #169 closed without merging. It covered the encoded-audio cache, which supports ready-to-play briefings, and renderer pipeline warmup. |
+| Submerged trees, fire, smoke and steam | The fork dampens tree sway and combustion effects below the waterline, with steam on a dry-to-wet crossing. See the local validation below. |
+
+Other work in the fork includes its Linux packaging, CI and developer tools, along with changes to
+adjacent Steam Generals folder discovery, path cache invalidation and portable hotkey literals.
+
+## Closed proposals
+
+| Feature | Pull request | Maintainer's reason | What would be considered |
+|---|---|---|---|
+| Asset Preloading | [#169](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/169) | No measured load-time gain. The audio preload read up to 256 MiB at each map load, and upstream already used a 64 MB streaming cache. | A Linux/macOS pipeline-warmup PR with measurements. |
+| Volumetric Contaminate, toxin impacts and attached puddles | [#171](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/171) | The effects add GPU work when the screen is already busy. The PR had no timings for that case. Upstream had previously removed volumetric smoke over GPU cost. | A smaller PR with SDL GPU frame times from a crowded toxin fight. |
+| Clean FFT water | [#265](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/265) | In the submitted comparison on earlier RTX 4060 Release builds, the carrier scene's p50 Present interval rose from 8.43 to 12.40 ms. The maintainer also flagged shader source text replacements. [Maintainer review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/265#issuecomment-7050110786) | Bring the carrier cost increase near 1 ms or replace the text substitutions with shader branches. |
 
 ## Local upstream integration (2026-11-16)
 
-Local branch `sync/post-4.0.0-upstream` integrates upstream `main` snapshot
+Local branch `sync/post-4.0.0-upstream` integrated upstream `main` snapshot
 `761ee2ccce81f5249b8d1ab44cd789057dc7b265` with this fork's baseline
 `dbaa972641c8b9eb048ac3b599491513cd468bd5`. Validation below used the resolved working tree
-**before the merge commit**, recorded as `dbaa972-dirty`. This local
-integration does not change the historical upstream acceptance classifications below.
+**before the merge commit**, recorded as `dbaa972-dirty`.
 
 The native SDL3/Vulkan additions are height-derived terrain sun lighting, subdivided terrain and
 Ground Foliage, with provider capability checks. Ground Foliage stays off by default and is Ultra-only
@@ -101,45 +154,19 @@ The final handoff (`verification-handoff.txt` and `.json`), ledger and runtime a
 focused diagnoses and the startup oracle remain in the sibling `final-validation/` directory.
 [The Linux validation addendum](linux.md#current-upstream-integration-validation-2026-11-16) records
 the checks, skipped-case limits and evidence names. The reconciled ledger retains earlier failed
-attempts and unchanged-fixture evidence alongside final affected reruns. Older 60 Hz history,
-benchmarks and upstream acceptance classifications below retain their original identities and scope.
+attempts and unchanged-fixture evidence alongside final affected reruns.
 
-## Accepted
-
-| Feature | Pull request | Status |
-|---|---|---|
-| Linux mapped sun/smoke shadows and shadow parity, including tree silhouettes | [#119](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/119) | Merged 2026-10-23 as `1713e26d`. This is separate from the newer broad DX11-effects parity work. |
-| Linux Modern water: waves, shore foam, ship wakes and material rules | [#120](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/120) | Merged 2026-10-23 as `6b3eeba0`. Later map-aware movement, clarity, path tracing and toxic-material controls were not part of this acceptance. |
-| Volumetric toxin, anthrax and radiation fields | [#121](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/121) | Merged 2026-10-23 as `d5d90427`. The baseline includes nuclear embers and heat shimmer; extended toxin-source recognition remains separate. |
-| Shared volumetric cloud volume: no eight-field limit | [#170](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/170) | Ported as `b0e9f004`. Direct3D 11 keeps its eight-layer path. |
-| Modern water reflection modes (Legacy, SSR, Hybrid), the Water tab and quality controls | [#172](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/172) | Ported as `c6f4f4ca1`, merged by `234d55a20`. Turkish strings rewritten, and Legacy is "Orijinal" in Turkish. Underwater clarity left out (see below). |
-| Modern water render caches and load-time preparation | [#173](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/173) | Ported as `fcd05658f`, merged by `0244f2a9f`. |
-
-The three November entries (#170, #172 and #173) were ported by hand by the maintainer, with this fork's author
-as co-author. They reached upstream's public `main` on 2026-11-06, which marked each pull request merged,
-and they ship in the release after v3.8.0. Upstream's v3.8.0 does not have those three later changes.
-They were prepared against v3.8.0 (`e3e1a898`); the earlier October ports use their own bases.
-The maintainer could not run Linux or macOS for those November ports, so the SDL side shipped on this fork's testing.
-
-## Not included in the accepted ports
-
-| Feature | Pull request | Why it wasn't taken | What would be considered |
-|---|---|---|---|
-| Asset Preloading: audio preload and renderer pipeline warmup | [#169](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/169), closed | No measured load-time gain. The audio half reads up to 256 MiB at every map load, and upstream already streams sounds with a 64 MB cache. | A separate pull request for pipeline warmup alone, limited to Linux and macOS, with measurements |
-| Underwater clarity: shallow seabed and ruins show through Modern water | Commit `5d8a58e7` in [#172](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/172), left out | It changes how white water looks as soon as Modern is picked, with no option to keep the old look, and the owner wants to see it first. No `ClearWater` rule ships. | Its own pull request, with before and after shots of the same views: the ruins, a flat offshore floor and a coast |
-| Volumetric Contaminate, toxin impact clouds and attached toxin puddles | [#171](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/171), closed | More volumetric effects add GPU work to the heaviest frames, and nothing measured it. An earlier volumetric smoke feature was removed from the game over GPU cost. | A separate pull request with just these effects, plus SDL GPU frame times from a crowded toxin fight, with and without them |
-
-## Not offered upstream
+## Local feature validation
 
 ### Toxic-water materials and production-water preview (2026-11-16)
 
 Fork commit [`6e49914d`](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commit/6e49914d62aeb85f84a89abfeb286bbdabc79b54)
 adds independent `Turbidity`, `SurfaceRoughness`, `RippleDamping` and
 `WindResistance` material controls to the game, shared INI parser and native water preview. Wind
-resistance scales actual wind-wave displacement, chop and glint response by `(1 - resistance)^2`;
-vessel waves and the bubble indicator stay independent. Surface scum has been removed; old exported
-scum fields remain readable and are ignored. The preview now binds the current production water's
-depth/direction/rotation fields and verifies accepted main-water draws instead of showing the older path.
+resistance scales wind-wave displacement, chop and glint response by `(1 - resistance)^2`.
+Vessel waves and the bubble indicator stay independent. Old exports can still be loaded, with
+their scum fields ignored. The preview binds the production renderer's depth, direction and
+rotation fields and verifies accepted main-water draws.
 
 The `PollutedWater` rule uses tint `#2D3A0B`, brightness 0.55, pollution 0.70, turbidity 1.00,
 roughness 0.69, ripple damping 0.34 and wind resistance 0.55, with bubbles enabled. The shipped INI,
@@ -149,10 +176,9 @@ The game and preview rebuilt, and the existing `test_modern_water_config`, `test
 and `test_water_grid` CTests passed. Default and Toxic Look captures were pixel-identical, with an
 accepted production main-water draw and no refused draws. Local captures, exported rules and the
 verification record are under `build-linux/water-approved-look-validation/`; earlier motion checks
-are under `build-linux/water-wind-resistance-validation/`. This is committed fork work, with no
-upstream pull request or upstream runtime/performance qualification claimed. The later local CI
-repair updates the source-file manifest and five map-test expectations for these defaults;
-the four affected CTest entries, including the full `test_gameengine` suite, passed locally.
+are under `build-linux/water-wind-resistance-validation/`. The later local CI repair updated the
+source-file manifest and five map-test expectations for these defaults. The four affected CTest
+entries, including the full `test_gameengine` suite, passed locally.
 
 ### Underwater tree sway (2026-11-15) — locally validated
 
@@ -228,7 +254,7 @@ This fix is committed as `72df8189` and has not been offered upstream. Carry it 
 the renderer/weather integration; an equivalent defect in upstream's current Windows code has not been
 established.
 
-### Expanded weather presentation (2026-11-15) — locally qualified, not offered upstream
+### Expanded weather presentation (2026-11-15)
 
 The local weather change adds gusts, layered snow, dry-ground blowing sand, intermittent
 enhanced rain with land/water contacts, ambient audio and coupled haze/sky lighting. Authored precipitation
@@ -236,30 +262,28 @@ keeps its existing behavior. Weather remains optional and presentation-only; Cla
 Water-aware dust and pre-water haze composition address shoreline readability. Rain fades crossfade the
 existing warm haze when enabled, with explicit native and Windows phase ownership.
 
-The accepted staged baseline is preserved separately from this work. The measured v4 executable SHA `917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c`
+The measured v4 executable SHA `917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c`
 passed scoped private-profile Vulkan/audio/lifecycle/HDR qualification and 27 matched baseline/final/off
 runs (253,800 raw intervals). Active weather costs about +0.3 ms median, +0.4 ms mean and +0.9–1.0 ms p95
 on the controlled scene; dry duty cycle is reported separately. The later randomized rain-startup follow-up
 allows clear or rainy map openings, reproducible from the map and match seeds. Its executable SHA
 `7a40e7d9e5a8630ef6021bbfa2cd2bb02d950dc4eadd6e685f23ed9a6910c50a` passed 4 focused CTests and 5 native
-GPU checks, including repeated opening pixels and unchanged same-seed gameplay CRC versus v4. It is staged
-only in the build-tree package. The 27-run timings remain v4 measurements; they were not repeated for this
-follow-up. See the [startup evidence](reference/weather-rain-startup-2026-11-15/README.md) and
-[v4 weather evidence guide](reference/weather-enhancements-2026-11-15/README.md) for exact identities,
-results and boundaries. Local source commits are `0529ecef` (audio), `e12ff8b8` (weather) and `f91069a2`
-(haze/lighting), all on `main`. Windows and physical-speaker qualification remain unrun. This work has
-**not been offered upstream**. No push, pull request or upstream runtime validation is claimed. Existing
-history below is retained unchanged.
+GPU checks, including repeated opening pixels and unchanged same-seed gameplay CRC versus v4. The
+follow-up was staged in the build-tree package at the time. The 27-run timings apply to the v4
+executable. Local source commits are `0529ecef` (audio), `e12ff8b8` (weather) and `f91069a2` (haze/lighting).
+Windows and physical-speaker qualification remain unrun.
+[Startup evidence](reference/weather-rain-startup-2026-11-15/README.md) ·
+[v4 weather evidence guide](reference/weather-enhancements-2026-11-15/README.md)
 
-### Native Linux renderer parity validated 2026-11-15 — local, not offered upstream
+### Native Linux renderer parity validated 2026-11-15
 
-This fork now implements the renderer enhancements through native SDL3/Vulkan: soft particles and procedural
-fire, GPU particles, per-pixel/Firelight and hemispheric lighting, model status effects and team glow,
+The fork's November 15 build used native SDL3/Vulkan for soft particles and procedural fire,
+GPU particles, per-pixel/Firelight and hemispheric lighting, model status effects and team glow,
 HDR/post-processing, ambient occlusion, sky/haze/weather, fire/beam/exhaust heat and blast distortion,
-distance-field range overlays, Classic-water foam/splashes, building collapse and the associated camera effects.
-Battle Marks, shared volumetric clouds and the existing Modern-water paths remain available. Options query
-actual providers; native support does not report a false Direct3D 11 identity. This work has **not been offered
-upstream**; no new pull request or upstream acceptance is claimed.
+distance-field range overlays, Classic-water foam/splashes, building collapse and camera effects.
+It also ran Battle Marks, shared volumetric clouds and the existing Modern-water paths. Options
+queried renderer capabilities. The upstream ports landed later, as recorded in the acceptance table.
+[Post-v4.2.0 ports](#after-upstream-v420)
 
 The validated local candidate is
 `c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd`.
@@ -327,59 +351,44 @@ not continuous thermal monitoring. These measurements do not replace the older w
 
 ### Campaign, cinematic and startup fixes audited 2026-11-14
 
-The detailed evidence, pinned source links, port boundaries and upstream validation plan are in
-[`campaign-fixes-upstream-handoff.md`](campaign-fixes-upstream-handoff.md). These classifications are source-review
-results only; no upstream build or runtime campaign validation was performed.
+The November 14 handoff reviewed source at upstream commit `2788b259` and records the evidence,
+port boundaries and validation plan for that snapshot.
+[Campaign handoff](campaign-fixes-upstream-handoff.md) ·
+[`2788b259`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/2788b25956f81fc49031a9025fd3c738a8440299)
 
-| Fork commit / slice | Tracker status for future work |
+| Fork commit / slice | Upstream disposition |
 |---|---|
-| `6732c980` frozen-world countdown phase | Candidate that needs adaptation to upstream's native 30 Hz clock and game-speed-scaled retail-tick accounting. Test 100%, 125%, 150% and 200%; do not cherry-pick the fork modulo helper. |
-| `6732c980` matching speech-request wait reset | Candidate: upstream's lazy speech wait can predate the matching cue; add exact-name invalidation and a deterministic pre-query/request regression. |
-| `6732c980` original `GEN_*` briefing voice start | Candidate load-screen integration gap. The campaign content/config already exists upstream; movie, minimum-spec and no-movie start paths need review. A post-voice wait budget is supporting work only after playback is restored. |
-| `dd607c49` resident encoded-audio readiness | Blocked on separately porting the fork's encoded RAM cache. Not a standalone fix to upstream's ordinary asynchronous cold-file loader. |
-| `f7e94b27` A1 fractional camera pose; A2 repeated-frame animation clock | Reachable candidates, but adapt the scaled camera clock and preserve upstream render/session exclusions. Validate on upstream clocks and new traces. |
-| `f7e94b27` B live-submission eligibility | Fork's specific 60 Hz/44 Hz false-negative does not apply: upstream's static 60 Hz gate passes at its native 30 Hz logic rate. A measured live policy is only a conditional improvement pending an upstream case. |
-| `52cbad0c` Clean FFT shoreline distance guard | Fork-only helper is absent upstream with its Clean FFT dependency. No standalone upstream port or upstream crash claim. Revisit only with a separate Clean FFT port or an upstream-owned reproduction. |
+| `6732c980` frozen-world countdown phase | Merged in #258. Upstream saves the phase in script snapshot version 7. [Port review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/258#issuecomment-7049270492) |
+| `6732c980` matching speech-request wait reset | Merged in #257. `doSpeechPlay` now calls `notifySpeechRequested(speechName)` before playback. [Pinned source](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/2fc8ef983d73049549c6064a02d221e84cccfdb2/GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/ScriptActions.cpp#L2853-L2855) |
+| `6732c980` original `GEN_*` briefing voice start | Merged in #259. The voice starts once at the movie cue, with fallback playback if the movie is missing, fails or is skipped in minimum-spec mode. Upstream kept the briefing movie running on loss of focus. [Port review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/259#issuecomment-7049270940) |
+| `dd607c49` resident encoded-audio readiness | The fork's encoded RAM cache supplies this readiness path. The cache proposal #169 closed without merging. |
+| `f7e94b27` fractional camera pose and repeated-frame animation clock | Merged in #260 and #261. The maintainer adapted the tests to use a standalone cinematic camera suite on Windows. [Camera review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/260#issuecomment-7053318166) · [Animation review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/261#issuecomment-7054254321) |
+| `f7e94b27` live-submission eligibility | The November 14 source review found that upstream's static eligibility gate passed at its 30 Hz logic rate. The fork's 60 Hz/44 Hz case remains in the handoff for reference. |
+| `52cbad0c` Clean FFT shoreline distance guard | Included in the declined #265 proposal. It guards the fork's Clean FFT shoreline helper. |
 
-This addendum records local dispositions only. It is not a search for existing public pull requests or issues.
+### Modern-water benchmarks (2026-11-11)
 
-These stay fork-only, with no pull request so far:
+These timings use the earlier builds and settings documented in the benchmark reports.
 
-- **Map-aware water movement:** waves turn toward the shore and follow channels. It's the code behind the GPU cost on the
-  carrier save, and turning it off doesn't remove most of that cost.
-- **Path-traced water reflections:** experimental.
-- **Reworked FFT water (Clean FFT)** (2026-11-11): one global FFT ocean (JONSWAP spectrum, per-band depth fade, filtered glint,
-  Jacobian foam) with waves turning toward the shore. Current controls separate Shore wave turning and Wave
-  filtering, with Wave detail Low (64), Medium (128) and High (256). It's now the fork's Modern water on Linux;
-  `ZH_WATER_CLEAN=0` restores the previous water. The measurements below retain their historical control labels.
-- **Small fixes:** finding Steam's Generals folder beside Zero Hour, path cache invalidation, and portable hotkey literals.
-- **Release packaging, CI and the developer tools** that only this fork uses.
+- **Underwater clarity** added 1.5% GPU time at 1080p on an RTX 4060. Open sea measured 12.17 ms with
+  clarity and 11.99 ms without it. The shore-heavy scene measured 5.99 ms and 5.90 ms, respectively.
+  [Clarity measurements](reference/water-penalty-2026-11-11/README.md)
+- **Clean FFT water** measured 11.97 ms on open sea against upstream `bda651dd` at 11.06 ms (+8.3%).
+  The shore-heavy scene measured 6.18 ms against 6.68 ms (−7.5%). These compare the whole fork build
+  with upstream. Low water quality with shore turning disabled saved 21% on open sea in the fork
+  benchmark. [Build comparison](reference/water-penalty-2026-11-11/README.md) ·
+  [Quality benchmark](reference/water-benchmark-2026-11-11/README.md)
 
 ## Ideas for later pull requests
 
-Each would follow the maintainer's notes above, and each needs measurements first:
-
-- **Underwater clarity:** open it as its own pull request with before and after shots of the same views: the ruins,
-  a flat offshore floor and a coast. Making it an option, off by default, would answer the "no way back to the old
-  look" objection. The commit is `5d8a58e7` on branch `feat/water-reflections-and-controls`. Measured cost
-  (2026-11-11, RTX 4060, 1080p, the same build with and without the clarity code): **+1.5%** GPU time on both an
-  open-sea and a shore-heavy scene (12.17 vs 11.99 ms, 5.99 vs 5.90 ms). Evidence:
-  [`reference/water-penalty-2026-11-11/`](reference/water-penalty-2026-11-11/README.md).
-- **Clean FFT water:** measured against upstream `main` (`bda651dd`) on the same scenes: **+8.3%** GPU time on open
-  sea (11.97 vs 11.06 ms) and **−7.5%** on a shore-heavy map (6.18 vs 6.68 ms). Water quality Low (no shore turning)
-  saved 21% on open sea, below upstream. These compare the whole fork build with upstream, so an exact figure needs
-  the water ported onto upstream `main`; upstream would also want the testing switches and tuner removed and the new
-  look off by default. It depends on the wave heading field from map-aware movement. Evidence:
-  [`reference/water-penalty-2026-11-11/`](reference/water-penalty-2026-11-11/README.md) and
-  [`reference/water-benchmark-2026-11-11/`](reference/water-benchmark-2026-11-11/README.md).
-- **Volumetric toxin effects:** just the delta over the shared volume, with SDL GPU frame times from a crowded toxin
-  fight, with and without it. Upstream already has a GPU timer (`ZH_GPU_TIMING` with `ZH_GPU_TIMING_SYNC=1`) and a
-  scripted, repeatable battle (`-scenario`, files in `Data/Scenarios/`). A crowded-cloud save is kept in the devlog's
-  2026-11-05 benchmark session. The work is on branch `feat/clouds-contaminate-effects`.
-- **Pipeline warmup only, Linux and macOS:** needs a measurement that shows first-use shader stalls going away, which
-  plain load-time numbers didn't. The work is on branch `perf/preloading-and-warmup`.
-- **Map-aware water movement:** only after its shader cost is fixed, with a real off path that removes the cost.
-- **Test the merged features on Linux** in upstream's next release, since nobody upstream can run them.
+- **Volumetric toxin effects.** Measure the delta over the shared volume in a crowded toxin fight.
+  Use the SDL GPU timer (`ZH_GPU_TIMING` with `ZH_GPU_TIMING_SYNC=1`) and a repeatable battle
+  (`-scenario`, files in `Data/Scenarios/`). The devlog's 2026-11-05 benchmark session has a crowded-cloud
+  save. The work is on branch `feat/clouds-contaminate-effects`.
+- **Pipeline warmup for Linux and macOS.** Measure first-use shader stalls with and without warmup.
+  The work is on branch `perf/preloading-and-warmup`.
+- **Linux validation of the merged SDL ports.** Run the renderer checks against the upstream commits
+  and record the build, driver, settings and scene for each result.
 
 ## What upstream's maintainer expects
 
