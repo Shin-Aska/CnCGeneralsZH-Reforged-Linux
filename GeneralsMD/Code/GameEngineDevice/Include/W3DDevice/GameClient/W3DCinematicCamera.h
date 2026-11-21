@@ -28,8 +28,11 @@ struct CinematicAnimationClockMode
 CinematicAnimationClockMode CinematicCameraModeForClientUpdate();
 
 // The production display's clock guard, also exercised without a graphics device by CPU tests.
-bool CinematicAnimationClockFrozen(bool explicitlyFrozen, bool repeatedPicture,
-	const CinematicAnimationClockMode &mode);
+inline bool CinematicAnimationClockFrozen(bool explicitlyFrozen, bool repeatedPicture,
+	const CinematicAnimationClockMode &mode)
+{
+	return explicitlyFrozen || (repeatedPicture && !mode.allowsRenderTime());
+}
 
 inline bool CinematicCameraMovesAllowed(bool paused, bool debugFrozen, bool scriptFrozen)
 {

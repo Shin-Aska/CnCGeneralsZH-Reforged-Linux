@@ -19,7 +19,7 @@ static int gpu()
     if(!raw){if(api)api->Release();SDL_Quit();return 1;}
     auto *device=static_cast<PosixDevice9 *>(raw);
     if(device->Create_Gpu_Frame(true)!=D3D_OK || !device->Get_Gpu()->Supports_Scene_Depth()){device->Release();api->Release();SDL_Quit();return 77;}
-    auto *frame=device->Get_Gpu();CHECK(PosixRenderer_Supports_Feature(device,RendererFeature::WaterFoam));IDirect3DTexture9 *textures[4]={};IDirect3DPixelShader9 *shader=nullptr;
+    auto *frame=device->Get_Gpu();CHECK(PosixRenderer_Supports_Feature(device,RendererFeature::WaterFoam));CHECK(RenderWaterFoam::Available(device));IDirect3DTexture9 *textures[4]={};IDirect3DPixelShader9 *shader=nullptr;
     const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};CHECK(device->CreatePixelShader(tokens,&shader)==D3D_OK);
     for(unsigned i=0;i<4;++i){CHECK(device->CreateTexture(1,1,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&textures[i],nullptr)==D3D_OK);CHECK(device->SetTexture(i,textures[i])==D3D_OK);}
     auto texel=[&](unsigned index,unsigned value){D3DLOCKED_RECT lock={};CHECK(textures[index]->LockRect(0,&lock,nullptr,0)==D3D_OK);std::memcpy(lock.pBits,&value,4);CHECK(textures[index]->UnlockRect(0)==D3D_OK);};

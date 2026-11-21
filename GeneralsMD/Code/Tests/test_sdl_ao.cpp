@@ -1,6 +1,8 @@
 // Explicit independent depth fixtures; this does not claim actual water/particle hook integration.
 #include "SdlPostProcess.h"
 #include "SdlPostShader.h"
+#include "SdlSceneCapture.h"
+#include "SdlRenderMatrix.h"
 #include "sdl3shadercompile.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -15,6 +17,21 @@ static unsigned checks = 0, failures = 0;
 
 static void cpu()
 {
+    // The main viewport excludes HUD pixels; reconstruction must use the full
+    // attachment's NDC without shifting AO to that viewport's local coordinates.
+    float identity[16]={},fromTexture[16],scale[2];
+    for(unsigned i=0;i<4;++i) identity[i*5]=1;
+    const float viewport[]={4,2,8,4,.2f,.8f};
+    CHECK(render_full_texture_to_world(identity,identity,16,8,viewport,fromTexture,scale));
+    const float full[2][4]={{-.5f,.5f,.2f,1},{.5f,-.5f,.8f,1}};
+    const float camera[2][4]={{-1,1,0,1},{1,-1,1,1}};
+    for(unsigned i=0;i<2;++i)for(unsigned c=0;c<4;++c) {
+        float value=0;for(unsigned j=0;j<4;++j)value+=full[i][j]*fromTexture[j*4+c];
+        CHECK(std::abs(value-camera[i][c])<.00001f);
+    }
+    CHECK(scale[0]==.5f && scale[1]==.5f);
+    CHECK(!render_full_texture_to_world(identity,identity,0,8,viewport,fromTexture,scale));
+    float singular[16]={}; CHECK(!render_full_texture_to_world(identity,singular,16,8,viewport,fromTexture,scale));
     const PostShaderProgram programs[] = {POST_SHADER_AO,POST_SHADER_AO_SCENE,POST_SHADER_WORLD_AO,
         POST_SHADER_WORLD_AO_BLUR,POST_SHADER_WORLD_AO_UPSAMPLE};
     for (auto id : programs) {
@@ -260,6 +277,52 @@ static int gpu()
         depth(*frame,early,w,h,.49f,.5f);opaque=inputs(*frame,scene,early,SdlSceneCapturePhase::OpaqueScene);
         CHECK(post.Apply_World_AO(*frame,scene,opaque));finish();
         prepare(settings("off"));CHECK(!post.Apply_World_AO(*frame,scene,opaque));CHECK(!post.Apply_Chain_AO(*frame,scene,opaque));
+        // Active first consumer: capture depth written to the real scene attachment,
+        // rather than uploading a precomputed sampled-depth fixture.
+        {
+            auto owned=settings("copy"); owned.MainViewKey=701;
+            prepare(owned);
+            frame->Set_Target(scene);
+            frame->Clear_Back_Buffer(false,true,false,0,.5f,0);
+            frame->Clear_Rect(0,0,int(w/2),int(h),false,true,false,0,.49f,0);
+            fill_scene(*frame,scene,1.0f);
+            const auto unccluded=read(*frame,scene);
+            SdlSceneCaptureCache captures(*frame);
+            SdlSceneCaptureRequest request;
+            request.Source=scene; request.Frame=frame->Scene_Frame(); request.Generation=frame->Scene_Generation();
+            request.ViewKey=701; request.Depth=true;
+            SdlSceneDepthCapture opaqueCapture,reused,transparentCapture,empty;
+            CHECK(captures.Capture(request,opaqueCapture));
+            CHECK(opaqueCapture.Texture!=scene.Depth && opaqueCapture.Texture!=scene.Colour);
+            CHECK(captures.Capture(request,reused)); CHECK(reused.Texture==opaqueCapture.Texture);
+            auto sampled=inputs(*frame,scene,opaqueCapture.Texture,SdlSceneCapturePhase::OpaqueScene);
+            sampled.Capture=opaqueCapture.Identity;
+            auto stale=sampled; stale.Capture.ViewKey++;
+            CHECK(!post.Apply_World_AO(*frame,scene,stale)); CHECK(read(*frame,scene)==unccluded);
+            stale=sampled; stale.Capture.Phase=SdlSceneCapturePhase::BeforeTransparent;
+            CHECK(!post.Apply_World_AO(*frame,scene,stale)); CHECK(read(*frame,scene)==unccluded);
+            CHECK(post.Apply_World_AO(*frame,scene,sampled));
+            auto active=read(*frame,scene);
+            CHECK(red(active,w,w/2+2,h/2)<red(unccluded,w,w/2+2,h/2)-10);
+            alpha_preserved(unccluded,active,false);
+            // Later geometry/depth cannot overwrite the immutable opaque-phase evidence.
+            frame->Clear_Back_Buffer(false,true,false,0,.75f,0);
+            request.Phase=SdlSceneCapturePhase::BeforeTransparent;
+            CHECK(captures.Capture(request,transparentCapture)); CHECK(transparentCapture.Texture!=opaqueCapture.Texture);
+            const auto sampleDepth=[&](const SdlSceneDepthCapture &capture,unsigned x) {
+                std::vector<uint8_t> bytes;
+                CHECK(frame->Read_Back(capture.Texture,w,h,bytes)); float value=-1;
+                if(bytes.size()==size_t(w)*h*4) std::memcpy(&value,bytes.data()+(size_t(h/2)*w+x)*4,4);
+                return value;
+            };
+            CHECK(std::abs(sampleDepth(opaqueCapture,w/4)-.49f)<.000001f);
+            CHECK(std::abs(sampleDepth(transparentCapture,w/4)-.75f)<.000001f);
+            CHECK(finish()==active);
+            request.Frame--;
+            CHECK(!captures.Capture(request,empty)); CHECK(!empty.Texture && !empty.Width);
+            request.Frame=frame->Scene_Frame(); request.Generation++;
+            CHECK(!captures.Capture(request,empty)); CHECK(!empty.Texture);
+        }
         CHECK(post.Release(*frame));CHECK(post.Resources().Textures==0 && post.Resources().Shaders==0);
         frame->Release_After_Batch(early,nullptr);frame->Release_After_Batch(late,nullptr);frame->Release_After_Batch(black,nullptr);
         CHECK(frame->Flush());

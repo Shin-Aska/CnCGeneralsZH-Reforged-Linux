@@ -273,7 +273,7 @@ inline bool Build(const uint8_t *wet, const uint8_t *exposure, const uint8_t *li
     const float *mediumDepth = nullptr, const WaterWaveHeading::Vector *travelHeading = nullptr) {
     result = Field{};
     WaterWaveHeading::Field legacy;
-    if (!WaterWaveHeading::Build(wet, exposure, width, height, border, spacing, legacy, mediumDepth, travelHeading)
+    if (!WaterWaveHeading::Build(wet, exposure, width, height, border, spacing, legacy, mediumDepth, travelHeading, links)
         || !WaterBodyAnalysis::Build(wet, links, width, height, border, spacing, result.analysis, connections,
         allowSources)) {
         result = Field{};

@@ -966,8 +966,8 @@ Int parseParticleCap(char *args[], int num)
 	 detail preset's (Ultra 1 << 20 down to Low 1 << 17).  The preset is applied after the command line,
 	 so this is a field of its own, read through getEffectiveGpuParticleCapacity, as -particlecap is.
 	 Bare is Ultra's 1 << 20; 0 keeps every particle on the CPU path with its cap.  The number is
-	 optional, so only a word that starts with a digit is taken.  -d3d9, Classic and the SDL3 builds
-	 never draw on the GPU whatever this says.  GPU-PARTICLES.md. */
+	 optional, so only a word that starts with a digit is taken.  -d3d9 and Classic
+	 keep the CPU picture; native SDL GPU uses the same ring setting as Direct3D 11.  GPU-PARTICLES.md. */
 Int parseGpuParticles(char *args[], int num)
 {
 	if (TheWritableGlobalData)
@@ -1051,7 +1051,6 @@ Int parseNoTerrainSubdivide(char *args[], int num)
 	}
 	return 1;
 }
-
 Int parseShadowMapReport(char *args[], int num)
 {
 	if (TheWritableGlobalData)
@@ -2525,6 +2524,17 @@ Int parseSupplyPileLimit(char *args[], int num)
 	return 1;
 }
 
+/* -startshrouded: the skirmish lobby's Hidden Map for an -autoskirmish run, carried the same way as
+	 -incomesharing (SH= in the slot list, so the replay starts black too). */
+Int parseStartShrouded(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_startShrouded = TRUE;
+	}
+	return 1;
+}
+
 /* -gamespeed <percent>: the skirmish lobby's game speed for an -autoskirmish run, in percent of retail's
 	 pace and taken to the nearest of PLAYER_GAME_SPEED_PERCENTS (100, 125, 150, 200).  The game time
 	 each tick advances: the match still ticks LOGICFRAMES_PER_SECOND times a second, its CRC differs per
@@ -2826,6 +2836,40 @@ Int parseNetSlot(char *args[], int num)
 	return 2;
 }
 
+/* -rejoin <file>, with the -netgame line the seat was started with the first time: the match is under
+	 way, the seat was dropped from it, and this copy is coming back to it.  It asks the room to take it
+	 back, plays the match from the replay another seat is still writing (its Replays\00000000.rep) up to
+	 the frame the room stops on for it, and joins the network there (Network::startRejoin). */
+Int parseRejoin(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		TheWritableGlobalData->m_rejoinReplay = args[1];
+	}
+	return 2;
+}
+
+/// -onlinerejoin: the online hub presses Rejoin by itself once its card offers a match, for online_check.py
+Int parseOnlineRejoin(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_onlineAutoRejoin = TRUE;
+	}
+	return 1;
+}
+
+/// -rejoinfrom <slot>: -rejoin with the replay that seat sends over the network, as an online rejoin gets it
+Int parseRejoinFrom(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		const Int slot = atoi(args[1]);
+		TheWritableGlobalData->m_rejoinFromSlot = (slot >= 0 && slot < MAX_SLOTS) ? slot : -1;
+	}
+	return 2;
+}
+
 /* -netai <n> puts n AI seats after the -netgame addresses.  Two idle copies play nothing, and a
 	 desync that players meet ten minutes into a match needs a match that is being played: AIs
 	 building, fighting and dying.  An AI runs inside GameLogic on every machine alike, so every copy
@@ -3070,6 +3114,7 @@ static CommandLineParam params[] =
 	{ "-techrespawn", parseTechRespawn },
 	{ "-superweapons", parseSuperweapons },
 	{ "-supplypilelimit", parseSupplyPileLimit },
+	{ "-startshrouded", parseStartShrouded },
 	{ "-gamespeed", parseGameSpeed },
 	{ "-startingcash", parseStartingCash },
 	{ "-showlanes", parseShowLanes },
@@ -3094,6 +3139,9 @@ static CommandLineParam params[] =
 	{ "-netgame", parseNetGame },
 	{ "-netslot", parseNetSlot },
 	{ "-netai", parseNetAI },
+	{ "-rejoin", parseRejoin },
+	{ "-rejoinfrom", parseRejoinFrom },
+	{ "-onlinerejoin", parseOnlineRejoin },
 	{ "-lanip", parseLanIP },
 	{ "-lanname", parseLanName },
 	{ "-relay", parseRelay },

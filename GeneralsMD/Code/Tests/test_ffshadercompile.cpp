@@ -32,6 +32,7 @@
 #include "ffshader.h"
 
 #include <d3dcommon.h>
+#include <math.h>
 #include <string.h>
 #include <windows.h>
 
@@ -281,7 +282,7 @@ TEST(ffshadercompile_the_smoke_glow_is_added_after_the_shade)
 // edge is not clipped hard again.  An additive sprite takes no shadow and still has to declare the
 // whole constant block, whose last field the fade reads; a smoke sprite takes both.  The receiving
 // programs carry the blast lights after the shade.  SDL3 and D3D9 get neither.
-TEST(ffshadercompile_a_soft_particle_fades_into_the_scene_depth_on_d3d11_only)
+TEST(ffshadercompile_a_soft_particle_fades_into_the_scene_depth_on_d3d11_and_sdl)
 {
 	CombinerDescription description;
 	memset(&description, 0, sizeof(description));
@@ -309,7 +310,9 @@ TEST(ffshadercompile_a_soft_particle_fades_into_the_scene_depth_on_d3d11_only)
 	std::string nine;
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, sdl));
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, nine));
-	CHECK(sdl.find("SceneDepth") == std::string::npos);
+	// SDL takes the soft particles since pull request 244: its sorted billboards bind the scene's
+	// depth at t7 as Direct3D 11 does.  Direct3D 9 still has none.
+	CHECK(sdl.find("SceneDepth") != std::string::npos);
 	CHECK(nine.find("SceneDepth") == std::string::npos);
 
 	description.ShadowReceiving = true;
@@ -330,8 +333,8 @@ TEST(ffshadercompile_a_soft_particle_fades_into_the_scene_depth_on_d3d11_only)
 
 // Each per-object look is its own program on Direct3D 11, written after the fog and declaring the
 // whole constant block up to its own field, with or without the sun's map.  Only the cloak calls
-// the function that reads the scene's copy at t8.  SDL3 and D3D9 get none of it.
-TEST(ffshadercompile_each_draw_effect_compiles_on_d3d11_only)
+// the function that reads the scene's copy at t8.  SDL3 gets the same looks, D3D9 none of them.
+TEST(ffshadercompile_each_draw_effect_compiles_on_d3d11_and_sdl)
 {
 	D3DCompileFunction compile = load_compiler();
 	for (unsigned shadow = 0; shadow < 2; ++shadow) {
@@ -359,8 +362,13 @@ TEST(ffshadercompile_each_draw_effect_compiles_on_d3d11_only)
 			CHECK(fog < call);
 			CHECK((eleven.find("current = effect_cloak(") != std::string::npos) == (effect == DRAW_EFFECT_CLOAK));
 			if (effect == DRAW_EFFECT_CLOAK) {
-				// solid=1 must be the unit's own paint, or cloak-in pops to a muted body
-				CHECK(eleven.find("lerp(muted, current.rgb, solid)") != std::string::npos);
+				// fade 0 must be the unit's own paint, or cloak-in pops to glass: both mixes start at it
+				CHECK(eleven.find("glass = lerp(lerp(current.rgb, veil, going * saturate(2.0 * glass_on)), glass,") != std::string::npos);
+			}
+			if (effect == DRAW_EFFECT_CLOAK || effect == DRAW_EFFECT_REVEALED) {
+				// both stealth looks fade by the shared front, not by a mix
+				CHECK(eleven.find("stealth_unpack(fade, paint, look, height)") != std::string::npos);
+				CHECK(eleven.find("stealth_edge(") != std::string::npos);
 			}
 
 			std::string sdl;
@@ -368,7 +376,10 @@ TEST(ffshadercompile_each_draw_effect_compiles_on_d3d11_only)
 			CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, sdl));
 			CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, nine));
 			CHECK((sdl.find("current = effect_cloak_shadow(") != std::string::npos) == (effect == DRAW_EFFECT_CLOAK_SHADOW));
-			if (effect != DRAW_EFFECT_CLOAK_SHADOW) CHECK(sdl.find("effect_") == std::string::npos);
+			// SDL takes every look since pull request 251, the cloak reading its own colour copy at
+			// t8 as Direct3D 11 does.  Direct3D 9 still has none.
+			CHECK(sdl.find("current = effect_") != std::string::npos);
+			CHECK((sdl.find("current = effect_cloak(") != std::string::npos) == (effect == DRAW_EFFECT_CLOAK));
 			CHECK(nine.find("effect_") == std::string::npos);
 
 			if (compile != NULL) {
@@ -381,11 +392,55 @@ TEST(ffshadercompile_each_draw_effect_compiles_on_d3d11_only)
 	}
 }
 
+// The stealth looks' w packed as chooseDrawEffect packs it comes back out of stealth_unpack's own
+// arithmetic, done here in float as the GPU does it, at every height up to the 4000 cap.  The
+// program text is checked for those same lines, so the copy below cannot drift from the shader.
+TEST(ffshadercompile_the_stealth_pack_round_trips_through_stealth_unpack)
+{
+	CombinerDescription description;
+	memset(&description, 0, sizeof(description));
+	description.StageCount = 1;
+	description.Stages[0] = one_stage(D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_DIFFUSE,
+		D3DTOP_MODULATE, D3DTA_TEXTURE, D3DTA_DIFFUSE, 0, true);
+	description.DrawEffect = DRAW_EFFECT_REVEALED;
+	std::string eleven;
+	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D11, eleven));
+	CHECK(eleven.find("    height = floor(w / 16.0);\n    w -= height * 16.0;\n"
+		"    look = floor(w / 4.0);\n    w -= look * 4.0;\n    paint = step(1.5, w);\n"
+		"    fade = saturate(w - 2.0 * paint);\n") != std::string::npos);
+
+	static const int heights[] = { 1, 7, 13, 60, 200, 1000, 4000 };
+	static const float fades[] = { 0.0f, 0.001f, 0.25f, 0.5f, 0.999f, 1.0f };
+	for (int h = 0; h < (int)(sizeof(heights) / sizeof(heights[0])); ++h) {
+		for (int front = STEALTH_FRONT_WIND; front <= STEALTH_FRONT_RIPPLE; ++front) {
+			for (int paint = 0; paint < 2; ++paint) {
+				for (int f = 0; f < (int)(sizeof(fades) / sizeof(fades[0])); ++f) {
+					float w = CombinerShader_Pack_Stealth(heights[h], front, paint != 0, fades[f]);
+					const float height = floorf(w / 16.0f);
+					w -= height * 16.0f;
+					const float look = floorf(w / 4.0f);
+					w -= look * 4.0f;
+					const float painted = (w >= 1.5f) ? 1.0f : 0.0f;
+					float fade = w - 2.0f * painted;
+					fade = fade < 0.0f ? 0.0f : (fade > 1.0f ? 1.0f : fade);
+					CHECK_EQ((int)height, heights[h]);
+					CHECK_EQ((int)look, front);
+					CHECK_EQ((int)painted, paint);
+					CHECK_NEAR(fade, fades[f], 0.005f);
+				}
+			}
+		}
+	}
+	// out of range parts are held in their fields rather than spilling into the next one
+	CHECK_EQ((int)floorf(CombinerShader_Pack_Stealth(0, 5, true, 3.0f) / 16.0f), 1);
+	CHECK_NEAR(CombinerShader_Pack_Stealth(2, -1, false, -1.0f), 32.0f, 0.0001f);
+}
+
 // A fire billboard bends its coordinates before the stages sample and burns after them, before the
 // fog and the soft fade; an additive one wears away through the colour, a blended one through the
 // alpha.  It declares no constant of its own, so an additive flame with no fade keeps the short
 // block.  SDL3 and D3D9 get none of it.
-TEST(ffshadercompile_a_fire_billboard_burns_on_d3d11_only)
+TEST(ffshadercompile_a_fire_billboard_burns_on_d3d11_and_sdl)
 {
 	CombinerDescription description;
 	memset(&description, 0, sizeof(description));
@@ -419,7 +474,8 @@ TEST(ffshadercompile_a_fire_billboard_burns_on_d3d11_only)
 	std::string nine;
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, sdl));
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, nine));
-	CHECK(sdl.find("fire_") == std::string::npos);
+	// SDL takes the fire look since pull request 244, its billboards carrying the age and seed in v2.
+	CHECK(sdl.find("fire_") != std::string::npos);
 	CHECK(nine.find("fire_") == std::string::npos);
 
 	D3DCompileFunction compile = load_compiler();

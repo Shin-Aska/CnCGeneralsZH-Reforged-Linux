@@ -94,11 +94,29 @@ public:
 	};
 	Alignment getAlignment(void) const { return m_alignment; }
 
+	/**
+	 * A recorded CRC that arrived before the computed one it pairs with waits here.  A drawn playback
+	 * that runs frames g and g+1 in one pass has no client pass between them, so frame g's computed
+	 * CRC is still on the message stream when frame g+1 executes the recorded one.
+	 */
+	Bool mustParkRecorded(void) const { return m_data.empty() || !m_recorded.empty(); }
+	void parkRecorded(UnsignedInt recorded) { m_recorded.push_back(recorded); }
+	Bool takeParkedRecorded(UnsignedInt &recorded)
+	{
+		if (m_recorded.empty() || m_data.empty())
+			return FALSE;
+		recorded = m_recorded.front();
+		m_recorded.pop_front();
+		return TRUE;
+	}
+	Int parkedRecordedCount(void) const { return (Int)m_recorded.size(); }
+
 protected:
 
 	Bool m_sawCRCMismatch;
 	Alignment m_alignment;
 	std::list<UnsignedInt> m_data;
+	std::list<UnsignedInt> m_recorded;	///< recorded CRCs waiting for their computed one
 	UnsignedInt m_localPlayer;
 };
 
@@ -147,6 +165,18 @@ public:
 	Bool resumePlayback( AsciiString filename, const PlaybackCursor &cursor );	///< FALSE when the replay will not open again
 	Int getPlaybackFramesPerSecond( void );						///< the logic rate the game was played at, 0 when it was not recorded
 	void stopPlayback();															///< Stops playback.  Its fine to call this even if not playing back a file.
+
+	/// -rejoin: the replay a seat still in the match keeps writing, read beside our own recording up to
+	/// the frame that seat stands on (Network::startRejoin)
+	/// FALSE for a file that is no replay of a network game of this build, or, with checkMatch, of another match
+	Bool openRejoinFeed( AsciiString path, UnsignedInt &framesHeld, Bool checkMatch = TRUE );
+	void noteRejoinMatch( void );											///< this match's slot list now, before its start randomizes it, for openRejoinFeed
+	AsciiString getRejoinOptions( Int &gameSpeedPercent ) const { gameSpeedPercent = m_rejoinGameSpeed; return m_rejoinOptions; }	///< the feed's slot list and options, HZ= and GS= cut off
+	void flushRecording( void );												///< what is recorded so far onto the disk, for a seat coming back
+	AsciiString getRecordingPath( void );								///< the file being recorded, empty when none is
+	Bool feedRejoinFrame( UnsignedInt frame );				///< that frame's recorded commands onto TheCommandList; FALSE when the file no longer fits the frames played
+	UnsignedInt rejoinFramesHeld( void );							///< the header's count of whole frames, read again
+	void closeRejoinFeed( void );
 #if defined _DEBUG || defined _INTERNAL
 	Bool analyzeReplay( AsciiString filename );
 	Bool isAnalysisInProgress( void );
@@ -239,6 +269,14 @@ protected:
 	Int m_originalGameMode; // valid in replays
 
 	UnsignedInt m_nextFrame;												///< The Frame that the next message is to be executed on.  This can be -1.
+
+	FILE *m_rejoinFile;															///< -rejoin's replay, NULL when none is open; init() leaves it alone
+	UnsignedInt m_rejoinNextFrame;										///< the frame of its next command, -1 when none is left
+	long m_rejoinReadPos;															///< where that frame number starts in the file
+	AsciiString m_rejoinOptions;
+	Int m_rejoinGameSpeed;
+	AsciiString m_rejoinMatch;												///< noteRejoinMatch's slot list, empty for none
+	void readRejoinNextFrame( void );
 };
 
 extern RecorderClass *TheRecorder;

@@ -60,6 +60,7 @@
 #include <map>
 #include <string>
 #include <vector>
+enum class SdlSceneCapturePhase;
 
 struct SdlGpuParticlesContext;
 class SdlGpuFrame;
@@ -276,6 +277,7 @@ public:
     bool Build_Main_View_Constants(struct SdlEnginePixelConstants &, bool receiving);
     void Allow_Team_Glow(bool enabled) { TeamGlowAllowed = enabled; }
     void Refuse_Next_Model_For_Test(unsigned flags) { ModelRefusalForTest = flags; }
+    void Refuse_Next_Team_Glow_For_Test(unsigned flags) { ModelRefusalForTest |= flags; }
     // One eligible draw only: vertex/pixel/pipeline/resource refusal regressions.
     void Refuse_Next_Sprite_For_Test(unsigned flags) { SpriteRefusalForTest = flags; }
 	void Set_Light_Environments(const RenderLighting::VertexEnvironment &full, const RenderLighting::VertexEnvironment *staticOnly);
@@ -366,6 +368,7 @@ public:
 	bool Build_Vertex_Description(VertexPipelineDescription &description, std::string *refusal = NULL, bool staticLights = false) const;
 	/// The two constant blocks, packed to match the descriptions above.
 	void Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants &pixel, bool staticLights = false) const;
+	void Build_Pixel_Constants(SdlPixelConstants &pixel) const;
 	void Build_Water_Constants(const SdlPixelConstants &pixel, SdlWaterPixelConstants &water) const;
 	void Build_Water_Visual_Constants(const SdlWaterPixelConstants &water, SdlWaterVisualPixelConstants &visual) const;
 	bool Water_Foam_History_Available() const;
@@ -471,6 +474,7 @@ protected:
 	bool SmokeGlow = false;
 	unsigned SunCasterEffect = 0;
 	float SunCasterOpacity = 1;
+	float SunCasterCorner[2] = {0, 0};	///< the sun map's corner texel, so the cloak's noise stays on the world
 	bool Sun_Camera_Space() const;
 	bool Sun_Target(struct SdlTarget &target) const;
 	unsigned SunExclusions = 0;
@@ -705,3 +709,7 @@ private:
 
 // SDL water features require a live native GPU device.
 bool PosixWaterGpuAvailable(IDirect3DDevice9 *device);
+
+bool PosixPerPixelLightingAvailable(IDirect3DDevice9 *device);
+
+bool PosixHemisphericAmbientAvailable(IDirect3DDevice9 *device);

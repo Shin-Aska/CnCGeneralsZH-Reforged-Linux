@@ -62,6 +62,8 @@ public:
     bool Apply_Ground_Haze(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);
     bool Apply_Transition_Warm_Haze(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);
     bool Apply_Atmosphere(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);
+    enum class TestFailure { None, Program, Pipeline, Target, TargetAfterOne, WaterTarget };
+    void Set_Failure_For_Test(TestFailure failure);
     void Abandon();
     bool Release(SdlGpuFrame &frame);
     const std::string &Error() const;

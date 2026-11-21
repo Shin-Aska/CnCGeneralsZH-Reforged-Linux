@@ -30,7 +30,7 @@ struct State {
 };
 State state;
 bool readers() {return state.Frame && (!state.Frame->Has_Pending_Work() || (state.Owner.FlushReaders ? state.Owner.FlushReaders(state.Frame) : state.Frame->Flush()));}
-bool error(const char *message) {std::fprintf(stderr,"REACHOVERLAY SDL: %s; baked fallback may draw\n",message);return false;}
+bool error(const char *) {return false;} // refusal leaves the existing tiled fallback eligible
 bool finite(const float *values,size_t count) {for(size_t i=0;i<count;++i)if(!std::isfinite(values[i]))return false;return true;}
 bool nonsingular(const float matrix[16]) {
     double rows[4][4];for(unsigned r=0;r<4;++r)for(unsigned c=0;c<4;++c)rows[r][c]=matrix[r*4+c];
@@ -132,7 +132,7 @@ bool Supported(SdlGpuFrame &frame){auto *d=frame.Device();return d && SDL_GPUTex
 bool Draw(SdlGpuFrame &frame,const Inputs &in,const Field *fields,size_t count,const Look &look,Policies policies) {
     if(count && !fields)return false;
     if(!count && (!in.Eligible || !frame.Device()))return true;
-    if(!Supported(frame) || !policies.CreateTexture || !in.Eligible || !in.DeviceGeneration)return false;
+    if(!Supported(frame) || !policies.CreateTexture || !in.Eligible || in.DeviceGeneration!=frame.Device_Generation())return false;
     if(!frame.Register_Owner_Release_Hook(TryReleaseForFrame))return false;
     if(state.Device!=frame.Device() || state.Generation!=in.DeviceGeneration || state.Frame!=&frame){if(!TryRelease())return false;state.Frame=&frame;state.Device=frame.Device();state.Generation=in.DeviceGeneration;state.Owner=policies;}
     ClearBorrowed clear;
@@ -142,7 +142,7 @@ bool Draw(SdlGpuFrame &frame,const Inputs &in,const Field *fields,size_t count,c
         if(!count){if(!state.Cache.empty()){if(!readers())return true;for(const auto &held:state.Cache){SDL_ReleaseGPUTexture(state.Device,held.Texture);state.Metrics.OwnedTextureBytes-=held.Bytes;}state.Cache.clear();}state.Metrics.CachedBatches=0;return true;}
         const float lookValues[]={look.BorderWidth,look.BandWidth,look.FillAlpha,look.BandAlpha,look.LineAlpha,look.LineWhite,look.SoftWidth,look.SoftLine,look.RippleAlpha,look.RipplePeriod,look.RippleSpan,look.RippleWidth,look.ShadeWidth,look.ShadeAlpha};
         if(!identity(frame,in) || !std::isfinite(in.VisualSeconds) || !finite(lookValues,14) || look.BandWidth<=0 || look.SoftWidth<=0 || look.RipplePeriod<=0 || look.RippleWidth<=0)return false;
-        Constants base={};if(!CameraConstants(in,base))return true;
+        Constants base={};if(!CameraConstants(in,base))return false;
         state.Order.reserve(count);
         for(size_t i=0;i<count;++i){const auto &f=fields[i];if(f.Opacity<=0)continue;if((!f.Identity && !f.Version) || f.Width<2 || f.Height<2 || !std::isfinite(f.Step) || f.Step<=0 || !std::isfinite(f.OriginX) || !std::isfinite(f.OriginY) || !std::isfinite(f.DistanceLimit) || !std::isfinite(f.Opacity) || uint64_t(f.Width)*f.Height>UINT32_MAX/8 || f.DistanceCount<uint64_t(f.Width)*f.Height || !f.Distance)return false;state.Order.push_back({f,i});}
         std::sort(state.Order.begin(),state.Order.end(),[](const Ordered &a,const Ordered &b){uint32_t x=a.Value.Colour&0xffffff,y=b.Value.Colour&0xffffff;return x==y?a.Index<b.Index:x<y;});

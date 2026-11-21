@@ -10,11 +10,6 @@
 #include <vector>
 
 namespace {
-bool fault(const char *point)
-{
-    const char *requested=std::getenv("ZH_TEST_SDL_ATMOSPHERE_FAILURE");
-    return requested && !std::strcmp(requested,point);
-}
 unsigned format_slot(unsigned f)
 {
     if(f==SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM)return 0;
@@ -64,6 +59,8 @@ struct SdlPostAtmosphere::Impl
     bool WarmDone=false;
     std::string LastError;
     unsigned long long Creations=0;
+    TestFailure Failure=TestFailure::None;
+    bool fault(TestFailure point) const { return Failure==point; }
 
     bool fail(const std::string &why)
     {
@@ -90,7 +87,7 @@ struct SdlPostAtmosphere::Impl
     }
     bool program(Pass pass,unsigned format)
     {
-        if(fault("program"))return fail("injected program preparation failure");
+        if(fault(TestFailure::Program))return fail("injected program preparation failure");
         std::string source,error;std::vector<unsigned char> spirv;
         if(!Vertex) {
             if(!Sdl_Post_Vertex_Source(source) || !SDL3_Compile_HLSL_To_SPIRV(source,true,spirv,error)
@@ -115,7 +112,7 @@ struct SdlPostAtmosphere::Impl
         }
         const unsigned slot=format_slot(format);
         if(slot>2)return fail("unsupported scene colour format");
-        if(fault("pipeline"))return fail("injected pipeline preparation failure");
+        if(fault(TestFailure::Pipeline))return fail("injected pipeline preparation failure");
         if(!p.Pipelines[slot]) {
             SDL_GPUColorTargetDescription target={};target.format=SDL_GPUTextureFormat(format);
             target.blend_state.enable_color_write_mask=true;
@@ -142,7 +139,7 @@ struct SdlPostAtmosphere::Impl
     bool fallback(SDL_GPUTexture *&texture,bool white)
     {
         if(texture)return true;
-        if(fault("target") || (fault("target-after-one") && White))return fail("injected fallback texture allocation failure");
+        if(fault(TestFailure::Target) || (fault(TestFailure::TargetAfterOne) && White))return fail("injected fallback texture allocation failure");
         SDL_GPUTextureCreateInfo info={};info.type=SDL_GPU_TEXTURETYPE_2D;info.format=SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
         info.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;info.width=info.height=info.layer_count_or_depth=info.num_levels=1;
         texture=SDL_CreateGPUTexture(Device,&info);if(!texture)return fail(std::string("fallback texture: ")+SDL_GetError());++Creations;
@@ -170,7 +167,7 @@ struct SdlPostAtmosphere::Impl
         SDL_GPUTextureCreateInfo info={};info.type=SDL_GPU_TEXTURETYPE_2D;info.format=SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
         info.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER;
         info.width=scene.Width;info.height=scene.Height;info.layer_count_or_depth=info.num_levels=1;
-        SDL_GPUTexture *replacement=fault("water-target")?nullptr:SDL_CreateGPUTexture(Device,&info);
+        SDL_GPUTexture *replacement=fault(TestFailure::WaterTarget)?nullptr:SDL_CreateGPUTexture(Device,&info);
         if(!replacement)return refused(SDL_GetError());
         if(WaterSurface)frame.Release_After_Batch(WaterSurface,nullptr);
         WaterSurface=replacement;WaterWidth=scene.Width;WaterHeight=scene.Height;++Creations;
@@ -354,3 +351,5 @@ SdlPostAtmosphereResources SdlPostAtmosphere::Resources()const
     if(s.WaterPipelines)result.Pipelines+=s.WaterPipelines->Pipelines_Built();
     result.Creations=s.Creations;return result;
 }
+
+void SdlPostAtmosphere::Set_Failure_For_Test(TestFailure failure) { State->Failure=failure; }

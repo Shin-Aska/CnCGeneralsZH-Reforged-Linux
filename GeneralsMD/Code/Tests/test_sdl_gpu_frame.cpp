@@ -30,8 +30,9 @@
 //   - Any GPU but this one.  Exits 77, and ctest reports it skipped, where SDL has no GPU device.
 
 #include "SdlGpuFrame.h"
-#include "SdlConstants.h"
+#include "SdlPresentMode.h"
 #include "SdlPipelineCache.h"
+#include "SdlConstants.h"
 #include "SdlResourceMirror.h"
 #include "PosixResources9.h"
 #include "../Libraries/Source/WWVegas/WW3D2/sdl3shadercompile.h"
@@ -2045,6 +2046,88 @@ float4 main(float4 position:SV_Position):SV_Target0 {
     CHECK(value(0,6,0)==1.f && std::abs(value(5,6,0)-.04f)<.000001f);
     CHECK(value(5,6,1)==0.f && value(5,6,2)==1.f); // full calm and zero-resistance identity
     printf("sdl_gpu_frame_selfcheck: Modern material: exact clean/white identity, gray attenuation, red/blue tint and absorption, independent pollution, brightness and bubble gates passed\n");
+}
+
+// Constant, nonzero spectrum texels isolate physical resistance from FFT evolution and
+// lighting. Execute the exact vertex and pixel displacement helpers against a CPU limiter.
+static void check_gpu_material_wind_displacement(SdlGpuFrame *frame)
+{
+    struct Resources {
+        SDL_GPUDevice *device;SDL_GPUShader *vs=nullptr,*ps[2]={};SDL_GPUGraphicsPipeline *pipeline[2]={};
+        SDL_GPUTexture *target=nullptr,*maps[6]={};SDL_GPUSampler *sampler=nullptr;
+        ~Resources(){for(auto *p:pipeline)if(p)SDL_ReleaseGPUGraphicsPipeline(device,p);
+            for(auto *p:ps)if(p)SDL_ReleaseGPUShader(device,p);if(vs)SDL_ReleaseGPUShader(device,vs);
+            for(auto *t:maps)if(t)SDL_ReleaseGPUTexture(device,t);if(target)SDL_ReleaseGPUTexture(device,target);
+            if(sampler)SDL_ReleaseGPUSampler(device,sampler);}
+    } r;r.device=frame->Device();
+    const float texels[6][4]={{.7f,.5f,-.2f,0},{.02f,.03f,.01f,-.01f},{.2f,-.3f,.4f,0},{-.01f,.02f,.03f,.01f},{-.1f,.2f,.1f,0},{.04f,-.01f,.02f,.03f}};
+    std::string error;std::vector<unsigned char> spirv;
+    const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3:-1,id==2?3:-1,0,1);}";
+    bool ok=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(ok);if(!ok)return;
+    r.vs=SDL3_Create_Shader(r.device,spirv,true,error);CHECK(r.vs);if(!r.vs)return;
+    SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+    for(unsigned stage=0;stage<2;++stage) {
+        std::string ps=WaterFftSampling::UniformSource("MaterialWind",0,false,true);
+        if(stage)for(unsigned i=8;i<14;++i)ps+="Texture2D Texture"+std::to_string(i)+" : register(t"+std::to_string(i)+");SamplerState Sampler"+std::to_string(i)+" : register(s"+std::to_string(i)+");\n";
+        ps+=stage?WaterFftSampling::PixelSource(false,false,false,WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution),false)
+            :WaterFftSampling::VertexSource(false,false);
+        ps+=stage?"float4 main(float4 position:SV_Position):SV_Target0{FftSurface q=fftSurface(float2(0,0),0,0);return float4(position.x<1?q.displacement:q.derivativeX,1);}":
+            "float4 main():SV_Target0{return float4(fftVertexDisplacement(float2(0,0),0,0),1);}";
+        CHECK(SDL3_Shader_Retarget(ps,false));ok=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(ok);
+        if(!ok){printf("material wind physical stage %u: %s\n",stage,error.c_str());return;}
+        r.ps[stage]=SDL3_Create_Shader(r.device,spirv,false,error);CHECK(r.ps[stage]);if(!r.ps[stage])return;
+        SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=r.vs;pi.fragment_shader=r.ps[stage];
+        pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;pi.target_info.color_target_descriptions=&colour;pi.target_info.num_color_targets=1;
+        r.pipeline[stage]=SDL_CreateGPUGraphicsPipeline(r.device,&pi);CHECK(r.pipeline[stage]);if(!r.pipeline[stage])return;
+    }
+    SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=colour.format;
+    ti.width=2;ti.height=ti.layer_count_or_depth=ti.num_levels=1;ti.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+    r.target=SDL_CreateGPUTexture(r.device,&ti);CHECK(r.target);if(!r.target)return;
+    ti.width=1;ti.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    for(auto &t:r.maps){t=SDL_CreateGPUTexture(r.device,&ti);CHECK(t);if(!t)return;}
+    SDL_GPUSamplerCreateInfo si={};si.min_filter=si.mag_filter=SDL_GPU_FILTER_NEAREST;si.mipmap_mode=SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+    si.address_mode_u=si.address_mode_v=si.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+    r.sampler=SDL_CreateGPUSampler(r.device,&si);CHECK(r.sampler);if(!r.sampler)return;
+    CHECK(frame->Flush());SDL_GPUTransferBufferCreateInfo bi={};bi.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;bi.size=sizeof(texels);
+    SDL_GPUTransferBuffer *transfer=SDL_CreateGPUTransferBuffer(r.device,&bi);CHECK(transfer);if(!transfer)return;
+    void *mapped=SDL_MapGPUTransferBuffer(r.device,transfer,false);CHECK(mapped);if(!mapped){SDL_ReleaseGPUTransferBuffer(r.device,transfer);return;}
+    memcpy(mapped,texels,sizeof(texels));SDL_UnmapGPUTransferBuffer(r.device,transfer);
+    SDL_GPUCommandBuffer *upload=SDL_AcquireGPUCommandBuffer(r.device);CHECK(upload);if(!upload){SDL_ReleaseGPUTransferBuffer(r.device,transfer);return;}
+    SDL_GPUCopyPass *copy=SDL_BeginGPUCopyPass(upload);CHECK(copy);if(!copy){SDL_CancelGPUCommandBuffer(upload);SDL_ReleaseGPUTransferBuffer(r.device,transfer);return;}
+    for(unsigned i=0;i<6;++i){SDL_GPUTextureTransferInfo from={};from.transfer_buffer=transfer;from.offset=i*16;from.pixels_per_row=from.rows_per_layer=1;
+        SDL_GPUTextureRegion to={};to.texture=r.maps[i];to.w=to.h=to.d=1;SDL_UploadToGPUTexture(copy,&from,&to,false);}
+    SDL_EndGPUCopyPass(copy);CHECK(SDL_SubmitGPUCommandBuffer(upload));SDL_ReleaseGPUTransferBuffer(r.device,transfer);
+    const double raw[3]={(-1.2*texels[0][0]-1.5*texels[2][0]-1.5*texels[4][0])*WaterFftSampling::WorldScale,
+        (-1.2*texels[0][2]-1.5*texels[2][2]-1.5*texels[4][2])*WaterFftSampling::WorldScale,
+        (texels[0][1]+texels[2][1]+texels[4][1])*WaterFftSampling::WorldScale};
+    const double bound[3]={WaterFftGeometry::MaxHorizontalDisplacement/std::sqrt(2.0),
+        WaterFftGeometry::MaxHorizontalDisplacement/std::sqrt(2.0),WaterFftGeometry::MaxVerticalDisplacement};
+    const double rawX[3]={-1.2*texels[1][2]-1.5*texels[3][2]-1.5*texels[5][2],0,texels[1][0]+texels[3][0]+texels[5][0]};
+    for(float resistance:{0.0f,.5f,.8f,1.0f}) {
+        SdlWaterPixelConstants constants={};constants.MaterialSurface[3]=resistance;
+        std::vector<float> results[2];
+        for(unsigned stage=0;stage<2;++stage) {
+            SDL_GPUCommandBuffer *cmd=SDL_AcquireGPUCommandBuffer(r.device);CHECK(cmd);if(!cmd)return;
+            SDL_GPUColorTargetInfo out={};out.texture=r.target;out.load_op=SDL_GPU_LOADOP_DONT_CARE;out.store_op=SDL_GPU_STOREOP_STORE;
+            SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(cmd,&out,1,nullptr);CHECK(pass);if(!pass){SDL_CancelGPUCommandBuffer(cmd);return;}
+            SDL_BindGPUGraphicsPipeline(pass,r.pipeline[stage]);SDL_GPUTextureSamplerBinding bindings[14];
+            for(unsigned i=0;i<(stage?14u:3u);++i)bindings[i]={r.maps[stage?(i<8?0:i-8):i*2],r.sampler};
+            SDL_BindGPUFragmentSamplers(pass,0,bindings,stage?14:3);
+            SDL_PushGPUFragmentUniformData(cmd,0,&constants,sizeof(constants));SDL_DrawGPUPrimitives(pass,3,1,0,0);
+            SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(cmd));results[stage]=read_float_targets(frame,&r.target,1,2,1);
+            CHECK(results[stage].size()==8);if(results[stage].size()!=8)return;
+            for(unsigned c=0;c<3;++c) {
+                const double expected=bound[c]*std::tanh(raw[c]*ModernWaterMaterial::WindGain(resistance)/bound[c]);
+                CHECK(std::isfinite(results[stage][c]) && std::abs(results[stage][c]-expected)<.00001);
+                if(resistance==1)CHECK(results[stage][c]==0);
+                const double limited=std::tanh(raw[c]*ModernWaterMaterial::WindGain(resistance)/bound[c]);
+                const double expectedX=rawX[c]*ModernWaterMaterial::WindGain(resistance)*(1-limited*limited);
+                CHECK(std::abs(results[stage][4+c]-(stage?expectedX:expected))<.00001);
+            }
+        }
+        for(unsigned c=0;c<3;++c)CHECK(std::abs(results[0][c]-results[1][c])<.00001);
+    }
+    printf("sdl_gpu_frame_selfcheck: material wind resistance 0/.5/.8/1: production vertex/pixel displacement and pixel derivative match CPU pre-limit gain; full resistance flat\n");
 }
 
 // Executes the exact shared functions called by generated production water; not a whole-frame
@@ -9829,6 +9912,39 @@ static void check_scene_depth_snapshot(SdlGpuFrame *frame)
 
 int main(int argc,char **argv)
 {
+	CHECK(Sdl_Choose_Present_Mode(true, false) == SDL_GPU_PRESENTMODE_VSYNC);
+	CHECK(Sdl_Choose_Present_Mode(true, true) == SDL_GPU_PRESENTMODE_VSYNC);
+	CHECK(Sdl_Choose_Present_Mode(false, false) == SDL_GPU_PRESENTMODE_VSYNC);
+	CHECK(Sdl_Choose_Present_Mode(false, true) == SDL_GPU_PRESENTMODE_IMMEDIATE);
+	// Model a backend that changes state before returning failure (Vulkan may
+	// fail while recreating its swapchain). A fallback must actively repair it.
+	std::vector<SDL_GPUPresentMode> attempts;
+	SDL_GPUPresentMode actual = SDL_GPU_PRESENTMODE_VSYNC;
+	SDL_GPUPresentMode applied = SDL_GPU_PRESENTMODE_MAILBOX;
+	CHECK(Sdl_Apply_Present_Mode(SDL_GPU_PRESENTMODE_IMMEDIATE, [&](SDL_GPUPresentMode mode) {
+		attempts.push_back(mode);
+		actual = mode;
+		return mode == SDL_GPU_PRESENTMODE_VSYNC;
+	}, applied));
+	CHECK(attempts.size() == 2 && attempts[0] == SDL_GPU_PRESENTMODE_IMMEDIATE
+		&& attempts[1] == SDL_GPU_PRESENTMODE_VSYNC);
+	CHECK(actual == SDL_GPU_PRESENTMODE_VSYNC && applied == SDL_GPU_PRESENTMODE_VSYNC);
+	attempts.clear();
+	applied = SDL_GPU_PRESENTMODE_MAILBOX;
+	CHECK(!Sdl_Apply_Present_Mode(SDL_GPU_PRESENTMODE_IMMEDIATE, [&](SDL_GPUPresentMode mode) {
+		attempts.push_back(mode);
+		return false;
+	}, applied));
+	CHECK(attempts.size() == 2 && applied == SDL_GPU_PRESENTMODE_MAILBOX);
+	attempts.clear();
+	CHECK(!Sdl_Apply_Present_Mode(SDL_GPU_PRESENTMODE_VSYNC, [&](SDL_GPUPresentMode mode) {
+		attempts.push_back(mode);
+		return false;
+	}, applied));
+	CHECK(attempts.size() == 1 && attempts[0] == SDL_GPU_PRESENTMODE_VSYNC
+		&& applied == SDL_GPU_PRESENTMODE_MAILBOX);
+	if (failures) return 1;
+
 	// These fixtures draw the previous Modern water's generated shaders with its two heading samplers and
 	// compare them with the v3.5.1 movement oracle. Clean FFT water is now the default and binds its own
 	// samplers, so pin the previous path here unless the caller chose one; clean water has its own checks.
@@ -9866,6 +9982,11 @@ int main(int argc,char **argv)
     check_gpu_water_opaque_alpha(frame);
 #endif
 
+	// An offscreen frame has no swapchain: VSync changes must neither claim a
+	// window nor enable or change the independent offscreen presentation pacer.
+	CHECK(frame->Configure_Presentation(false) && !frame->Using_VSync());
+	CHECK(frame->Configure_Presentation(true) && !frame->Using_VSync());
+	CHECK(!frame->Offscreen_Presents());
 	check_colour_only_target(frame);
 	check_scene_depth_snapshot(frame);
 	check_sun_depth_target(frame);
@@ -9874,6 +9995,7 @@ int main(int argc,char **argv)
 	check_gpu_coastal_surf_from_ocean(frame);
 	check_gpu_water_vertex_uniform_order(frame);
 	check_gpu_modern_water_material(frame);
+	check_gpu_material_wind_displacement(frame);
 	check_gpu_water_visual_uniform_order(frame);
 	check_gpu_water_visual_query(frame);
 #if defined(__linux__)
@@ -10009,6 +10131,23 @@ int main(int argc,char **argv)
 	// The armed control: the same output against the identity must differ nearly everywhere.
 	const unsigned int control = mismatches(pixels, identity);
 	CHECK(control > WIDTH * HEIGHT / 2);
+	// Reuse an unchanged curve, then change each channel independently. Returning
+	// to the original curve must restore its pixels rather than reuse a later one.
+	CHECK(frame->Present_To(target, WIDTH, HEIGHT, ramp));
+	CHECK(frame->Read_Back(target, WIDTH, HEIGHT, pixels));
+	CHECK(mismatches(pixels, ramp) == 0);
+	for (int channel = 0; channel < 3; ++channel) {
+		uint16_t changed[3][256];
+		memcpy(changed, ramp, sizeof(changed));
+		for (int index = 0; index < 256; ++index)
+			changed[channel][index] = (uint16_t)(65535u - changed[channel][index]);
+		CHECK(frame->Present_To(target, WIDTH, HEIGHT, changed));
+		CHECK(frame->Read_Back(target, WIDTH, HEIGHT, pixels));
+		CHECK(mismatches(pixels, changed) == 0);
+	}
+	CHECK(frame->Present_To(target, WIDTH, HEIGHT, ramp));
+	CHECK(frame->Read_Back(target, WIDTH, HEIGHT, pixels));
+	CHECK(mismatches(pixels, ramp) == 0);
 
 	// The identity ramp is a blit: the picture back as it went in.
 	CHECK(frame->Present_To(target, WIDTH, HEIGHT, identity));

@@ -391,7 +391,7 @@ public:
 	Bool m_showObjectHealth;			///< debug display object health
 	Int m_healthBarMode;					///< HealthBarModeType: which units wear a bar at all
 	Int m_healthBarColors;				///< 0 the green-to-red health ramp, 1 the owner's player colour (client only)
-	Int m_hudLayout;							///< "HudLayout": HUD_LAYOUT_CLASSIC or HUD_LAYOUT_SIDEBAR (OptionsCatalog.h, client only)
+	Int m_hudLayout;							///< "HudLayout": HUD_LAYOUT_CLASSIC, _SIDEBAR or _RETAIL (OptionsCatalog.h, client only)
 	Int m_hudWidth;								///< "HudWidth": HUD_WIDTH_FULL, _21_9 or _16_9, the interface's centred area (client only)
 	Int m_hotkeyScheme;						///< "HotkeyScheme": HOTKEY_SCHEME_CLASSIC or _RED_ALERT (OptionsCatalog.h, client only)
 	Int m_mouseStyle;							///< MOUSE_STYLE_CLASSIC or MOUSE_STYLE_REFORGED, set by -mouse only (client only, never GameLogic)
@@ -500,6 +500,7 @@ public:
 	Bool m_showNetBox;					///< the player's own switch for the top right info strip (InGameUI::drawHudOverlay)
 	Int m_minimapSize;					///< percent of its own size the radar is drawn at, growing up from the bar's corner (ControlBar::fitRadarToMap); 100 = as the bar has it
 	Bool m_showEmptyBuildingPips;		///< the row of empty slots over a building nobody is in
+	Bool m_hitFlash;					///< a struck unit or building lights up for a blink (Drawable::updateDrawable); client only, logic never reads it
 	Bool m_workersReturnToSupply;		///< a worker that finishes a build job goes back to the dock it left
 	Bool m_archiveReplays;					///< keep a timestamped copy of every replay, instead of only the last one
 	Int m_bloomIntensity;				///< Glow strength in percent, 0 = off; the renderer derives the rest
@@ -523,6 +524,7 @@ public:
 	Int m_incomeSharing;						///< -incomesharing <n>: the lobby's income sharing, an IncomeSharing, for an -autoskirmish run
 	Int m_techRespawn;							///< -techrespawn <n>: the lobby's tech building respawn, in minutes, for an -autoskirmish run
 	Int m_supplyPileLimit;					///< -supplypilelimit <n>: the lobby's supply pile limit, in players a pile, for an -autoskirmish run
+	Bool m_startShrouded;						///< -startshrouded: the lobby's Hidden Map for an -autoskirmish run, ground never seen stays black
 	Int m_autoSkirmishGameSpeedPercent;	///< -gamespeed <percent>: the skirmish lobby's game speed for an -autoskirmish run, PLAYER_GAME_SPEED_PERCENT_DEFAULT unless asked
 	Int m_superweapons;							///< -superweapons <n>: the lobby's superweapon rule, a SUPERWEAPONS_ mode, for an -autoskirmish run
 	Int m_startingCash;							///< -startingcash <n>: the lobby's starting cash for an -autoskirmish run (0 = DefaultStartingCash)
@@ -576,6 +578,9 @@ public:
 	Bool m_netGameStarted;						///< that -netgame passed its checks and StartAutomatedGame ran, so every seat has this command line
 	Int m_netGameLocalSlot;						///< -netslot <n>: which of those addresses this copy of the game is
 	Int m_netGameAISlots;							///< -netai <n>: that many AI seats after the addresses, at the -aidiff rung
+	AsciiString m_rejoinReplay;				///< -rejoin <file>: the -netgame match is already under way; play it from this replay a seat in it is writing, then join (empty = off)
+	Int m_rejoinFromSlot;							///< -rejoinfrom <slot>: the same, with the replay sent by that seat over the network (-1 = off)
+	Bool m_onlineAutoRejoin;						///< -onlinerejoin: press the online hub's Rejoin once its card offers a match
 	AsciiString m_lanPlayerName;			///< -lanname <name>: the name this copy takes in the LAN lobby (empty = the one in the preferences)
 	AsciiString m_relayHost;					///< -relay <host:port>: the LAN lobby and its games go through this UDP relay (empty = real LAN; Transport.cpp)
 	UnsignedShort m_relayPort;				///< the port of it, 0 when -relay named none
@@ -598,11 +603,13 @@ public:
 	Bool m_optionsMenuOnStart;				///< -optionsmenu: open the options screen over the main menu at startup
 	Bool m_mapLight;								///< "MapLight": warm low sun and a still ground haze (Direct3D 11, client only)
 	Bool m_teamGlow;								///< "TeamGlow": bright house colour glows (Direct3D 11, client only)
+	Bool m_underwaterClarity;				///< "UnderwaterClarity": shallow shelves and ruins show through Modern water (SDL, client only)
 	Bool m_waterFoam;								///< "WaterFoam": foam, shore band and the sun's shadow on water (Direct3D 11, client only)
 	Bool m_groundFoliage;						///< "GroundFoliage": grass tufts on grass ground, swaying in the wind (client only; off under Classic graphics)
 	Bool m_groundMarks;							///< "GroundMarks": craters, stains and longer treads that fade over minutes (Linux SDL GPU / Windows DX11, client only)
 	Bool m_firelight;								///< "Firelight": flames light the ground, walls and units around them (Direct3D 11, client only)
 	Bool m_heatHaze;								///< "HeatHaze", "-heathaze": the air over fire, beams and exhausts shimmers (Direct3D 11, client only)
+	Bool m_fullDetailAtDistance;		///< "FullDetailAtDistance": a model with levels of detail draws its full one at every distance (client only)
 	Bool m_hemiAmbient;							///< "HemiAmbient": models take the ambient from the sky above and the ground below (Direct3D 11, client only)
 	Bool m_ambientOcclusion;				///< "AmbientOcclusion": corners and the ground under what stands on it darken, half size in world units (Direct3D 11, client only)
 	Bool m_weatherEffects;					///< "Weather": rain, blowing sand or snow by the map's ground, and a wind on trees and smoke (Direct3D 11, client only)

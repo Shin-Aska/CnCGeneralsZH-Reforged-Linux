@@ -249,6 +249,17 @@ static void gpu() {
     stats=SdlGpuParticles::Stats();c.Pass=SdlGpuParticlesPass::Sun;SdlGpuParticles::Evaluate(c,0,64,90,0);CHECK(SdlGpuParticles::Stats().Dispatches==stats.Dispatches);c.Pass=SdlGpuParticlesPass::Other;CHECK(SdlGpuParticles::Supported(c));require(SdlGpuParticles::Prepare(c,64,&fresh),"non-scene admission");CHECK(!fresh);
     c.Pass=SdlGpuParticlesPass::MainScene;require(SdlGpuParticles::Prepare(c,96,&fresh),"capacity replacement");CHECK(fresh && SdlGpuParticles::Stats().Capacity==96);
     ++c.DeviceGeneration;require(SdlGpuParticles::Prepare(c,96,&fresh),"device epoch replacement");CHECK(fresh && SdlGpuParticles::Stats().DeviceGeneration==c.DeviceGeneration);
+    // Final frame destruction must release the native provider even with a
+    // queued draw and a deliberately refused ordinary reader flush.
+    CHECK(SdlGpuParticles::TryReleaseDevice());
+    require(SdlGpuParticles::Prepare(c,32,&fresh,controlled_flush),"owner teardown fixture");
+    frame->Set_Target(c.Target);frame->Clear_Back_Buffer(true,true,false,0,1,0);
+    refuseReaderFlush=true;frame.reset();refuseReaderFlush=false;
+    CHECK(SdlGpuParticles::Stats().Capacity==0);
+    frame.reset(SdlGpuFrame::Create(nullptr,64,64,error));require(bool(frame),"frame after owner teardown");
+    if(!frame) return;
+    c=context(frame.get(),c.DeviceGeneration+1);
+    CHECK(!SdlGpuParticles::Prepare(c,0,&fresh));CHECK(SdlGpuParticles::Stats().Capacity==0);
     CHECK(!SdlGpuParticles::Prepare(c,UINT32_MAX,&fresh));SdlGpuParticles::ReleaseDevice();
     frame.reset();frame.reset(SdlGpuFrame::Create(nullptr,64,64,error));if(require(bool(frame),"actual GPU device recreation")) {auto recreated=context(frame.get(),c.DeviceGeneration+1);require(SdlGpuParticles::Prepare(recreated,32,&fresh,controlled_flush),"new device owner without stale frame pointer");CHECK(fresh);CHECK(SdlGpuParticles::TryReleaseDevice());}
 

@@ -35,6 +35,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////////////////////////
+#include "Platform/RenderPost.h"
 #include <stdlib.h>
 #include "Platform/DiagnosticCameraRoute.h"
 #include "Lib/Clock.h"
@@ -106,7 +107,6 @@
 #include "WW3D2/predlod.h"
 #include "WW3D2/ww3d.h"
 #include "WW3D2/dx11runtime.h"
-#include "Platform/RenderPost.h"
 #if defined(__linux__)
 #include "WW3D2/dx8wrapper.h"
 #include "Platform/RendererName.h"
@@ -576,6 +576,7 @@ void W3DView::buildCameraTransform( Matrix3D *transform, CameraTransformSource s
 	}
 
 
+	if (m_useRealZoomCam) fxPitch = m_FXPitch; // this legacy mode computes its own pitch above
 	// do fxPitch adjustment
 	if (m_useRealZoomCam)
 	{
@@ -1150,7 +1151,7 @@ void W3DView::aimCamera( CameraTransformSource source )
 	if (heightMultiplier > 1.0f)
 		farZ *= heightMultiplier;
 
-	const Real fxPitch = cameraPresentationPitch();
+	const Real fxPitch = source != CAMERA_AUTHORITATIVE_POSE ? cameraPresentationPitch() : m_FXPitch;
 	if (m_useRealZoomCam)	//WST 10.19.2002
 	{
 		if (fxPitch<0.95f)
@@ -1432,6 +1433,7 @@ static Bool s_matchFirstDrawLogged = FALSE;
 
 void W3DView::reset( void )
 {
+	invalidateCinematicCameraPose();
 	View::reset();
 	m_diagnosticRouteCaptured = false;
 	m_diagnosticRouteLastPicture = m_diagnosticRouteTracedPicture = -1;
@@ -2164,6 +2166,7 @@ void W3DView::update(void)
 			cameraSteppedRetailFrame, LOGICFRAMES_PER_RETAIL_FRAME) * gameSpeedRate
 			+ (Real)pictureStepHundredths / 100.0f;
 	}
+	Real scriptedCameraStepMS = (Real)CAMERA_STEP_MSEC;
 	// a recorded picture steps on its logic frame's last picture (above), so its steps are counted there
 	Int scriptedSteps = pictureClock ? pictureScriptedSteps : ( stepTime ? 1 : 0 );
 	if (scriptedRate != 1.0f && !pictureClock)
@@ -2187,6 +2190,7 @@ void W3DView::update(void)
 		if (scriptedStepMs > RETAIL_STEP_MS)
 			scriptedStepMs = RETAIL_STEP_MS;
 		scriptedCameraPhase = scriptedStepMs / RETAIL_STEP_MS;
+		scriptedCameraStepMS = RETAIL_STEP_MS;
 	}
 
 	IRegion2D dirtyTerrain;
@@ -2606,8 +2610,9 @@ void W3DView::update(void)
 		&& !(isTimeFrozen() && !isCameraMovementFinished());
 	m_cinematicCameraClockTime = nowCameraStepTime;
 	m_cinematicCameraClockPhase = CinematicCameraProgress::clamp(scriptedCameraPhase);
-	m_cinematicCameraClockRate = scriptedRate;
-	
+	// Preserve the active clock's exact interval: scaled steps use 1000/30, the legacy gate uses 33.
+	m_cinematicCameraClockRate = scriptedRate * CAMERA_STEP_MSEC / scriptedCameraStepMS;
+
 	// (gth) C&C3 if m_isCameraSlaved then force the camera to update each frame
 	if ((recalcCamera) || (m_isCameraSlaved) || wantsIsometric() != m_isometricApplied) {
 		setCameraTransform();
@@ -5028,7 +5033,7 @@ void W3DView::updateScreenDistortions( void )
 			}
 		}
 
-		DX11PostWarp &warp = warps[warpCount++];
+		auto &warp = warps[warpCount++];
 		warp.CentreX = (Real)centre.x / displayWidth;
 		warp.CentreY = (Real)centre.y / displayHeight;
 		// Zoomed in, a nuke's radius is wider than the screen and the pull moved the whole picture;

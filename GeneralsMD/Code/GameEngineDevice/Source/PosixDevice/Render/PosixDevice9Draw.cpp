@@ -1,3 +1,4 @@
+#include "SdlSceneContext.h"
 /*
 **	Copyright 2026 İlyas Akın
 **	Additional terms under GNU GPL section 7 apply: see LICENSE.md.
@@ -24,6 +25,7 @@
 // shadow map) are not A3's.  And D3D9's documented initial states, which the draw is the first to read.
 
 #include "PosixDevice9.h"
+#include "Platform/WaterUnderwaterClarity.h"
 #include "PosixResources9.h"
 #include "SdlConstants.h"
 #include "SdlRenderMatrix.h"
@@ -539,7 +541,7 @@ static void colour_value(const D3DCOLORVALUE &colour, float out[4])
 void PosixDevice9::Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants &pixel, bool staticLights) const
 {
 	memset(&vertex, 0, sizeof(vertex));
-	memset(&pixel, 0, sizeof(pixel));
+	Build_Pixel_Constants(pixel);
 
 	const float *world = &Transforms[D3DTS_WORLD]._11;
 	const float *view = &Transforms[D3DTS_VIEW]._11;
@@ -597,7 +599,11 @@ void PosixDevice9::Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants
 		colour_value(light.Ambient, fields[6]);
 		++slot;
 	}
+}
 
+void PosixDevice9::Build_Pixel_Constants(SdlPixelConstants &pixel) const
+{
+	memset(&pixel, 0, sizeof(pixel));
 	colour_of(RenderStates[D3DRS_TEXTUREFACTOR], pixel.TextureFactor);
 	colour_of(RenderStates[D3DRS_FOGCOLOR], pixel.FogColour);
 	// A whole level, as D3D9 compares it: the program rounds the pixel's alpha to a level first.
@@ -1234,6 +1240,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		if (static_lighting) {
 			static_lighting = false;
 			if (!Build_Vertex_Description(vertex, &refusal)) return false;
+            vertex.SmokeGlow = combiner.SmokeGlow;
             vertex.SoftParticle = combiner.SoftParticle != SOFT_PARTICLE_NONE;
             vertex.FireLook = combiner.FireLook != FIRE_LOOK_NONE;
 			vertex_program = &Programs->Vertex_Program(vertex);
@@ -1878,7 +1885,12 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	// The constants, pushed only when they change.
 	SdlVertexConstants vertex_constants;
 	SdlPixelConstants pixel_constants;
-	Build_Constants(vertex_constants, pixel_constants, static_lighting);
+	if (vertex_program->UniformBuffers != 0 && vertex_engine == ENGINE_SHADER_NONE) {
+		Build_Constants(vertex_constants, pixel_constants, static_lighting);
+	} else {
+		// Engine programs read their register bank; empty vertex layouts need no block.
+		Build_Pixel_Constants(pixel_constants);
+	}
 	if (vertex_program->UniformBuffers != 0 && vertex_engine != ENGINE_SHADER_NONE) {
 		// A transcribed vertex program reads the engine's own register bank, c0 to c95, as its b0.
 		const uint32_t size = ENGINE_SHADER_CONSTANTS * sizeof(VertexShaderConstants[0]);
@@ -2009,7 +2021,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
             engine_constants.SoftParticleDepth[3] = 1.0f / 12.0f;
         }
         if (combiner.DrawEffect) {
-            if (SunActive) engine_constants.DrawEffectParameters[3] = SunCasterOpacity;
+            if (SunActive) {
+                engine_constants.DrawEffectParameters[0] = SunCasterCorner[0];
+                engine_constants.DrawEffectParameters[1] = SunCasterCorner[1];
+                engine_constants.DrawEffectParameters[3] = SunCasterOpacity;
+            }
             else {
                 Build_Main_View_Constants(engine_constants, combiner.ShadowReceiving);
                 std::memcpy(engine_constants.DrawEffectParameters, ModelEffectParameters, sizeof(ModelEffectParameters));

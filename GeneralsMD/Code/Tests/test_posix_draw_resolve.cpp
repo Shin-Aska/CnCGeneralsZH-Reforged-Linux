@@ -291,6 +291,29 @@ static void check_constants(PosixDevice9 *device)
 		&& pixel.TextureFactor[2] == 0.0f && near_value(pixel.TextureFactor[3], 0x80 / 255.0));
 	CHECK(near_value(vertex.GlobalAmbient[0], 0x33 / 255.0) && near_value(vertex.GlobalAmbient[2], 0x99 / 255.0));
 
+	// Engine vertex programs consume their register bank rather than the fixed-function block.
+	// Their independent pixel block must match the combined API, including unused fields.
+	SdlPixelConstants split_pixel;
+	memset(&split_pixel, 0x5A, sizeof(split_pixel));
+	device->Build_Pixel_Constants(split_pixel);
+	CHECK(memcmp(&split_pixel, &pixel, sizeof(pixel)) == 0);
+	RenderUInt32 old_fog_colour = 0;
+	device->GetRenderState(D3DRS_FOGCOLOR, &old_fog_colour);
+	device->SetRenderState(D3DRS_FOGCOLOR, 0xFF204080u);
+	device->SetRenderState(D3DRS_ALPHAREF, 17);
+	device->Build_Pixel_Constants(split_pixel);
+	SdlVertexConstants changed_vertex;
+	SdlPixelConstants changed_pixel;
+	device->Build_Constants(changed_vertex, changed_pixel);
+	CHECK(memcmp(&changed_vertex, &vertex, sizeof(vertex)) == 0);
+	CHECK(memcmp(&split_pixel, &changed_pixel, sizeof(split_pixel)) == 0);
+	CHECK(split_pixel.AlphaReference[0] == 17.0f);
+	CHECK(near_value(split_pixel.FogColour[0], 0x20 / 255.0)
+		&& near_value(split_pixel.FogColour[1], 0x40 / 255.0)
+		&& near_value(split_pixel.FogColour[2], 0x80 / 255.0));
+	device->SetRenderState(D3DRS_FOGCOLOR, old_fog_colour);
+	device->SetRenderState(D3DRS_ALPHAREF, 0x60);
+
 	// Water must reconstruct world coordinates from the same projection that drew its geometry.
 	// Check the inverse by composing it with an independently calculated view/projection product.
 	const float water_registers[6][4] = { { 12.5f, 1, 1, 0 }, { -0.8f, -0.6f, 0.9f, 0.7f },
@@ -360,6 +383,10 @@ static void check_constants(PosixDevice9 *device)
 	memset(fill_registers,0,sizeof(fill_registers));fill_registers[0][3]=1;
 	CHECK(device->SetPixelShaderConstantF(90,&fill_registers[0][0],4)==D3D_OK);
 	device->Build_Water_Constants(pixel,water);CHECK(memcmp(water.FoamFillLights,fill_registers,sizeof(fill_registers))==0);
+	const float initialSurface[4]={.2f,.4f,.6f,.8f};
+	CHECK(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterSurface,initialSurface,1)==D3D_OK);
+	device->Build_Water_Constants(pixel,water);
+	CHECK(memcmp(water.MaterialSurface,initialSurface,16)==0);
 	// Material state has explicit registers between fill lights and contact geometry.
 	// It must survive packing without borrowing light components, and clear on the next draw.
 	const float material[2][4]={{45/255.0f,58/255.0f,11/255.0f,.67f},{1,.8f,1,0}};

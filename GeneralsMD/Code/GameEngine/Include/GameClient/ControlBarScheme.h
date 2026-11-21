@@ -81,6 +81,7 @@ public:
 	ICoord2D m_position;					///< the position we'll draw it at
 	ICoord2D m_size;							///< the size of the image needed when we draw it
 	Image *m_image;								///< the actual pointer to the mapped image
+	Image *m_imageNoTabs;					///< <ImageName>NoTabs when mapped: the painting without the command tabs' socket, drawn by the layouts that have no command tabs
 
 	// m_layer is where the image will get drawn,  everything in layer 0-2 gets drawn during the forground draw
 	// the layers 3-5 gets drawn during the background draw
@@ -260,6 +261,10 @@ public:
 	enum { BLOCK_RADAR, BLOCK_PRODUCTION, BLOCK_MONEY, BLOCK_UPGRADES, BLOCK_GEN_POWER, BLOCK_OBSERVER_INFO, BLOCK_COUNT };
 	ICoord2D m_blockUL[ BLOCK_COUNT ];
 	ICoord2D m_blockLR[ BLOCK_COUNT ];
+	/// the Production blocker under the layouts without command tabs (BlockProductionNoTabsUL/LR): their
+	/// painting (<ImageName>NoTabs) has no idle column, so its centre box ends sooner; a zero LR keeps BlockProduction
+	ICoord2D m_blockProductionNoTabsUL;
+	ICoord2D m_blockProductionNoTabsLR;
 
 	/// the idle infantry, vehicle and aircraft buttons beside the command grid, and the select army
 	/// button: Idle<Kind>ButtonImage (SelectArmyButtonImage) names the sheet piece, and its H, P and I

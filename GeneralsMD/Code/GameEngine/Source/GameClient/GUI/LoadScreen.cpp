@@ -326,6 +326,7 @@ public:
 	void setBadge( Int slot, const Image *badge );
 	void setProgress( Int slot, Int percent );
 	void setLocalProgress( Int percent );
+	void setRejoinProgress( Int percent, Bool waitingForLog );
 
 private:
 	static void drawWindow( GameWindow *window, WinInstanceData *instData );
@@ -392,6 +393,7 @@ private:
 	DisplayString *m_percent;
 	DisplayString *m_waiting;
 	Int m_localPercent;
+	Int m_rejoinShown;				///< the rejoin bar's last value, -1 for the log wait, -2 before the first
 	Bool m_network;
 };
 
@@ -421,6 +423,7 @@ LoadScreenBoard::LoadScreenBoard( void )
 	m_tipAt = 0;
 	m_tipSince = 0;
 	m_localPercent = 0;
+	m_rejoinShown = -2;
 	m_network = FALSE;
 }
 
@@ -546,6 +549,10 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 	// a ranked Quick Match, and any match on a generated map, gives a player neither the map nor any
 	// start spot, his own included, so the board never tells where the game put anyone
 	const Bool mapHidden = ( game->getStartShrouded() || isGeneratedMapPath( game->getMap() ) ) && !seeAll;
+	// a seat coming back to a match under way sees the sides and colours the match is played with, and no
+	// bar on a card: the others are not loading, they are in the match (the wide button carries the catch-up)
+	const Bool rejoining = TheNetwork && TheNetwork->isRejoining();
+	const Bool realSides = seeAll || rejoining;
 
 	// a card a player, in the order the lobby lists them.  Someone watching from this screen without a
 	// seat (an -observer match) is a watcher too, under the name the skirmish room would have given
@@ -570,19 +577,19 @@ GameWindow *LoadScreenBoard::create( GameInfo *game, const char *modeLabel, Bool
 
 		BoardCard card;
 		card.slot = i;
-		const Int colorIndex = seeAll ? slot->getColor() : slot->getApparentColor();
+		const Int colorIndex = realSides ? slot->getColor() : slot->getApparentColor();
 		card.color = TheMultiplayerSettings->getColor( colorIndex )->getColor();
 		card.nameColor = UIStyle::readable( card.color );
 		card.team = 0;
 		card.column = 0;
 		card.startSpot = mapHidden ? -1 : seeAll ? slot->getStartPos() : slot->getApparentStartPos();
-		card.percent = cardBars && slot->isHuman() ? 0 : -1;
+		card.percent = cardBars && slot->isHuman() && !rejoining ? 0 : -1;
 		card.mirrored = FALSE;
 		card.badge = NULL;
 		card.emblem = NULL;
 		card.crest = NULL;
 		card.disc = NULL;
-		const Int sideIndex = seeAll ? slot->getPlayerTemplate() : slot->getApparentPlayerTemplate();
+		const Int sideIndex = realSides ? slot->getPlayerTemplate() : slot->getApparentPlayerTemplate();
 		UnicodeString army = TheGameText->fetch( "GUI:Random" );
 		if( sideIndex >= 0 )
 		{
@@ -1216,6 +1223,24 @@ void LoadScreenBoard::setLocalProgress( Int percent )
 	setPercentLabel( percent );
 }
 
+/** A seat coming back plays the match up to the room's frame behind the board: the wide button fills with
+	* the frames played against the frames to play, or reads that the match's log is still on its way. */
+void LoadScreenBoard::setRejoinProgress( Int percent, Bool waitingForLog )
+{
+	percent = waitingForLog ? 0 : min( max( percent, 0 ), 100 );
+	const Int shown = waitingForLog ? -1 : percent;		// a value the load's own percentages never take
+	if( shown == m_rejoinShown )
+		return;
+	m_rejoinShown = shown;
+	m_localPercent = percent;
+	UnicodeString words;
+	if( waitingForLog )
+		words = TheGameText->fetch( "GUI:RejoinWaitingForLog" );
+	else
+		words.format( TheGameText->fetch( "GUI:RejoinCatchingUp" ), percent );
+	m_percent->setText( UIStyle::capitals( words ) );
+}
+
 void LoadScreenBoard::drawWindow( GameWindow *window, WinInstanceData *instData )
 {
 	( (LoadScreenBoard *)window->winGetUserData() )->draw();
@@ -1493,7 +1518,8 @@ void CampaignBriefingPlayback::update(AudioManager &audio, const AudioEventRTS &
 	Int configuredSeconds, Int movieFrame, Bool skipMovie)
 {
 	// Generals cued the separate voice at frame 255. Zero Hour's own missions name no voice.
-	if (m_attempted || m_cancelled || voice.getEventName().isEmpty() || (!skipMovie && movieFrame < 255))
+	if (m_attempted || m_cancelled || voice.getEventName().isEmpty()
+		|| voice.getEventName().compareNoCase("NoSound") == 0 || (!skipMovie && movieFrame < 255))
 		return;
 	m_attempted = TRUE;
 	if (!audio.isOn(AudioAffect_Speech) || audio.getVolume(AudioAffect_Speech) <= 0.0f)
@@ -1877,8 +1903,8 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 	m_videoStream = TheVideoPlayer->open( TheCampaignManager->getCurrentMission()->m_movieLabel );
 	if ( m_videoStream == NULL )
 	{
-		m_percent->winHide(TRUE);
 		startBriefingAudio(*mission, 0, TRUE);
+		m_percent->winHide(TRUE);
 		setFPMode();
 		return;
 	}
@@ -1896,7 +1922,6 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 		if ( m_videoStream )
 			m_videoStream->close();
 		m_videoStream = NULL;
-
 		startBriefingAudio(*mission, 0, TRUE);
 		setFPMode();
 		return;
@@ -1951,6 +1976,8 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 			m_loadingSpeech.update(*TheAudio);
 		}
 
+		// A short/failed movie may finish before its cue. The once guard prevents a replay.
+		startBriefingAudio(*mission, 0, TRUE);
 		// let the background image show through
 		m_videoStream->close();
 		m_videoStream = NULL;
@@ -2878,6 +2905,15 @@ void MultiPlayerLoadScreen::processProgress(Int playerId, Int percentage)
 	m_board->setProgress( playerId, percentage );
 }
 
+/* The match has loaded under the board and the in-game windows came up behind it; the board stays on top
+	 until the seat is back in the room. */
+void MultiPlayerLoadScreen::showRejoin( Int percent, Bool waitingForLog )
+{
+	m_board->setRejoinProgress( percent, waitingForLog );
+	if( m_loadScreen )
+		m_loadScreen->winBringToTop();
+}
+
 // GameSpyLoadScreen Class //////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
 GameSpyLoadScreen::GameSpyLoadScreen( void )
@@ -2939,6 +2975,13 @@ void GameSpyLoadScreen::processProgress(Int playerId, Int percentage)
 		return;
 	}
 	m_board->setProgress( playerId, percentage );
+}
+
+void GameSpyLoadScreen::showRejoin( Int percent, Bool waitingForLog )
+{
+	m_board->setRejoinProgress( percent, waitingForLog );
+	if( m_loadScreen )
+		m_loadScreen->winBringToTop();
 }
 
 // MapTransferLoadScreen Class //////////////////////////////////////////////////

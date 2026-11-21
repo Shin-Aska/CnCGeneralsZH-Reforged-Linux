@@ -32,6 +32,7 @@
 #endif
 #include "Common/GlobalData.h"
 #include "Common/RandomValue.h"
+#include "Platform/SunShadow.h"
 #include "GameClient/View.h"
 #include "GameLogic/ScriptEngine.h"
 #include "WW3D2/dx8wrapper.h"
@@ -439,6 +440,7 @@ void W3DSnowManager::renderWeather(RenderInfoClass &rinfo)
 	// No sun's shadow on what falls: with it every pixel of every quad pays the blocker search, for a
 	// shade nobody could see on a streak.
 #if defined(__linux__)
+    SunShadow::ReceiverExclusion precipitation(DX8Wrapper::_Get_D3D_Device());
     RenderLighting::SetEmissive(true);
 #else
 	Direct3D11_Set_Emissive(true);
@@ -575,11 +577,20 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
 		| ((UnsignedInt)(((layer.colour >> 8) & 0xff) * light) << 8)
 		| (UnsignedInt)((layer.colour & 0xff) * light);
 
+	// A card that takes no depth goes over the black shroud too, and the haze it stands in fades
+	// there while the card would not: one whose centre is under black shroud is left out, and
+	// one in fog or at the shroud's edge has its alpha taken down by the level, so cards fade
+	// with the haze instead of blinking.  The streaks are thin and keep their depth.  The level is
+	// the shroud's own picture, read as W3DWater's river reads it (applyShroudToRiverDiffuse).
+	W3DShroud *shroud = (layer.height > 0.0f && layer.facesCamera) ? TheTerrainRenderObject->getShroud() : NULL;
+	const Int shroudBlack = TheGlobalData->m_shroudAlpha;
+
 	const Int count = min((Int)(layer.count * tile * tile / (WEATHER_TILE_STEP * WEATHER_TILE_STEP)), layer.count);
 	Int done = 0;
 	while (done < count)
 	{
 		const Int batch = min(count - done, (Int)SNOW_BATCH_SIZE);
+		Int written = 0;
 		DynamicVBAccessClass vb_access(BUFFER_TYPE_DYNAMIC_DX8, dynamic_fvf_type, batch * 4);
 		{
 			DynamicVBAccessClass::WriteLockClass lock(&vb_access);
@@ -592,6 +603,22 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
                     Real(sin(m_weatherTime*(0.6f+drop.size*0.35f)+drop.phase*6.283185f))*9.0f*drop.size : 0.0f;
                 const Real x = weatherWrap(drop.x * tile + shiftX + drift, originX, tile);
                 const Real y = weatherWrap(drop.y * tile + shiftY + drift*0.6f, originY, tile);
+				UnsignedInt cardColour = colour;
+				if (shroud != NULL)
+				{
+					// off the grid (past the map's edge) reads 0, black, which it is not drawn as
+					const Int cellX = REAL_TO_INT_FLOOR(x / shroud->getCellWidth());
+					const Int cellY = REAL_TO_INT_FLOOR(y / shroud->getCellHeight());
+					if (cellX >= 0 && cellY >= 0 && cellX < shroud->getNumShroudCellsX() && cellY < shroud->getNumShroudCellsY())
+					{
+						const Int level = shroud->getShroudLevel(cellX, cellY);	// 0 = black, 255 = clear
+						if (level <= shroudBlack)
+							continue;
+						if (level < 255)
+							cardColour = (colour & 0x00ffffff) | ((((colour >> 24) & 0xff) * level / 255) << 24);
+					}
+				}
+				++written;
 				const Real phase = drop.phase + fallen;
 				Real z = top - (phase - (Int)phase) * depth;
                 if (m_weatherKind==WEATHER_KIND_SAND && layerIndex==2)
@@ -607,7 +634,7 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
                     }
                     density*=weatherDustFootprintFade(minX,minY,maxX,maxY);
                 }
-                const UnsignedInt dropColour=(colour&0x00ffffffU) | (UnsignedInt((colour>>24)*density)<<24);
+                const UnsignedInt dropColour=(cardColour&0x00ffffffU) | (UnsignedInt((cardColour>>24)*density)<<24);
                 for (Int corner = 0; corner < 4; ++corner)
                 {
                     verts->x = x + corners[corner].X*scale;
@@ -625,8 +652,11 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
 				}
 			}
 		}
-		DX8Wrapper::Set_Vertex_Buffer(vb_access);
-		DX8Wrapper::Draw_Triangles(0, batch * 2, 0, batch * 4);
+		if (written > 0)
+		{
+			DX8Wrapper::Set_Vertex_Buffer(vb_access);
+			DX8Wrapper::Draw_Triangles(0, written * 2, 0, written * 4);
+		}
 		done += batch;
 	}
 }

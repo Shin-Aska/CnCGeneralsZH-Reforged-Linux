@@ -132,6 +132,8 @@ static Bool namesValidSlots(NetCommandMsg *msg)
 			return ((NetDisconnectVoteCommandMsg *)msg)->getSlot() < MAX_SLOTS;
 		case NETCOMMANDTYPE_DISCONNECTPLAYER:
 			return ((NetDisconnectPlayerCommandMsg *)msg)->getDisconnectSlot() < MAX_SLOTS;
+		case NETCOMMANDTYPE_SEATREJOIN:
+			return ((NetDestroyPlayerCommandMsg *)msg)->getPlayerIndex() < MAX_SLOTS;
 		default:
 			return TRUE;
 	}
@@ -188,7 +190,7 @@ NetCommandRef * NetPacket::ConstructNetCommandMsgFromRawData(UnsignedByte *data,
 				msg = readRunAheadMetricsMessage(data, offset);
 			} else if (commandType == NETCOMMANDTYPE_RUNAHEAD) {
 				msg = readRunAheadMessage(data, offset);
-			} else if (commandType == NETCOMMANDTYPE_DESTROYPLAYER) {
+			} else if (commandType == NETCOMMANDTYPE_DESTROYPLAYER || IsRejoinCommand((NetCommandType)commandType)) {
 				msg = readDestroyPlayerMessage(data, offset);
 			} else if (commandType == NETCOMMANDTYPE_KEEPALIVE) {
 				msg = readKeepAliveMessage(data, offset);
@@ -214,7 +216,7 @@ NetCommandRef * NetPacket::ConstructNetCommandMsgFromRawData(UnsignedByte *data,
 				msg = readTimeOutGameStartMessage(data, offset);
 			} else if (commandType == NETCOMMANDTYPE_WRAPPER) {
 				msg = readWrapperMessage(data, offset);
-			} else if (commandType == NETCOMMANDTYPE_FILE) {
+			} else if (commandType == NETCOMMANDTYPE_FILE || commandType == NETCOMMANDTYPE_REJOINLOG) {
 				msg = readFileMessage(data, offset);
 			} else if (commandType == NETCOMMANDTYPE_FILEANNOUNCE) {
 				msg = readFileAnnounceMessage(data, offset);
@@ -368,6 +370,10 @@ UnsignedInt NetPacket::GetBufferSizeNeededForCommand(NetCommandMsg *msg) {
 		case NETCOMMANDTYPE_RUNAHEAD:
 			return GetRunAheadCommandSize(msg);
 		case NETCOMMANDTYPE_DESTROYPLAYER:
+		case NETCOMMANDTYPE_REJOINREQUEST:
+		case NETCOMMANDTYPE_REJOINACCEPT:
+		case NETCOMMANDTYPE_SEATREJOIN:
+		case NETCOMMANDTYPE_REJOINROOM:
 			return GetDestroyPlayerCommandSize(msg);
 		case NETCOMMANDTYPE_KEEPALIVE:
 			return GetKeepAliveCommandSize(msg);
@@ -394,6 +400,7 @@ UnsignedInt NetPacket::GetBufferSizeNeededForCommand(NetCommandMsg *msg) {
 		case NETCOMMANDTYPE_WRAPPER:
 			return GetWrapperCommandSize(msg);
 		case NETCOMMANDTYPE_FILE:
+		case NETCOMMANDTYPE_REJOINLOG:
 			return GetFileCommandSize(msg);
 		case NETCOMMANDTYPE_FILEANNOUNCE:
 			return GetFileAnnounceCommandSize(msg);
@@ -883,6 +890,10 @@ void NetPacket::FillBufferWithCommand(UnsignedByte *buffer, NetCommandRef *ref) 
 			FillBufferWithRunAheadCommand(buffer, ref);
 			break;
 		case NETCOMMANDTYPE_DESTROYPLAYER:
+		case NETCOMMANDTYPE_REJOINREQUEST:
+		case NETCOMMANDTYPE_REJOINACCEPT:
+		case NETCOMMANDTYPE_SEATREJOIN:
+		case NETCOMMANDTYPE_REJOINROOM:
 			FillBufferWithDestroyPlayerCommand(buffer, ref);
 			break;
 		case NETCOMMANDTYPE_KEEPALIVE:
@@ -919,6 +930,7 @@ void NetPacket::FillBufferWithCommand(UnsignedByte *buffer, NetCommandRef *ref) 
 			FillBufferWithTimeOutGameStartMessage(buffer, ref);
 			break;
 		case NETCOMMANDTYPE_FILE:
+		case NETCOMMANDTYPE_REJOINLOG:
 			FillBufferWithFileMessage(buffer, ref);
 			break;
 		case NETCOMMANDTYPE_FILEANNOUNCE:
@@ -2126,6 +2138,10 @@ Bool NetPacket::addCommand(NetCommandRef *msg) {
 		case NETCOMMANDTYPE_RUNAHEAD:
 			return addRunAheadCommand(msg);
 		case NETCOMMANDTYPE_DESTROYPLAYER:
+		case NETCOMMANDTYPE_REJOINREQUEST:
+		case NETCOMMANDTYPE_REJOINACCEPT:
+		case NETCOMMANDTYPE_SEATREJOIN:
+		case NETCOMMANDTYPE_REJOINROOM:
 			return addDestroyPlayerCommand(msg);
 		case NETCOMMANDTYPE_KEEPALIVE:
 			return addKeepAliveCommand(msg);
@@ -2152,6 +2168,7 @@ Bool NetPacket::addCommand(NetCommandRef *msg) {
 		case NETCOMMANDTYPE_WRAPPER:
 			return addWrapperCommand(msg);
 		case NETCOMMANDTYPE_FILE:
+		case NETCOMMANDTYPE_REJOINLOG:
 			return addFileCommand(msg);
 		case NETCOMMANDTYPE_FILEANNOUNCE:
 			return addFileAnnounceCommand(msg);
@@ -5141,6 +5158,10 @@ NetCommandList * NetPacket::getCommandList() {
 //				DEBUG_LOG(("read run ahead message from player %d for execution on frame %d\n", playerID, frame));
 				break;
 			case NETCOMMANDTYPE_DESTROYPLAYER:
+			case NETCOMMANDTYPE_REJOINREQUEST:
+			case NETCOMMANDTYPE_REJOINACCEPT:
+			case NETCOMMANDTYPE_SEATREJOIN:
+			case NETCOMMANDTYPE_REJOINROOM:
 				msg = readDestroyPlayerMessage(m_packet, i);
 //				DEBUG_LOG(("read CRC info message from player %d for execution on frame %d\n", playerID, frame));
 				break;
@@ -5195,6 +5216,7 @@ NetCommandList * NetPacket::getCommandList() {
 					((NetWrapperCommandMsg *)msg)->getWrappedCommandID()));
 				break;
 			case NETCOMMANDTYPE_FILE:
+			case NETCOMMANDTYPE_REJOINLOG:
 				DEBUG_LOG(("read file message from player %d\n", playerID));
 				msg = readFileMessage(m_packet, i);
 				break;

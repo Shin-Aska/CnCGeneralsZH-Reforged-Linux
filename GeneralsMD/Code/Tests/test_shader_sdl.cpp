@@ -2902,3 +2902,20 @@ TEST(water_clean_quality_live_variants_compile_and_restore)
 }
 
 #endif // __linux__
+
+TEST(sdl_clarity_uses_only_terrain_and_skips_deep_samples)
+{
+	PixelPipelineDescription pipeline = {}; std::string source;
+	CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, source, COMBINER_SHADER_TARGET_SDL3_GPU));
+	const size_t first=source.find("float waterTerrainClarity("), last=source.find("float terrainWaveAttenuation(", first);
+	CHECK(first!=std::string::npos && last!=std::string::npos && last>first);
+	if (first==std::string::npos || last==std::string::npos || last<=first) return;
+	const std::string helper=source.substr(first,last-first);
+	CHECK(helper.find("terrainDepth>=WaterOpticalClarityMaximumDepth) return 0.0")!=std::string::npos);
+	CHECK(helper.find("directions[i]*80.0")!=std::string::npos);
+	CHECK(helper.find("directions[i]*160.0")!=std::string::npos);
+	CHECK(helper.find("if(nearHeight<baseLevel)")!=std::string::npos);
+	CHECK(helper.find("vesselHullDamping(")==std::string::npos);
+	CHECK(helper.find("scenePosition(")==std::string::npos);
+	CHECK(source.find("waterTerrainClarity(world.xy,baseLevel,surfaceTerrainHeight,offshore)")!=std::string::npos);
+}

@@ -97,7 +97,7 @@ static int gpu()
     if(!SDL_Init(SDL_INIT_VIDEO))return 77;
     int result=0;{
         Fixture f;if(!f.create()){std::printf("SKIP GPU: %s\n",SDL_GetError());f.release();SDL_Quit();return 77;}
-        const float numbers[4]={1,1,0.123f,0.25f};
+        const float numbers[4]={1,1,0.123f,CombinerShader_Pack_Stealth(20,STEALTH_FRONT_SWEEP,false,1.0f)};
         f.begin();CHECK(RenderEffects::DrawEffectsAvailable(f.Device));CHECK(f.Device->Takes_Model_Effect(DRAW_EFFECT_OUTAGE));
         f.mesh(DRAW_EFFECT_NONE,numbers);const auto plain=f.read();CHECK(plain.size()==16*16*4 && plain[(8*16+8)*4+2]==204);f.end();
         for(unsigned effect:{DRAW_EFFECT_OUTAGE,DRAW_EFFECT_EMP,DRAW_EFFECT_REVEALED}) {
@@ -115,6 +115,24 @@ static int gpu()
         f.mesh(DRAW_EFFECT_CLOAK,numbers,true);CHECK(f.read()==plain);CHECK(!f.Device->Takes_Model_Effect(DRAW_EFFECT_CLOAK));f.end();
         f.begin(false,true);CHECK(!RenderEffects::DrawEffectsAvailable(f.Device));f.mesh(DRAW_EFFECT_EMP,numbers);CHECK(f.read()==plain);f.end();
         f.begin(false,false,true);CHECK(!f.Device->Takes_Model_Effect(DRAW_EFFECT_EMP));f.mesh(DRAW_EFFECT_EMP,numbers);CHECK(f.read()==plain);f.end();
+        // Invalid payload and screen-space UI cannot inherit a world's optional look.
+        f.begin();const float invalid[4]={1,std::numeric_limits<float>::quiet_NaN(),0,0};
+        f.Device->Set_Model_Effect(DRAW_EFFECT_EMP,invalid);float requested[4]={9,9,9,9};
+        CHECK(f.Device->Requested_Model_Effect(requested)==DRAW_EFFECT_NONE);
+        CHECK(requested[0]==0 && requested[1]==0 && requested[2]==0 && requested[3]==0);
+        f.Device->Set_Model_Effect(DRAW_EFFECT_EMP,numbers);
+        CHECK(f.Device->SetFVF(D3DFVF_XYZRHW|D3DFVF_DIFFUSE|D3DFVF_TEX1)==D3D_OK);
+        CHECK(f.Device->Draw_Model_Effect()==DRAW_EFFECT_NONE);
+        CHECK(f.Device->SetFVF(D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_DIFFUSE|D3DFVF_TEX1)==D3D_OK);
+        // A viewport or camera replacement cannot borrow an earlier main-view snapshot.
+        D3DVIEWPORT9 viewport={};CHECK(f.Device->GetViewport(&viewport)==D3D_OK);
+        D3DVIEWPORT9 changed=viewport;changed.Width=8;
+        CHECK(f.Device->SetViewport(&changed)==D3D_OK);CHECK(!f.Device->Takes_Model_Effect(DRAW_EFFECT_EMP));
+        CHECK(f.Device->SetViewport(&viewport)==D3D_OK);CHECK(f.Device->Takes_Model_Effect(DRAW_EFFECT_EMP));
+        D3DMATRIX view={};CHECK(f.Device->GetTransform(D3DTS_VIEW,&view)==D3D_OK);
+        D3DMATRIX moved=view;moved._41+=1;
+        CHECK(f.Device->SetTransform(D3DTS_VIEW,&moved)==D3D_OK);CHECK(!f.Device->Takes_Model_Effect(DRAW_EFFECT_EMP));
+        CHECK(f.Device->SetTransform(D3DTS_VIEW,&view)==D3D_OK);f.end();
         // The default scene filter is an explicitly registered main stand-in,
         // even with the user post chain off. Arbitrary and special RTTs are not.
         IDirect3DSurface9 *back=nullptr,*surface=nullptr;IDirect3DTexture9 *standIn=nullptr;
@@ -147,8 +165,8 @@ static int gpu()
         uint32_t offset=0;auto *space=f.Frame->Upload_Space(uint32_t(hdr.size()*2),offset);CHECK(space);if(space)std::memcpy(space,hdr.data(),hdr.size()*2);
         f.Frame->Queue_Texture_Upload(f.Target.Colour,0,16,16,offset);
         auto sourceSanity=f.half();CHECK(sourceSanity.size()==16*16*4);if(sourceSanity.size()==16*16*4){const auto at=(8*16+8)*4;CHECK(sourceSanity[at]==0x4400 && sourceSanity[at+1]==0x3400 && sourceSanity[at+2]==0x3800 && sourceSanity[at+3]==0x3C00);std::printf("HDR source actual red %.8g expected 4\n",half_float(sourceSanity[at]));}
-        const float glass[4]={1,0,0.123f,0};f.mesh(DRAW_EFFECT_CLOAK,glass,true);auto values=f.half();
-        CHECK(values.size()==16*16*4);if(values.size()==16*16*4){const float red=half_float(values[(8*16+8)*4]);std::printf("HDR cloak actual red %.8g\n",red);CHECK(red>3.5f && red<3.6f);}f.end();
+        const float glass[4]={1,0,0.123f,CombinerShader_Pack_Stealth(20,STEALTH_FRONT_WIND,false,1.0f)};f.mesh(DRAW_EFFECT_CLOAK,glass,true);auto values=f.half();
+        CHECK(values.size()==16*16*4);if(values.size()==16*16*4){const float red=half_float(values[(8*16+8)*4]);std::printf("HDR cloak actual red %.8g\n",red);CHECK(red>3.89f && red<3.91f);}f.end();
         auto team=[&](bool enabled,bool marked,bool blend=false,bool reflection=false,unsigned fault=0) {
             f.begin(true,false,reflection);f.Device->Allow_Team_Glow(enabled);f.Device->Set_Team_Glow(marked);f.Device->Refuse_Next_Model_For_Test(fault);
             f.mesh(0,numbers,blend);f.Device->Set_Team_Glow(false);auto pixels=f.half();f.end();return pixels;

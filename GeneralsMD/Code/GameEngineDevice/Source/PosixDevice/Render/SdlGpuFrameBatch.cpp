@@ -22,6 +22,10 @@
 #include "SdlGpuFrame.h"
 #include "sdl3shadercompile.h"
 
+
+#include <limits>
+#include <cmath>
+#include <exception>
 #include <SDL3/SDL.h>
 
 #include <stdio.h>
@@ -89,6 +93,12 @@ void SdlGpuFrame::Queue_Buffer_Upload(SDL_GPUBuffer * buffer, uint32_t upload_of
 void SdlGpuFrame::Queue_Texture_Upload(SDL_GPUTexture * texture, unsigned int level, unsigned int width,
 	unsigned int height, uint32_t upload_offset)
 {
+	Queue_Texture_Upload(texture, level, width, height, upload_offset, level == 0);
+}
+
+void SdlGpuFrame::Queue_Texture_Upload(SDL_GPUTexture * texture, unsigned int level, unsigned int width,
+	unsigned int height, uint32_t upload_offset, bool cycle)
+{
 	Upload upload;
 	memset(&upload, 0, sizeof(upload));
 	upload.Texture = texture;
@@ -96,6 +106,7 @@ void SdlGpuFrame::Queue_Texture_Upload(SDL_GPUTexture * texture, unsigned int le
 	upload.Width = width;
 	upload.Height = height;
 	upload.Offset = upload_offset;
+	upload.CycleTexture = cycle;
 	Uploads.push_back(upload);
 }
 
@@ -414,8 +425,8 @@ bool SdlGpuFrame::Record_Batch(SDL_GPUCommandBuffer * commands)
 				region.w = upload.Width;
 				region.h = upload.Height;
 				region.d = 1;
-				// Level 0 cycles the texture; the levels after it follow into the same new one.
-				SDL_UploadToGPUTexture(copy, &source, &region, upload.Level == 0);
+				// Only a complete replacement may discard the old backing texture.
+				SDL_UploadToGPUTexture(copy, &source, &region, upload.CycleTexture);
 			}
 		}
 		SDL_EndGPUCopyPass(copy);
@@ -701,6 +712,9 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			}
 			SDL_BindGPUFragmentSamplers(pass, 0, bindings, draw.SamplerCount);
 		}
+		if(draw.VertexStorageCount && (last==nullptr || last->VertexStorageCount!=draw.VertexStorageCount ||
+			memcmp(last->VertexStorageBuffers,draw.VertexStorageBuffers,sizeof(draw.VertexStorageBuffers[0])*draw.VertexStorageCount)))
+			SDL_BindGPUVertexStorageBuffers(pass,0,draw.VertexStorageBuffers,draw.VertexStorageCount);
 		if (draw.VertexSamplerCount > 0 && (last == NULL || last->VertexSamplerCount != draw.VertexSamplerCount
 			|| memcmp(last->VertexTextures, draw.VertexTextures, sizeof(draw.VertexTextures[0]) * draw.VertexSamplerCount) != 0
 			|| memcmp(last->VertexSamplers, draw.VertexSamplers, sizeof(draw.VertexSamplers[0]) * draw.VertexSamplerCount) != 0)) {
@@ -739,7 +753,7 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			SDL_DrawGPUIndexedPrimitives(pass, draw.Count, 1, draw.First, draw.BaseVertex, 0);
 		}
 		else {
-			SDL_DrawGPUPrimitives(pass, draw.Count, 1, draw.First, 0);
+			SDL_DrawGPUPrimitives(pass, draw.Count, draw.InstanceCount ? draw.InstanceCount : 1, draw.First, 0);
 		}
 		if(modernWater) SDL_PopGPUDebugGroup(commands);
 		last = &draw;

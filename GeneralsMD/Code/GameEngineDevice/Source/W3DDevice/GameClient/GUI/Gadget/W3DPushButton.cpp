@@ -148,6 +148,55 @@ static void drawBadge( GameWindow *window, const UnicodeString &text, Real desig
 static void drawClassicKeyBadge( GameWindow *window, const UnicodeString &text, Color color );
 static DisplayString *badgeString( const UnicodeString &text, GameFont *font );
 
+/** The ready count's size, 1.8 times the Classic key letter's, before it is held to the button. */
+static const Real READY_COUNT_DESIGN_POINTS = 21.6f;
+
+/** A shortcut button's text that is all figures: a power button's ready count, not a key letter. */
+static Bool isReadyCount( const UnicodeString &text )
+{
+	if( text.getLength() == 0 )
+		return FALSE;
+	for( Int c = 0; c < text.getLength(); c++ )
+		if( text.getCharAt( c ) < (WideChar)'0' || text.getCharAt( c ) > (WideChar)'9' )
+			return FALSE;
+	return TRUE;
+}
+
+// drawReadyCountBadge ========================================================
+/** How many of a power's superweapons are ready, gold on the readout's dark plate in the button's
+	* top left corner: Arial bold at READY_COUNT_DESIGN_POINTS times the bar's scale, whatever font
+	* the button's window carries (the sidebar's code-made cells carry none and drew it in a serif),
+	* and a point smaller until it is no taller and no wider than three fifths of the button, so the
+	* picture still shows round it at every size the powers draw at. */
+//=============================================================================
+static void drawReadyCountBadge( GameWindow *window, const UnicodeString &text, Color color )
+{
+	IRegion2D cell;
+	ICoord2D size;
+	window->winGetScreenPosition( &cell.lo.x, &cell.lo.y );
+	window->winGetSize( &size.x, &size.y );
+	cell.hi.x = cell.lo.x + size.x;
+	cell.hi.y = cell.lo.y + size.y;
+
+	const Int points = max( REAL_TO_INT_FLOOR( READY_COUNT_DESIGN_POINTS * ControlBarHudScale() ), BADGE_LEAST_POINTS );
+	GameFont *font = TheFontLibrary->getFont( AsciiString( "Arial" ), points, TRUE );
+	DisplayString *badge = badgeString( text, font );
+	if( badge == NULL )
+		return;
+	Int w = 0, h = 0;
+	badge->getSize( &w, &h );
+	const Int roomW = size.x * 3 / 5, roomH = size.y * 3 / 5;
+	while( font != NULL && font->pointSize > BADGE_LEAST_POINTS && ( h > roomH || w > roomW ) )
+	{
+		font = TheFontLibrary->getFont( font->nameString, font->pointSize - 1, TRUE );
+		badge = badgeString( text, font );
+		if( badge == NULL )
+			return;
+		badge->getSize( &w, &h );
+	}
+	HudReadout_draw( badge, cell, HUD_READOUT_TOP_LEFT, color );
+}
+
 // drawButtonText =============================================================
 /** Draw button text to the screen */
 //=============================================================================
@@ -170,7 +219,8 @@ static void drawButtonText( GameWindow *window, WinInstanceData *instData )
 	text->setWordWrapCentered( BitTest( instData->getStatus(), WIN_STATUS_WRAP_CENTERED ));
 	text->setWordWrap(size.x);
 	// get the right text color
-	if( BitTest( window->winGetStatus(), WIN_STATUS_ENABLED ) == FALSE )
+	if( BitTest( window->winGetStatus(), WIN_STATUS_ENABLED ) == FALSE
+			|| BitTest( window->winGetStatus(), WIN_STATUS_DRAW_DISABLED ) )
 	{
 		textColor = window->winGetDisabledTextColor();
 		dropColor = window->winGetDisabledTextBorderColor();
@@ -191,8 +241,16 @@ static void drawButtonText( GameWindow *window, WinInstanceData *instData )
 	// can be pressed
 	if( BitTest( window->winGetStatus(), WIN_STATUS_SHORTCUT_BUTTON ) )
 	{
-		const Bool enabled = BitTest( window->winGetStatus(), WIN_STATUS_ENABLED );
+		const Bool enabled = BitTest( window->winGetStatus(), WIN_STATUS_ENABLED )
+			&& !BitTest( window->winGetStatus(), WIN_STATUS_DRAW_DISABLED );
 		const Color keyColor = enabled ? GameMakeColor( 255, 210, 60, 255 ) : textColor;
+		// a power button's ready count (ControlBar::setShortcutReadyCount), the only digits a shortcut
+		// button's text holds: the same gold, bigger than a key letter so it reads at a glance
+		if( isReadyCount( text->getText() ) )
+		{
+			drawReadyCountBadge( window, text->getText(), keyColor );
+			return;
+		}
 		// the Red Alert style layout's one badge, the size and place its tabs wear
 		GameFont *sidebarFont = Sidebar_keyFont();
 		if( sidebarFont != NULL )
@@ -656,7 +714,9 @@ void W3DGadgetPushButtonImageDrawOne( GameWindow *window,
 		if(BitTest( window->winGetStatus(), WIN_STATUS_USE_OVERLAY_STATES ) )
 		{	
 			//we're using a new drawing system which does "grayscale" disabled buttons using original color artwork.
-			if( !BitTest( window->winGetStatus(), WIN_STATUS_ENABLED ) )
+			// an enabled button marked DRAW_DISABLED is greyed the same way, it only keeps its clicks
+			if( !BitTest( window->winGetStatus(), WIN_STATUS_ENABLED )
+					|| BitTest( window->winGetStatus(), WIN_STATUS_DRAW_DISABLED ) )
 			{
 				if( !BitTest( window->winGetStatus(), WIN_STATUS_NOT_READY ) )
 				{

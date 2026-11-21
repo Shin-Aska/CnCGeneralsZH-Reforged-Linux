@@ -52,9 +52,9 @@
 class PosixBufferStorage;
 class PosixImage;
 class SdlGpuFrame;
+struct SdlGpuParticleTextureView;
 struct SDL_GPUBuffer;
 struct SDL_GPUTexture;
-struct SdlGpuParticleTextureView;
 
 /// How a level of `format` goes up: the SDL_GPUTextureFormat it is sampled as, and whether its bytes
 /// go up as they are (else they are expanded to B8G8R8A8).  `bc_ok` says whether the GPU samples BC

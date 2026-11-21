@@ -81,9 +81,10 @@ struct FittedLabel
 	Int points, wellW, wellH;
 };
 enum { FITTED_ALIGN_LEFT = -1, FITTED_ALIGN_CENTRE = 0, FITTED_ALIGN_RIGHT = 1 };
-/// draw text in a well, centred unless told, wrapped to its width when asked, shrunk a point at a time until it fits
+/// draw text in a well, centred unless told, wrapped to its width when asked, shrunk a point at a time until it fits;
+/// its black drop shadow at dropAlpha (below 255 only while a window fades in)
 void drawFittedLabel( FittedLabel &label, const UnicodeString &text, Int points, const IRegion2D &well, Color color,
-											Bool wrap, Int align = FITTED_ALIGN_CENTRE );
+											Bool wrap, Int align = FITTED_ALIGN_CENTRE, Int dropAlpha = 255 );
 
 enum ProductionID : Int;
 
@@ -966,6 +967,9 @@ public:
 	/// a press on one of the promotion window's talent plates: buys that card when logic says it can be
 	/// bought; FALSE when the window is no talent plate
 	Bool purchaseTalent( GameWindow *control );
+	/// one step of the promotion window's opening fade (WINFADE, GenExpFade): both panels, the tree and
+	/// the cameos as they will stand, at that alpha; FALSE when the window is not the promotion window
+	Bool drawFadingPurchaseScience( GameWindow *window, Int alpha );
 
 	/** What the promotion window's talent half draws, read off the watched player outside the render
 		* window (ControlBar::update's logic latch and populateTalents), so the draw, which runs while the
@@ -979,6 +983,7 @@ public:
 		Int state[ TALENT_SCIENCE_COUNT ];				///< 0 locked, 1 waiting, 2 picked, 3 rejected
 		Int rowState[ TALENT_VIEW_ROWS ];					///< the node: locked, waiting or picked
 		UnicodeString name[ TALENT_SCIENCE_COUNT ];
+		UnicodeString shortLine[ TALENT_SCIENCE_COUNT ];		///< SCIENCE:<card>Short, the gist under the name; empty where no language has one
 		UnicodeString numeral[ TALENT_VIEW_ROWS ];
 		UnicodeString caption, waitingLine, hint, rankLabel, rankText;
 	};
@@ -1057,6 +1062,10 @@ public:
 	void showSpecialPowerShortcutInstantly( Player *player );
 
 	void drawSpecialPowerShortcutMultiplierText();
+	/// `win`'s gold number: how many of `command`'s superweapons are ready, from two up, as retail showed it
+	void setShortcutReadyCount( GameWindow *win, const CommandButton *command ) const;
+	/// the sidebar's General key, shown only while there are points or a talent to spend (ControlBarSidebarLayout.cpp)
+	void updateSidebarGeneralKey( void );
 
 	Bool hasAnyShortcutSelection() const;
 
@@ -1270,7 +1279,6 @@ protected:
 	enum { POWER_TRAY_FOOT_Y = 790 };							///< at 1080, where the tray stands: the top of the general's tab
 	void powerTrayMetrics( const Image *const *tray, ICoord2D *origin, ICoord2D *cell,
 												 Int *left, Int *top, Int *foot, Int *bottom );	///< see arrangeSpecialPowerShortcutGrid
-	void arrangePowersWing( void );								///< the sidebar's: the powers flush on its left edge, level with the radar
 
 	void fitRadarToMap( Bool fromLayout );				///< the radar window, its frame and its blocker take the map's shape; see layoutPanels
 	Real m_radarFitWidth, m_radarFitHeight;				///< the map extent fitRadarToMap last fitted to
@@ -1472,8 +1480,7 @@ public:
 		IRegion2D cell;
 		Int edgeLeft, edgeTop, edgeBottom;
 		Int stepRight, stepBelow;
-		Int edgeRight;		///< the outer edge, only where the tray stops short of the screen's edge (the sidebar, a HudWidth area)
-		Bool wing;				///< the sidebar's powers wing: edgeRight is the joint against the sidebar, edgeTop the column's cap, edgeBottom its foot, the Sidebar_image pieces drawn
+		Int edgeRight;		///< the outer edge, only where the tray stops short of the screen's edge (a HudWidth area)
 	};
 protected:
 	TraySlot m_traySlot[ MAX_SPECIAL_POWER_SHORTCUTS ];

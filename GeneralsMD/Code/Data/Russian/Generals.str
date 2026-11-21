@@ -1210,7 +1210,51 @@ TOOLTIP:ProviderType
 END
 
 TOOLTIP:SpeakerType
-"Выберите конфигурацию динамиков"
+"Как звуки поля боя располагаются вокруг вас. В наушниках каждое ухо получает свою задержку и свой тембр, поэтому звук сзади или сбоку слышен именно оттуда. 5.1 и 7.1 распределяют их по колонкам объёмного звука; в Linux и macOS они звучат в стерео. Применяется после нажатия «Принять»."
+END
+
+GUI:OptionsGroupOutput
+"Вывод"
+END
+
+GUI:AudioDevice
+"Устройство вывода"
+END
+
+TOOLTIP:AudioDevice
+"Колонки или наушники, через которые играет звук игры. «По умолчанию» следует за Windows и переключается вместе с ней, когда вы подключаете гарнитуру. Применяется после нажатия «Принять»."
+END
+
+GUI:AudioDeviceDefault
+"По умолчанию"
+END
+
+GUI:SpeakerType
+"Тип динамиков"
+END
+
+GUI:SpeakerType0
+"Стереоколонки"
+END
+
+GUI:SpeakerType1
+"Наушники"
+END
+
+GUI:SpeakerType2
+"Объёмный 5.1"
+END
+
+GUI:SpeakerType3
+"Объёмный 7.1"
+END
+
+GUI:MuteInBackground
+"Без звука в фоне"
+END
+
+TOOLTIP:MuteInBackground
+"Выключает звук игры, пока активно другое окно. Если выключено, игру слышно и за браузером, и на втором мониторе."
 END
 
 TOOLTIP:LANPlayer
@@ -16373,6 +16417,14 @@ TOOLTIP:EmptyBuildingPips
 "Ряд пустых слотов над зданием, в котором никого нет, например десять над Сетью туннелей. Выключено: слоты видны, только когда внутри кто-то есть."
 END
 
+GUI:HitFlash
+"Вспышка попадания"
+END
+
+TOOLTIP:HitFlash
+"Юнит или здание, получившее урон, на миг вспыхивает красным, чтобы было видно, по чему стреляют."
+END
+
 GUI:ArchiveReplays
 "Архив повторов"
 END
@@ -16605,6 +16657,14 @@ GUI:SuperweaponsNone
 "Без супероружия"
 END
 
+GUI:StartShrouded
+"Скрытая карта"
+END
+
+TOOLTIP:StartShrouded
+"Карта начинается чёрной для каждого игрока. Местность, которую ваша сторона не видела, остаётся чёрной, пока туда не дойдёт ваш юнит, а экран загрузки не показывает стартовые точки. Если выключено, все начинают, видя всю карту под туманом, как всегда было в сетевой игре."
+END
+
 GUI:UnitLimit
 "Лимит юнитов"
 END
@@ -16675,6 +16735,10 @@ END
 
 TOOLTIP:GameSpeed
 "Скорость схватки. 1.0x — исходная игра и скорость игр по LAN, рейтинговых матчей и игр против ИИ, 1.5x — скорость онлайн-комнат. Меняется только темп."
+END
+
+TOOLTIP:RoomGameSpeed
+"Скорость матча, её выбирает хозяин комнаты. 1.0x — исходная игра и начальная скорость LAN-комнаты, 1.5x — онлайн-комнаты. Меняется только темп; рейтинговые матчи всегда идут на 1.0x."
 END
 
 GUI:GameSpeedMissions
@@ -17014,7 +17078,7 @@ GUI:HudLayout
 END
 
 GUI:HudLayout0
-"Классическое"
+"Reforged"
 END
 
 GUI:HudLayout1
@@ -17022,7 +17086,7 @@ GUI:HudLayout1
 END
 
 TOOLTIP:HudLayout
-"Классическое расположение оставляет командную панель внизу. Стиль Red Alert переносит строительство и обучение в боковую панель справа, а команды выбранных юнитов ставит в полосу внизу."
+"Reforged оставляет командную панель внизу со всем, что добавляет эта версия: вкладки строительства, сигнальные клавиши над мини-картой, список производства, список отрядов с лотком производства, кнопка героя, значки супероружия и способности генерала в лотке. Классическое показывает эту панель как в исходной игре, без всего этого: супероружие написано названием и временем, способности генерала стоят в один столбец снизу вверх у правого края. Стиль Red Alert переносит строительство и обучение в боковую панель справа, а команды выбранных юнитов ставит в полосу внизу."
 END
 
 GUI:HudWidth
@@ -18054,7 +18118,7 @@ CONTROLBAR:ConstructTurkiyeInfantryMehmetcik
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantryMehmetcik
-"Линейная пехота. Зачищает и удерживает здания."
+"Линейная пехота и первый ход: с группой корректировщиков и парой Cobra выигрывает первые минуты. Зачищает и удерживает здания."
 END
 
 OBJECT:TurkiyeInfantryEngineer
@@ -18081,6 +18145,10 @@ CONTROLBAR:ToolTipTurkiyeInfantrySungur
 "Ракетная пехота против танков и авиации."
 END
 
+CONTROLBAR:ToolTipTurkiyeInfantryAlpagu
+"Встаёт на колено, ставит дрон-камикадзе на землю и уводит его на 350, где тот падает на пехоту и лёгкую технику. Сам видит только на 200: дальше цель должен найти корректировщик или радарная вышка. Слаб против танков и зданий. Когда враг, которого видят ваши глаза, гибнет в пределах его досягаемости, 6 секунд запускает дроны в полтора раза быстрее. Рядом с Siper бьёт на десятую часть дальше."
+END
+
 OBJECT:TurkiyeInfantrySpotter
 "Группа корректировщиков"
 END
@@ -18090,7 +18158,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"Видит на 500 и почти не воюет. Прятаться не умеет, держите её вне досягаемости. Поставьте её на холм, и артиллерия за ней сможет стрелять."
+"Видит на 500 и почти не воюет. Дешёвая: потеря обходится недорого, так что берите две. Поставьте её на холм, и артиллерия за ней сможет стрелять."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -18174,7 +18242,7 @@ CONTROLBAR:ConstructTurkiyeVehicleFirtina
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleFirtina
-"Стреляет тяжёлым снарядом с большим радиусом взрыва на 600 и видит на 100: для наведения нужен корректировщик, БПЛА или радарная вышка."
+"Орудие середины игры. Стреляет тяжёлым снарядом с большим радиусом взрыва на 600 и видит на 100: для наведения нужна группа корректировщиков или Bayraktar, для попадания - Siper или радар рядом с целью. Когда враг, которого видят ваши глаза, гибнет в пределах её досягаемости, 6 секунд стреляет в полтора раза быстрее и точно в цель. Рядом с Siper бьёт на десятую часть дальше."
 END
 
 OBJECT:TurkiyeVehicleSakarya
@@ -18186,7 +18254,7 @@ CONTROLBAR:ConstructTurkiyeVehicleSakarya
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleSakarya
-"Выпускает залп из шести ракет по большой площади на 500, затем перезаряжается 12 секунд. Нужен корректировщик."
+"Выпускает залп из шести ракет по большой площади на 500, затем перезаряжается 14 секунд. Нужен корректировщик. Когда враг, которого видят ваши глаза, гибнет в пределах её досягаемости, 6 секунд перезаряжается в полтора раза быстрее и кладёт ракеты точно в цель. Рядом с Siper бьёт на десятую часть дальше."
 END
 
 OBJECT:TurkiyeTankKoral
@@ -18198,7 +18266,7 @@ CONTROLBAR:ConstructTurkiyeTankKoral
 END
 
 CONTROLBAR:ToolTipTurkiyeTankKoral
-"Машина радиоэлектронной борьбы: её луч отключает вражеские здания с 400."
+"Машина радиоэлектронной борьбы: вражеские дроны и корректировщики в радиусе 400 слепнут, управляемые ракеты теряют захват, а её луч отключает вражеские здания с 400."
 END
 
 OBJECT:TurkiyeVehicleBayraktar
@@ -18210,7 +18278,7 @@ CONTROLBAR:ConstructTurkiyeVehicleBayraktar
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleBayraktar
-"Зависает там, куда его послали, и видит на 550: лучший глаз артиллерии. Лёгкие боеприпасы."
+"Зависает там, куда его послали, видит на 550 и несёт собственный радарный круг в 450: одного его артиллерии хватает, чтобы навестись и попасть. Лёгкие боеприпасы."
 END
 
 OBJECT:TurkiyeVehicleGokbey
@@ -18258,7 +18326,7 @@ CONTROLBAR:ConstructTurkiyeRadarTower
 END
 
 CONTROLBAR:ToolTipTurkiyeRadarTower
-"Неподвижный глаз: видит на 500 для артиллерии. Потребляет энергию. Мишень."
+"Дальний радар базы: видит на 500 и держит радарный захват на 1000 вокруг. Исследует «Классификацию целей» и открывает оператора Alpagu. Потребляет энергию."
 END
 
 OBJECT:TurkiyeSiper
@@ -18270,7 +18338,7 @@ CONTROLBAR:ConstructTurkiyeSiper
 END
 
 CONTROLBAR:ToolTipTurkiyeSiper
-"Окопный бункер на пять пехотинцев, роется там, где стоят инженеры. Mehmetcik внутри отбиваются от пехоты, ракетчики Sungur - от танков."
+"Окопный бункер на пять пехотинцев, роется там, где стоят инженеры, и передовой радарный пост: радарный захват на 400 вокруг. Ройте его перед линией Firtina. Mehmetcik внутри отбиваются от пехоты, ракетчики Sungur - от танков. Firtina, Sakarya и Alpagu в радиусе 400 от него бьют на десятую часть дальше."
 END
 
 OBJECT:TurkiyeLandMine
@@ -18406,7 +18474,7 @@ SCIENCE:TurkiyeEarlyWarning
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceEarlyWarning
-"Каждый радар Турции бьёт на четверть дальше: Штаб, радарная вышка, Koral, Akinci и мобильный радар."
+"Каждый радар Турции бьёт на четверть дальше: Штаб, радарная вышка, Siper, Bayraktar и Akinci."
 END
 
 UPGRADE:TurkiyeEarlyWarning
@@ -18434,11 +18502,11 @@ GUI:HudReconSiha
 END
 
 SCIENCE:TurkiyeMobileRadar
-"Мобильный радар"
+"Передовой радар"
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceMobileRadar
-"Завод выпускает мобильный радар: радарный грузовик, который охватывает 900 вокруг себя, пока стоит."
+"Радарный круг каждого Siper становится в полтора раза шире: с 400 до 600."
 END
 
 OBJECT:TurkiyeVehicleMobileRadar
@@ -18585,6 +18653,106 @@ CONTROLBAR:ToolTipUpgradeTurkiyeSiperReinforced
 "Бетон и перекрытие: каждый Siper выдерживает в полтора раза больше."
 END
 
+UPGRADE:TurkiyeMpt76
+"Винтовки MPT-76"
+END
+
+CONTROLBAR:UpgradeTurkiyeMpt76
+"&Винтовки MPT-76"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeMpt76
+"Стрелки Mehmetcik получают 7,62-мм MPT-76: 11 урона за выстрел вместо 8 и дальность 150 вместо 120."
+END
+
+UPGRADE:TurkiyeCbrn
+"Комплект РХБЗ"
+END
+
+CONTROLBAR:UpgradeTurkiyeCbrn
+"Комплект &РХБЗ"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeCbrn
+"Защитные костюмы и противогазы для Mehmetcik, Sungur, Alpagu, групп корректировщиков и Maroon Beret: токсины, радиация и сибирская язва им нипочём."
+END
+
+UPGRADE:TurkiyeSelfProtection
+"Комплекс самозащиты"
+END
+
+CONTROLBAR:UpgradeTurkiyeSelfProtection
+"Комплекс &самозащиты"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeSelfProtection
+"Bayraktar, Akinci и Kizilelma несут ложные тепловые цели и дополнительную броню. Ловушки уводят три ракеты из десяти."
+END
+
+UPGRADE:TurkiyeFortification
+"Фортификация"
+END
+
+CONTROLBAR:UpgradeTurkiyeFortification
+"&Фортификация"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeFortification
+"Каждое здание базы и каждая батарея Hisar выдерживают на четверть больше урона."
+END
+
+UPGRADE:TurkiyeExportContracts
+"Экспортные контракты"
+END
+
+CONTROLBAR:UpgradeTurkiyeExportContracts
+"&Экспортные контракты"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeExportContracts
+"Иностранные покупатели для продукции заводов. Каждый Центр снабжения платит 30 каждые 2 секунды вместо 20, каждый Капалычарши - 35."
+END
+
+UPGRADE:TurkiyeWarheads
+"Отечественные боеголовки"
+END
+
+CONTROLBAR:UpgradeTurkiyeWarheads
+"&Отечественные боеголовки"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeWarheads
+"Боеголовки турецкого производства: на четверть больше урона у Firtina, Sakarya, пушки Altay, ракет Alpagu и Sungur, боеприпасов Bayraktar, бомбы Akinci и ракет Kizilelma."
+END
+
+UPGRADE:TurkiyeAltaySarp
+"Боевой модуль SARP"
+END
+
+CONTROLBAR:UpgradeTurkiyeAltaySarp
+"Боевой модуль SA&RP"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeAltaySarp
+"Этот Altay получает на башню дистанционный 12,7-мм пулемёт против пехоты. Основная пушка остаётся для техники."
+END
+
+UPGRADE:TurkiyeKirpiRepairKit
+"Полевой ремкомплект"
+END
+
+CONTROLBAR:UpgradeTurkiyeKirpiRepairKit
+"Полевой &ремкомплект"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeKirpiRepairKit
+"Этот Kirpi везёт ремонтную бригаду: техника в радиусе 150 восстанавливает 10 здоровья в секунду."
+END
+
+UPGRADE:TurkiyeForwardRadar
+"Передовой радар"
+END
+
 UPGRADE:TurkiyeThermal
 "Тепловизоры"
 END
@@ -18682,7 +18850,7 @@ CONTROLBAR:ConstructTurkiyeKapalicarsi
 END
 
 CONTROLBAR:ToolTipTurkiyeKapalicarsi
-"Чёрный рынок Турции. Платит 20 каждые 2 секунды и продаёт Контрмеры для Bayraktar, Akinci и Kizilelma и Обувь рабочих для инженеров. \n \n Требуется: Завод"
+"Рынок Турции и её экономическое здание. Платит 20 каждые 2 секунды и продаёт Экспортные контракты, которые повышают доход каждого Центра снабжения и каждого Капалычарши. \n \n Требуется: Завод"
 END
 
 OBJECT:TurkiyeKarguBase
@@ -18827,4 +18995,108 @@ END
 
 CONTROLBAR:ToolTipEvacuateAt
 "Отправиться в выбранную точку и приказать всем юнитам выйти\nAlt: высадить здесь"
+END
+
+GUI:SlotEasyAI
+"Лёгкий ИИ"
+END
+
+GUI:SlotMediumAI
+"Средний ИИ"
+END
+
+GUI:SlotHardAI
+"Сложный ИИ"
+END
+
+GUI:SlotBrutalAI
+"Жестокий ИИ"
+END
+
+GUI:SlotViciousAI
+"Свирепый ИИ"
+END
+
+GUI:SlotSavageAI
+"Дикий ИИ"
+END
+
+GUI:SlotInsaneAI
+"Безумный ИИ"
+END
+
+GUI:HudLayout2
+"Классическое"
+END
+
+Network:WaitingForReconnect
+"Ожидание переподключения %ls (%d:%02d)"
+END
+
+Network:PlayerLostConnection
+"%ls потерял соединение"
+END
+
+Network:PlayerIsBack
+"%ls вернулся"
+END
+
+Network:BackInMatch
+"Снова в игре"
+END
+
+GUI:OnlineRejoinTitle
+"Твой матч ещё идёт"
+END
+
+GUI:OnlineRejoinCustom
+"Своя игра"
+END
+
+GUI:OnlineRejoinElapsed
+"Идёт %d:%02d"
+END
+
+GUI:OnlineRejoinPlaying
+"В игре"
+END
+
+GUI:OnlineRejoinAway
+"Отключён"
+END
+
+GUI:OnlineRejoin
+"Вернуться"
+END
+
+GUI:OnlineRejoinExplain
+"Остальные играют дальше. Твоя армия там, где ты её оставил."
+END
+
+GUI:OnlineRejoinWaiting
+"Запрос к серверу..."
+END
+
+GUI:OnlineRejoinRefusedCrc
+"Матч начат на другой версии игры, с этой в него не вернуться."
+END
+
+GUI:OnlineRejoinRefusedRelay
+"Соединение с ретранслятором ещё не готово. Попробуй через пару секунд."
+END
+
+GUI:OnlineRejoinRefused
+"В этот матч уже не вернуться."
+END
+
+GUI:RejoinAwayForfeit
+"%ls вышел из игры. Если он не вернётся, через %d:%02d победа твоя."
+END
+
+GUI:RejoinCatchingUp
+"Возвращение в матч %d%%"
+END
+
+GUI:RejoinWaitingForLog
+"Ожидание записи матча"
 END

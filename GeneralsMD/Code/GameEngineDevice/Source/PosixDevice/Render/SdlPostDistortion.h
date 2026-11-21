@@ -37,7 +37,8 @@ public:
     // bends it into output. Never samples the active destination or touches depth.
     // Output alpha is preserved; original RGB formulas and border settling are unchanged.
     bool Apply_Blast_Warp(SdlGpuFrame &frame, const SdlTarget &scene, const SdlTarget &output);
-    // Heat records are the existing DX11 four-float4 layout (limit2048), copied
+    // Heat records retain the DX11 four-float4 layout (limit2048), supplied as
+    // native instance vertex attributes rather than a later storage subsystem. Copied
     // at Prepare. Caller applies user-chain eligibility even for neutral COPY
     // scenes owned by another consumer. Count0 clears heat without affecting blast.
     bool Prepare_Heat(SdlGpuFrame &frame, const SdlPostProcess &post, const SdlTarget &scene,
@@ -46,6 +47,8 @@ public:
     // supplied readonly to final-chain AO. Every attempt consumes heat records.
     // Composite preserves current scene alpha/depth and snapshots its own colour.
     bool Apply_Heat(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &beforePost);
+    enum class TestFailure { None, Program, Pipeline, Buffer, Target, TargetAfterOne, Record };
+    void Set_Failure_For_Test(TestFailure failure);
     void Abandon();
     // Retains all resources on failed submission with queued CPU readers.
     // Release before destroying the owning frame; it must outlive this module.

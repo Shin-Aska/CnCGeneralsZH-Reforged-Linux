@@ -87,6 +87,8 @@ static FileWriteQueue theReplayQueue;
 	 and playback) clears it, so a skirmish, a LAN game or a replay watched later never goes out under it. */
 static std::string theOnlineMatch;
 
+static void finishReplayCRCs(CRCInfo *crcInfo);
+
 template <typename T> static void replayWrite(const T &value)
 {
 	theReplayQueue.write(&value, sizeof(value));
@@ -424,6 +426,10 @@ RecorderClass::RecorderClass()
 	// handleCRCMessage read whatever was on the heap if a CRC arrived first.
 	//
 	m_crcInfo = NULL;
+	m_rejoinFile = NULL;
+	m_rejoinNextFrame = (UnsignedInt)-1;
+	m_rejoinReadPos = 0;
+	m_rejoinGameSpeed = 0;
 
 	init(); // just for the heck of it.
 }
@@ -432,6 +438,7 @@ RecorderClass::RecorderClass()
  * Destructor
  */
 RecorderClass::~RecorderClass() {
+	closeRejoinFeed();
 	delete m_crcInfo;
 	m_crcInfo = NULL;
 }
@@ -475,6 +482,7 @@ void RecorderClass::reset() {
 	m_fileName.clear();
 
 	// the playback that owned it is over; playbackFile makes a fresh one for the next
+	finishReplayCRCs(m_crcInfo);
 	delete m_crcInfo;
 	m_crcInfo = NULL;
 
@@ -589,6 +597,15 @@ void RecorderClass::updateRecord()
 			}
 		}
 		msg = msg->next();
+	}
+
+	/* How many frames the file holds whole, rewritten after every frame of a network game: a seat that
+		 lost its game comes back by playing the file up to here (-rejoin, Network::startRejoin), and a seat
+		 that waits on it stands on exactly this frame.  logGameEnd writes the match's length over it. */
+	if (m_file != NULL && TheNetwork != NULL && m_mode == RECORDERMODETYPE_RECORD)
+	{
+		const UnsignedInt held = TheGameLogic->getFrame() + 1;
+		theReplayQueue.writeAt(framesOffset, &held, sizeof(held));
 	}
 }
 
@@ -1103,12 +1120,65 @@ UnsignedInt CRCInfo::readCRCFor(UnsignedInt recorded)
 	return readCRC();
 }
 
+/// compare one recorded CRC with the front of the computed queue
+static void compareReplayCRC(CRCInfo *crcInfo, UnsignedInt newCRC)
+{
+	const Bool aligning = (crcInfo->getAlignment() == CRCInfo::ALIGN_PENDING);
+	UnsignedInt playbackCRC = crcInfo->readCRCFor(newCRC);
+	if (aligning)
+	{
+		// say which kind of recording this was, so a reader of the log can tell (Recorder.h)
+		const CRCInfo::Alignment how = crcInfo->getAlignment();
+		DEBUG_LOG(("Replay CRCs: %s\n", how == CRCInfo::ALIGN_FROM_FRAME_0 ? "recorded from frame 0"
+			: how == CRCInfo::ALIGN_FRAME_0_MISSING ? "legacy: frame 0 missing"
+			: "neither alignment fits the first recorded CRC"));
+	}
+	//DEBUG_LOG(("RecorderClass::handleCRCMessage() - Comparing CRCs of %8.8X/%8.8X\n", newCRC, playbackCRC));
+	if (TheGameLogic->getFrame() > 0 && newCRC != playbackCRC && !crcInfo->sawCRCMismatch())
+	{
+		crcInfo->setSawCRCMismatch();
+
+		/* The DEBUG_CRASH below is compiled out of a release build, so a replay that played back a
+			 different game than the one that was recorded used to do it in complete silence.  Say so in
+			 the log, which release builds do write. */
+		DEBUG_LOG(("Replay has gone out of sync on frame %d: recorded %8.8X, played back %8.8X\n",
+			TheGameLogic->getFrame(), newCRC, playbackCRC));
+
+		//Kris: Patch 1.01 November 10, 2003 (integrated changes from Matt Campbell)
+		// Since we don't seem to have any *visible* desyncs when replaying games, but get this warning
+		// virtually every replay, the assumption is our CRC checking is faulty.  Since we're at the
+		// tail end of patch season, let's just disable the message, and hope the users believe the
+		// problem is fixed. -MDC 3/20/2003
+		//TheInGameUI->message("GUI:CRCMismatch");
+		DEBUG_CRASH(("Replay has gone out of sync!  All bets are off!\nRecorded:%8.8X Played back:%8.8X\nFrame:%d",
+			newCRC, playbackCRC, TheGameLogic->getFrame()));
+	}
+}
+
+/** A playback is over: compare what parked CRCs now have a partner and say how many never got one,
+	* which a playback that stopped short of its recording leaves and nothing else reports. */
+static void finishReplayCRCs(CRCInfo *crcInfo)
+{
+	if (crcInfo == NULL)
+		return;
+	UnsignedInt parked;
+	while (TheGameLogic != NULL && crcInfo->takeParkedRecorded(parked))
+		compareReplayCRC(crcInfo, parked);
+	if (crcInfo->parkedRecordedCount() > 0)
+		DEBUG_LOG(("Replay CRCs: %d recorded CRCs never compared, no computed CRC came for them\n",
+			crcInfo->parkedRecordedCount()));
+}
+
 void RecorderClass::handleCRCMessage(UnsignedInt newCRC, Int playerIndex, Bool fromPlayback)
 {
 	if (fromPlayback)
 	{
 		//DEBUG_LOG(("RecorderClass::handleCRCMessage() - Adding CRC of %X from %d to m_crcInfo\n", newCRC, playerIndex));
 		m_crcInfo->addCRC(newCRC);
+		// a recorded CRC that got here first is compared now (CRCInfo::mustParkRecorded)
+		UnsignedInt parked;
+		while (m_crcInfo->takeParkedRecorded(parked))
+			compareReplayCRC(m_crcInfo, parked);
 		return;
 	}
 
@@ -1121,36 +1191,13 @@ void RecorderClass::handleCRCMessage(UnsignedInt newCRC, Int playerIndex, Bool f
 		samePlayer = TRUE;
 	if (samePlayer || (localPlayerIndex < 0))
 	{
-		const Bool aligning = (m_crcInfo->getAlignment() == CRCInfo::ALIGN_PENDING);
-		UnsignedInt playbackCRC = m_crcInfo->readCRCFor(newCRC);
-		if (aligning)
-		{
-			// say which kind of recording this was, so a reader of the log can tell (Recorder.h)
-			const CRCInfo::Alignment how = m_crcInfo->getAlignment();
-			DEBUG_LOG(("Replay CRCs: %s\n", how == CRCInfo::ALIGN_FROM_FRAME_0 ? "recorded from frame 0"
-				: how == CRCInfo::ALIGN_FRAME_0_MISSING ? "legacy: frame 0 missing"
-				: "neither alignment fits the first recorded CRC"));
-		}
-		//DEBUG_LOG(("RecorderClass::handleCRCMessage() - Comparing CRCs of %8.8X/%8.8X from %d\n", newCRC, playbackCRC, playerIndex));
-		if (TheGameLogic->getFrame() > 0 && newCRC != playbackCRC && !m_crcInfo->sawCRCMismatch())
-		{
-			m_crcInfo->setSawCRCMismatch();
-
-			/* The DEBUG_CRASH below is compiled out of a release build, so a replay that played back a
-				 different game than the one that was recorded used to do it in complete silence.  Say so in
-				 the log, which release builds do write. */
-			DEBUG_LOG(("Replay has gone out of sync on frame %d: recorded %8.8X, played back %8.8X\n",
-				TheGameLogic->getFrame(), newCRC, playbackCRC));
-
-			//Kris: Patch 1.01 November 10, 2003 (integrated changes from Matt Campbell)
-			// Since we don't seem to have any *visible* desyncs when replaying games, but get this warning
-			// virtually every replay, the assumption is our CRC checking is faulty.  Since we're at the
-			// tail end of patch season, let's just disable the message, and hope the users believe the
-			// problem is fixed. -MDC 3/20/2003
-			//TheInGameUI->message("GUI:CRCMismatch");
-			DEBUG_CRASH(("Replay has gone out of sync!  All bets are off!\nRecorded:%8.8X Played back:%8.8X\nFrame:%d",
-				newCRC, playbackCRC, TheGameLogic->getFrame()));
-		}
+		/* Its computed CRC may still be on the message stream: a pass that ran two frames had no client
+			 pass between them.  Compared against the empty queue it read 0, set the one-shot flag on a
+			 false mismatch and left the two streams a step apart for the rest of the playback. */
+		if (m_crcInfo->mustParkRecorded())
+			m_crcInfo->parkRecorded(newCRC);
+		else
+			compareReplayCRC(m_crcInfo, newCRC);
 		return;
 	}
 
@@ -1346,6 +1393,7 @@ Bool RecorderClass::openPlayback(AsciiString filename, Int &difficulty, Int &ran
 	}
 #endif
 
+	finishReplayCRCs(m_crcInfo);
 	delete m_crcInfo;		// a replay started without a reset in between would leak the last one
 	m_crcInfo = NEW CRCInfo;
 	m_crcInfo->setLocalPlayer(header.localPlayerIndex);
@@ -1365,6 +1413,218 @@ Bool RecorderClass::openPlayback(AsciiString filename, Int &difficulty, Int &ran
 
 	m_currentReplayFilename = filename;
 	return TRUE;
+}
+
+/// the slot list and options of the network match under way, as startRecording writes them
+static AsciiString thisMatchOptions( void )
+{
+	if (TheLAN != NULL && TheLAN->GetMyGame() != NULL)
+		return GameInfoToReplayString( TheLAN->GetMyGame() );
+	if (TheGameSpyGame != NULL)
+		return GameInfoToReplayString( TheGameSpyGame );
+	return AsciiString::TheEmptyString;
+}
+
+/// The match as it stands before its start draws the random sides, colours and start spots, which is how
+/// every seat recorded it: a replay that arrives once the match has loaded is held against this.
+void RecorderClass::noteRejoinMatch( void )
+{
+	m_rejoinMatch = thisMatchOptions();
+}
+
+/// the options with the map contents mask after "M=" taken out: it is filled in as the map loads, which the
+/// recording seat had done and the seat coming back has not
+static std::string withoutMapContents( const AsciiString &options )
+{
+	std::string text( options.str() );
+	const size_t at = text.find( "M=" );
+	if (at != std::string::npos && (at == 0 || text[at - 1] == ';') && at + 4 <= text.size())
+		text.erase( at + 2, 2 );
+	return text;
+}
+
+/**
+ * -rejoin.  A copy whose game closed in the middle of a network match comes back by starting the match
+ * as it started the first time, playing it from the replay a seat still in it keeps writing up to the
+ * frame that seat stands on, and joining the network there (Network::startRejoin).  The file is read
+ * beside our own recording, whose FILE is m_file then, and the readers below read m_file, so every read
+ * borrows m_file for the feed's file and hands it back.  Nothing else touches m_file meanwhile: the feed
+ * runs in Network::update, which never runs beside a tick.
+ *
+ * The header is read the way readReplayHeader reads it.  A file of another build or other data is
+ * refused here, before a frame is played: its commands would play another game.
+ */
+void RecorderClass::flushRecording( void )
+{
+	if (m_file != NULL && m_mode == RECORDERMODETYPE_RECORD)
+		theReplayQueue.flush();
+}
+
+AsciiString RecorderClass::getRecordingPath( void )
+{
+	AsciiString path;
+	if (m_file != NULL && m_mode == RECORDERMODETYPE_RECORD && m_fileName.isNotEmpty())
+		path.format("%s%s", getReplayDir().str(), m_fileName.str());
+	return path;
+}
+
+Bool RecorderClass::openRejoinFeed( AsciiString path, UnsignedInt &framesHeld, Bool checkMatch )
+{
+	closeRejoinFeed();
+	FILE *file = zh_fopen( path.str(), "rb" );
+	if (file == NULL)
+	{
+		DEBUG_LOG(("REJOIN: cannot open '%s'\n", path.str()));
+		return FALSE;
+	}
+
+	FILE *recording = m_file;
+	m_file = file;
+
+	char genrep[6] = { 0 };
+	time_t startTime = 0;
+	time_t endTime = 0;
+	UnsignedInt frames = 0;
+	Bool flags[2 + MAX_SLOTS];		// desync, quit early, a disconnect per slot
+	WallClockTime when;
+	UnsignedInt versionNumber = 0;
+	UnsignedInt exeCRC = 0;
+	UnsignedInt iniCRC = 0;
+	Int difficulty = 0;
+	Int gameMode = GAME_NONE;
+	Int rankPoints = 0;
+	Int maxFPS = 0;
+	AsciiString options;
+	Bool ok = fread(genrep, 1, 6, file) == 6 && strncmp(genrep, "GENREP", 6) == 0
+		&& fread(&startTime, sizeof(startTime), 1, file) == 1
+		&& fread(&endTime, sizeof(endTime), 1, file) == 1
+		&& fread(&frames, sizeof(frames), 1, file) == 1
+		&& fread(flags, sizeof(Bool), 2 + MAX_SLOTS, file) == 2 + MAX_SLOTS;
+	if (ok)
+	{
+		readUnicodeString();		// the replay's name
+		ok = fread(&when, sizeof(when), 1, file) == 1;
+		readUnicodeString();		// the version
+		readUnicodeString();		// and its build time
+		ok = ok && fread(&versionNumber, sizeof(versionNumber), 1, file) == 1
+			&& fread(&exeCRC, sizeof(exeCRC), 1, file) == 1
+			&& fread(&iniCRC, sizeof(iniCRC), 1, file) == 1;
+	}
+	if (ok)
+	{
+		options = readAsciiString();
+		readAsciiString();		// the slot it was recorded in, which is not ours
+		ok = fread(&difficulty, sizeof(difficulty), 1, file) == 1
+			&& fread(&gameMode, sizeof(gameMode), 1, file) == 1
+			&& fread(&rankPoints, sizeof(rankPoints), 1, file) == 1
+			&& fread(&maxFPS, sizeof(maxFPS), 1, file) == 1;
+	}
+	m_file = recording;
+
+	const Int speed = takeReplayGameSpeed( options );
+	const Int rate = takeReplayLogicRate( options );
+	const char *refusal = NULL;
+	if (!ok)
+		refusal = "the header is cut short";
+	else if (gameMode != GAME_LAN && gameMode != GAME_INTERNET)
+		refusal = "it is no network game";
+	else if (exeCRC != TheGlobalData->m_exeCRC)
+		refusal = "another build recorded it";
+	else if (iniCRC != TheGlobalData->m_iniCRC)
+		refusal = "it was played on other data";
+	else if (rate != LOGICFRAMES_PER_SECOND || !GameSpeed_isAllowed( speed ))
+		refusal = "another logic rate or no game speed";
+	if (refusal != NULL)
+	{
+		DEBUG_LOG(("REJOIN: refused '%s': %s (exe 0x%08X here 0x%08X, ini 0x%08X here 0x%08X, mode %d, %d Hz)\n",
+			path.str(), refusal, exeCRC, TheGlobalData->m_exeCRC, iniCRC, TheGlobalData->m_iniCRC, gameMode, rate));
+		fclose(file);
+		return FALSE;
+	}
+
+	/* The match it records has to be this one: the same slot list, seed, map and options, which a
+		 -netgame line that differs in -seed, -side, -teams or -netai would not give. */
+	const AsciiString expected = m_rejoinMatch.isNotEmpty() ? m_rejoinMatch : thisMatchOptions();
+	if (checkMatch && withoutMapContents( expected ) != withoutMapContents( options ))
+	{
+		DEBUG_LOG(("REJOIN: refused '%s': it records another match\n  recorded %s\n  this one %s\n",
+			path.str(), options.str(), expected.str()));
+		fclose(file);
+		return FALSE;
+	}
+
+	m_rejoinFile = file;
+	m_rejoinOptions = options;
+	m_rejoinGameSpeed = speed;
+	readRejoinNextFrame();
+	framesHeld = frames;
+	DEBUG_LOG(("REJOIN: '%s' holds frames 0 to %u of a mode %d match at game speed %d, first command on frame %d, options %s\n",
+		path.str(), frames - 1, gameMode, speed, (Int)m_rejoinNextFrame, options.str()));
+	return TRUE;
+}
+
+/// the frame number in front of the next command, or -1 at the end of what is on disk so far; a read
+/// that ran into the end goes back to where it started, for rejoinFramesHeld to try again
+void RecorderClass::readRejoinNextFrame( void )
+{
+	m_rejoinReadPos = ftell(m_rejoinFile);
+	if (fread(&m_rejoinNextFrame, sizeof(m_rejoinNextFrame), 1, m_rejoinFile) != 1)
+	{
+		m_rejoinNextFrame = (UnsignedInt)-1;
+		fseek(m_rejoinFile, m_rejoinReadPos, SEEK_SET);
+	}
+}
+
+Bool RecorderClass::feedRejoinFrame( UnsignedInt frame )
+{
+	if (m_rejoinFile == NULL)
+		return FALSE;
+	if (m_rejoinNextFrame < frame)
+	{
+		// the file is written in frame order, so this is a damaged file or a frame we skipped: either way
+		// the game played here is no longer the recorded one
+		DEBUG_LOG(("REJOIN: a recorded command on frame %u was not played, the feed is on frame %u\n", m_rejoinNextFrame, frame));
+		closeRejoinFeed();
+		return FALSE;
+	}
+
+	FILE *recording = m_file;
+	m_file = m_rejoinFile;
+	while (m_rejoinNextFrame == frame)
+	{
+		appendNextCommand();
+		readRejoinNextFrame();
+	}
+	m_file = recording;
+	return TRUE;
+}
+
+/**
+ * The header's count again.  The seat writing the file goes on for up to a run-ahead after the lost seat
+ * stops sending, and its writer puts the file on disk about once a second, so the count read at the start
+ * can be short of the frame that seat ends up standing on.  The commands written since are picked up too.
+ */
+UnsignedInt RecorderClass::rejoinFramesHeld( void )
+{
+	if (m_rejoinFile == NULL)
+		return 0;
+	UnsignedInt frames = 0;
+	const long at = ftell(m_rejoinFile);
+	fseek(m_rejoinFile, framesOffset, SEEK_SET);
+	if (fread(&frames, sizeof(frames), 1, m_rejoinFile) != 1)
+		frames = 0;
+	fseek(m_rejoinFile, at, SEEK_SET);
+	if (m_rejoinNextFrame == (UnsignedInt)-1)
+		readRejoinNextFrame();
+	return frames;
+}
+
+void RecorderClass::closeRejoinFeed( void )
+{
+	if (m_rejoinFile != NULL)
+		fclose(m_rejoinFile);
+	m_rejoinFile = NULL;
+	m_rejoinNextFrame = (UnsignedInt)-1;
 }
 
 /**

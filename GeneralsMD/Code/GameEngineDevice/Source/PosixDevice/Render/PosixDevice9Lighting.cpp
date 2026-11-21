@@ -173,3 +173,8 @@ void AllowTeamGlow(IDirect3DDevice9 *d,bool b) { if(d) native(d)->Allow_Team_Glo
 void SetEnvironments(IDirect3DDevice9 *d,const VertexEnvironment &full,const VertexEnvironment *alternate)
 { if(d) native(d)->Set_Light_Environments(full,alternate); }
 }
+
+bool PosixPerPixelLightingAvailable(IDirect3DDevice9 *device)
+{ return device && static_cast<PosixDevice9 *>(device)->Get_Gpu(); }
+bool PosixHemisphericAmbientAvailable(IDirect3DDevice9 *device)
+{ return device && static_cast<PosixDevice9 *>(device)->Get_Gpu(); }

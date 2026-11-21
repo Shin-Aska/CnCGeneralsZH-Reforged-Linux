@@ -1,7 +1,7 @@
-// The shared heat formulas run through real storage, half-float splats and scene
+// The shared heat formulas run through instance records, half-float splats and scene
 // composite. No engine capture, water snapshot or particle producer is mocked in.
 #include "SdlPostDistortion.h"
-#include "sdl3storage.h"
+#include "sdl3shadercompile.h"
 #include "dx11runtime.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -17,14 +17,13 @@ static unsigned checks=0,failures=0;
 using Splat=std::array<float,DIRECT3D11_HEAT_SPLAT_FLOATS>;
 static void cpu()
 {
-    std::string source,error,msl;std::vector<unsigned char> spirv;SDL3_StorageLayout layout;
-    CHECK(Sdl_Post_Heat_Vertex_Source(source));CHECK(source.find("Buffer<float4> Splats : register(t0, space0)")!=std::string::npos);
+    std::string source,error,msl;std::vector<unsigned char> spirv;
+    CHECK(Sdl_Post_Heat_Vertex_Source(source));CHECK(source.find("HeatRecord record")!=std::string::npos);
     CHECK(source.find("Splats.Load")==std::string::npos);
-    CHECK(SDL3_Compile_HLSL_To_SPIRV(source,SDL3_ShaderStage::Vertex,spirv,error));
-    CHECK(SDL3_Reflect_Storage_SPIRV(spirv,SDL3_ShaderStage::Vertex,layout,error));
-    CHECK(layout.ReadOnlyBuffers==1 && layout.SampledTextures==0 && layout.UniformBuffers==0);
-    bool stride=false;for(const auto &binding:layout.Bindings)if(binding.Kind==SDL3_StorageKind::ReadOnlyBuffer)stride=binding.ElementStride==16;
-    CHECK(stride);CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,SDL3_ShaderStage::Vertex,msl,error));CHECK(!msl.empty());
+    CHECK(SDL3_Compile_HLSL_To_SPIRV(source,true,spirv,error));
+    unsigned vertexSamplers=0,vertexUniforms=0;SDL3_Shader_Slots(spirv,true,vertexSamplers,vertexUniforms);
+    CHECK(vertexSamplers==0 && vertexUniforms==0);
+    CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,true,msl,error));CHECK(!msl.empty());
     for(auto id:{POST_SHADER_HEAT_SPLAT,POST_SHADER_HEAT_HAZE}) {
         CHECK(Sdl_Post_Distortion_Pixel_Source(id,source));
         std::string body=PostShader_Pixel_Body(id);
@@ -148,6 +147,28 @@ static void compare(const std::vector<float> &actual,const std::vector<float> &e
     }
     std::printf("heat compare bad%u max%.6f\n",bad,maximum);
 }
+// Independent blast oracle over the heat result, exercising one shared module and
+// the required heat -> completed normal post -> blast ordering in a single frame.
+static std::vector<float> warped(const std::vector<float> &image,unsigned w,unsigned h,const DX11PostWarp &a)
+{
+    auto result=image;const double aspect=double(w)/h;
+    for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x) {
+        const double u=(x+.5)/w,v=(y+.5)/h,ax=(u-a.CentreX)*aspect,ay=v-a.CentreY,span=std::hypot(ax,ay);
+        const double reach=std::clamp(span/std::max(double(a.Radius),.0001),0.0,1.0);
+        const double inward=a.Pull*a.Radius*6.75*reach*(1-reach)*(1-reach);
+        const double squash=ay>0?std::max(double(a.RingSquash),.05):1,dy=ay/squash;
+        const double normal=std::max(std::hypot(ax,dy/squash),.0001);
+        const double across=(std::hypot(ax,dy)-a.RingRadius)/std::max(double(a.RingWidth),.0001);
+        const double push=a.RingStrength*a.Radius*std::exp(-across*across);
+        const double sx=ax/std::max(span,.0001)*inward-ax/normal*push;
+        const double sy=ay/std::max(span,.0001)*inward-dy/squash/normal*push;
+        const double settle=std::clamp(std::min(u,1-u)/.08,0.0,1.0)*std::clamp(std::min(v,1-v)/.08,0.0,1.0);
+        const auto colour=sample(image,w,h,u+sx/aspect*settle,v+sy*settle);
+        for(unsigned c=0;c<3;++c)result[(size_t(y)*w+x)*4+c]=std::round(colour[c]*255)/255;
+    }
+    return result;
+}
+
 static SdlPostSettings settings(bool hdr=false)
 {SdlPostSettings s;s.Count=1;s.Chain[0]=hdr?DX11_POST_BLOOM:DX11_POST_COPY;s.BloomIntensity=0;s.MainViewKey=31;return s;}
 static SdlSceneCaptureRequest identity(SdlGpuFrame &frame,const SdlTarget &scene)
@@ -191,6 +212,18 @@ static void gpu()
     const auto warm=module.Resources();CHECK(warm.Buffers==1 && warm.BufferBytes==131072);
     for(unsigned i=0;i<4;++i){begin();CHECK(module.Prepare_Heat(*frame,post,scene,identity(*frame,scene),flame.data(),1));CHECK(module.Apply_Heat(*frame,scene,inputs()));end();}
     CHECK(module.Resources().Creations==warm.Creations);
+    {
+        SdlPostDistortion combined;const auto depth=begin();const auto original=read(*frame,scene);
+        const DX11PostWarp blast={.51f,.48f,.32f,.08f,.24f,.055f,.12f,.6f};
+        CHECK(combined.Prepare_Heat(*frame,post,scene,identity(*frame,scene),flame.data(),1));
+        CHECK(combined.Prepare_Blast_Warps(*frame,post,scene,output,identity(*frame,scene),&blast,1));
+        CHECK(combined.Apply_Heat(*frame,scene,inputs()));const auto heated=read(*frame,scene);
+        compare(heated,reference(original,width,height,depth,{flame}),false);
+        CHECK(post.Finish(*frame,scene,output));CHECK(combined.Apply_Blast_Warp(*frame,scene,output));
+        compare(read(*frame,output),warped(heated,width,height,blast),false);
+        CHECK(combined.Resources().Textures==3 && combined.Resources().Buffers==1);
+        CHECK(frame->Present(nullptr));CHECK(combined.Release(*frame));
+    }
     // Refused attempts consume. A new explicit Prepare can recover, while a
     // replay without new records cannot change the scene.
     for(unsigned invalid=0;invalid<7;++invalid) {
@@ -207,18 +240,18 @@ static void gpu()
     }
     begin();auto before=read(*frame,scene);CHECK(module.Prepare_Heat(*frame,post,scene,identity(*frame,scene),flame.data(),1));
     CHECK(module.Prepare_Heat(*frame,post,scene,identity(*frame,scene),nullptr,0));CHECK(!module.Apply_Heat(*frame,scene,inputs()));CHECK(read(*frame,scene)==before);end();
-    for(const char *point:{"program","pipeline","storage","target","target-after-one","record"}) {
-        SdlPostDistortion recovery;begin();before=read(*frame,scene);setenv("ZH_TEST_SDL_DISTORTION_FAILURE",point,1);
+    for(auto point:{SdlPostDistortion::TestFailure::Program,SdlPostDistortion::TestFailure::Pipeline,SdlPostDistortion::TestFailure::Buffer,SdlPostDistortion::TestFailure::Target,SdlPostDistortion::TestFailure::TargetAfterOne,SdlPostDistortion::TestFailure::Record}) {
+        SdlPostDistortion recovery;begin();before=read(*frame,scene);recovery.Set_Failure_For_Test(point);
         const bool prepared=recovery.Prepare_Heat(*frame,post,scene,identity(*frame,scene),flame.data(),1);
-        if(!std::strcmp(point,"record")){CHECK(prepared);CHECK(!recovery.Apply_Heat(*frame,scene,inputs()));}else CHECK(!prepared);
-        unsetenv("ZH_TEST_SDL_DISTORTION_FAILURE");CHECK(!recovery.Apply_Heat(*frame,scene,inputs()));CHECK(read(*frame,scene)==before);
+        if(point==SdlPostDistortion::TestFailure::Record){CHECK(prepared);CHECK(!recovery.Apply_Heat(*frame,scene,inputs()));}else CHECK(!prepared);
+        recovery.Set_Failure_For_Test(SdlPostDistortion::TestFailure::None);CHECK(!recovery.Apply_Heat(*frame,scene,inputs()));CHECK(read(*frame,scene)==before);
         CHECK(recovery.Prepare_Heat(*frame,post,scene,identity(*frame,scene),flame.data(),1));CHECK(recovery.Apply_Heat(*frame,scene,inputs()));end();CHECK(recovery.Release(*frame));
     }
     begin();frame->Set_Target(scene);frame->Clear_Back_Buffer(false,true,false,0,.375f,0);std::vector<float> depthBefore,depthAfter;
     CHECK(frame->Read_Depth(scene.Depth,width,height,depthBefore));CHECK(!depthBefore.empty());if(!depthBefore.empty())CHECK(std::fabs(depthBefore[0]-.375f)<1e-5f);
     CHECK(module.Prepare_Heat(*frame,post,scene,identity(*frame,scene),flame.data(),1));CHECK(module.Apply_Heat(*frame,scene,inputs()));
     CHECK(frame->Read_Depth(scene.Depth,width,height,depthAfter));CHECK(depthBefore==depthAfter);end();
-    // All2048 records fit one fixed buffer; producer overflow is dropped exactly
+    // All 2048 records fit one fixed instance buffer; producer overflow is dropped exactly
     // as upstream, and a dropped final nonzero record cannot create heat.
     begin();before=read(*frame,scene);std::vector<Splat> overflow(DIRECT3D11_HEAT_SPLAT_LIMIT+1);
     overflow.back()=flame;
@@ -229,7 +262,7 @@ static void gpu()
 
     // A format replacement while old packets are still queued retires old
     // field/copy images only after those exact readers submit. Buffer contents
-    // are similarly ordered by Storage::Write before the new splat draw.
+    // are similarly ordered by the instance staging upload before the new splat draw.
     const auto oldDepth=begin();const auto oldSource=read(*frame,scene);const auto oldScene=scene;
     CHECK(module.Prepare_Heat(*frame,post,scene,identity(*frame,scene),flame.data(),1));CHECK(module.Apply_Heat(*frame,scene,inputs()));
     CHECK(frame->Has_Pending_Work());output=frame->Back_Buffer_Target();CHECK(post.Prepare(*frame,output,settings(true),scene));

@@ -44,6 +44,10 @@
 #include "Common/Monitors.h"
 #include "Common/EarlyOptions.h"
 #include "Common/OptionsCatalog.h"
+#include "Platform/RenderEffects.h"
+#include "Platform/RenderPost.h"
+#include "Platform/RenderTeamGlow.h"
+#include "Platform/RenderWaterFoam.h"
 #include "Common/Registry.h"
 #include "Common/version.h"
 
@@ -3239,7 +3243,25 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 
 #endif
 
-	// Battle Marks also run on Linux SDL GPU, independently of the DX11 preference.
+#if !defined(_WIN32)
+	// This existing next-map option has an actual native HDR provider as well.
+	// Enabling its widget never changes the saved value or retags already loaded meshes.
+	findOptionWidget(*findOptionDef("TeamGlow"))->winEnable(RenderTeamGlow::Available());
+	findOptionWidget(*findOptionDef("WaterFoam"))->winEnable(RenderWaterFoam::Available());
+	static const char *const worldEffects[] = { "GroundMarks", "WaterSplashes", "StructureCollapse" };
+	for( Int i = 0; i < (Int)( sizeof( worldEffects ) / sizeof( worldEffects[ 0 ] ) ); ++i )
+		findOptionWidget( *findOptionDef( worldEffects[ i ] ) )->winEnable( RenderEffects::WorldEffectsAvailable() );
+	findOptionWidget(*findOptionDef("Firelight"))->winEnable(TheDisplay && TheDisplay->supportsPerPixelLighting());
+	findOptionWidget(*findOptionDef("HemiAmbient"))->winEnable(TheDisplay && TheDisplay->supportsHemisphericAmbient());
+#endif
+#if defined(__linux__)
+	// The game side of the haze, the atmosphere and the weather is built for Linux only so far.
+	findOptionWidget(*findOptionDef("Atmosphere"))->winEnable(RenderPost::EnvironmentAvailable());
+	findOptionWidget(*findOptionDef("Weather"))->winEnable(RenderPost::EnvironmentAvailable());
+	findOptionWidget(*findOptionDef("MapLight"))->winEnable(RenderPost::EnvironmentAvailable());
+#endif
+
+	// The display owns Battle Marks capability on every renderer, including the Windows paths.
 	if( GameWindow *marks = findOptionWidget( *findOptionDef( "GroundMarks" ) ) )
 		marks->winEnable( TheDisplay && TheDisplay->supportsBattleMarks() );
 

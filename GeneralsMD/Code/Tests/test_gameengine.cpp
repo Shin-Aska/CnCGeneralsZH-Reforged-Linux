@@ -96,6 +96,9 @@
 #include "Common/AudioRandomValue.h"
 #include "GameNetwork/CrcAgreement.h"
 #include "GameLogic/GameLogic.h"
+#include "GameLogic/GhostObject.h"
+#include "GameLogic/ScriptActions.h"
+#include "GameLogic/ScriptConditions.h"
 #include "Common/EarlyCommandLine.h"
 #include "Common/CommandLine.h"
 #include "Common/GlobalData.h"
@@ -3461,32 +3464,6 @@ TEST(jet_runs_out_from_a_target_it_cannot_turn_onto)
 	CHECK( !AIAttackAim_needsRunOut( 60.0f,   60.0f, R, 0.7071068f, 0.0f ) );
 }
 
-/* Locomotor.cpp: a jet that has spent its last round breaks off to the side whose turn, flown from
-   the bank it is already in, passes the target wider. */
-extern Real Locomotor_jetBreakOffSide( Real relX, Real relY, Real speed, Real yawRate, Real maxRate, Real yawAccel );
-
-TEST(jet_breaks_off_to_the_side_that_passes_the_target_wider)
-{
-	/* 270 a second on a 72 circle, rolling into the full bank over half a second */
-	const Real SPEED = 270.0f / LOGICFRAMES_PER_SECONDS_REAL;
-	const Real RATE = SPEED / 72.0f;
-	const Real ACCEL = RATE / ( LOGICFRAMES_PER_SECONDS_REAL * 0.5f );
-
-	/* wings level, target nearly dead ahead: away from it, 92 clear where the other way is 87 */
-	CHECK_EQ( Locomotor_jetBreakOffSide( 200.0f,   5.0f, SPEED, 0.0f, RATE, ACCEL ), -1.0f );
-	CHECK_EQ( Locomotor_jetBreakOffSide( 200.0f,  -5.0f, SPEED, 0.0f, RATE, ACCEL ),  1.0f );
-
-	/* the target ahead and to the right of the nose, wings level: away from it, left, 130 clear */
-	CHECK_EQ( Locomotor_jetBreakOffSide( 121.0f, -113.0f, SPEED, 0.0f, RATE, ACCEL ), 1.0f );
-
-	/* the same target with the jet banked hard right onto it, the bomb just gone: rolling through to
-	   the left carries it over the target (12 clear), carrying on round passes it at 58 */
-	CHECK_EQ( Locomotor_jetBreakOffSide( 121.0f, -113.0f, SPEED, -RATE, RATE, ACCEL ), -1.0f );
-
-	/* no turn to fly: away from it */
-	CHECK_EQ( Locomotor_jetBreakOffSide( 121.0f, -113.0f, SPEED, 0.0f, 0.0f, ACCEL ), 1.0f );
-}
-
 /* JetAIUpdate.cpp: the glide down to a touchdown and the climb from a liftoff are one shape, a
    straight slope that rounds out to level at the runway and stops at the approach height. */
 extern Real JetRunway_slopeHeight( Real dist, Real maxHeight, Real slope, Real roundDist );
@@ -6803,6 +6780,18 @@ TEST(ranked_matches_play_retail_pace_and_custom_rooms_stay_native)
 	online.reset();
 	online.enterGame();
 	CHECK( !online.isQMGame() );
+
+	/* The room kind's own speed is what an options string without SP= means.  A custom room's host
+	   picks another; the next room's reset puts it back, and a Quick Match room's own is retail's. */
+	CHECK_EQ( online.getDefaultGameSpeedPercent(), (Int)NATIVE_GAME_SPEED_PERCENT );
+	online.setGameSpeedPercent( 200 );
+	online.reset();
+	CHECK_EQ( online.getGameSpeedPercent(), (Int)NATIVE_GAME_SPEED_PERCENT );
+	online.enterGame();
+	online.markGameAsQM();
+	CHECK_EQ( online.getDefaultGameSpeedPercent(), (Int)RETAIL_GAME_SPEED_PERCENT );
+	online.reset();		// clears the QM flag before it asks for the default
+	CHECK_EQ( online.getGameSpeedPercent(), (Int)NATIVE_GAME_SPEED_PERCENT );
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
 }
@@ -7810,6 +7799,77 @@ public:
 	Bool flag( Int ndx ) const { return m_flags[ ndx ].value; }
 	void raiseFlag( Int ndx ) { m_flags[ ndx ].value = TRUE; }
 };
+
+
+// A condition may have already timed out before its cue is requested. Use a silent provider
+// whose logical clip duration changes to distinguish a stale deadline from a fresh lookup.
+class SpeechWaitAudio : public NullAudioManager
+{
+public:
+	Real duration = 0;
+	Int queries = 0;
+	virtual Real getAudioLengthMS(const AudioEventRTS *) { ++queries; return duration; }
+};
+
+TEST(script_speech_request_restarts_only_the_matching_cached_wait)
+{
+	AudioManager *savedAudio = TheAudio;
+	GameLogic *savedLogic = TheGameLogic;
+	TerrainLogic *savedTerrain = TheTerrainLogic;
+	TheTerrainLogic = NULL;
+	SpeechWaitAudio audio;
+	TheAudio = &audio;
+	GameLogic *logic = new GameLogic;
+	TheGameLogic = logic;
+	ScriptEngine *engine = new ScriptEngine;
+	const AsciiString cue("SpeechCue"), other("OtherCue"), differentCase("speechcue");
+
+	CHECK(engine->isSpeechComplete(cue, FALSE)); // pre-query: old deadline at frame zero
+	CHECK(engine->isSpeechComplete(other, FALSE));
+	CHECK(engine->isSpeechComplete(differentCase, FALSE));
+	audio.duration = 3000;
+	const Int beforeRequest = audio.queries;
+	engine->notifySpeechRequested(cue);
+	CHECK_EQ(audio.queries, beforeRequest); // requests neither ask the device nor consume audio RNG
+	CHECK(!engine->isSpeechComplete(cue, FALSE));
+	CHECK_EQ(audio.queries, beforeRequest + 1);
+	CHECK(engine->isSpeechComplete(other, FALSE)); // mismatched and unplayed names keep their waits
+	CHECK(engine->isSpeechComplete(differentCase, FALSE)); // exact, case-sensitive name
+	CHECK_EQ(audio.queries, beforeRequest + 1);
+
+	// Repeating the request invalidates its new wait as well, without affecting the fallback.
+	audio.duration = 0;
+	engine->notifySpeechRequested(cue);
+	CHECK(engine->isSpeechComplete(cue, TRUE));
+	audio.duration = 3000;
+	CHECK(!engine->isSpeechComplete(cue, FALSE)); // removeFromList still permits a fresh lazy wait
+	engine->notifySpeechRequested(AsciiString("NeverPolled"));
+	CHECK(!engine->isSpeechComplete(AsciiString("NeverPolled"), FALSE));
+	CHECK(engine->isSpeechComplete(other, TRUE));
+
+	delete engine;
+	// GameLogic normally owns these singletons. This isolated clock must not destroy
+	// the surrounding test environment when its empty object list is torn down.
+	auto *savedGhosts = TheGhostObjectManager;
+	auto *savedPartition = ThePartitionManager;
+	auto *savedActions = TheScriptActions;
+	auto *savedConditions = TheScriptConditions;
+	auto *savedScripts = TheScriptEngine;
+	TheGhostObjectManager = NULL;
+	ThePartitionManager = NULL;
+	TheScriptActions = NULL;
+	TheScriptConditions = NULL;
+	TheScriptEngine = NULL;
+	delete logic;
+	TheGhostObjectManager = savedGhosts;
+	ThePartitionManager = savedPartition;
+	TheScriptActions = savedActions;
+	TheScriptConditions = savedConditions;
+	TheScriptEngine = savedScripts;
+	TheGameLogic = savedLogic;
+	TheTerrainLogic = savedTerrain;
+	TheAudio = savedAudio;
+}
 
 TEST(scriptengine_gives_every_flag_and_counter_its_own_slot_past_256)
 {
@@ -11692,11 +11752,39 @@ TEST(hud_layout_and_width_round_trip_through_options_ini)
 	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
 	CHECK_EQ( TheGlobalData->m_hudLayout, (Int)HUD_LAYOUT_SIDEBAR );
 
+	pref[ AsciiString( "HotkeyScheme" ) ] = AsciiString( "0" );
 	pref[ AsciiString( "HudLayout" ) ] = AsciiString( "7" );
 	pref[ AsciiString( "HudWidth" ) ] = AsciiString( "9" );
 	loadOptionsFromPreferences( pref );
-	CHECK_EQ( TheGlobalData->m_hudLayout, HUD_LAYOUT_COUNT - 1 );
+	// a layout past the list (the plain one was 3 for an afternoon) is the default bar, not the last one
+	CHECK_EQ( TheGlobalData->m_hudLayout, (Int)HUD_LAYOUT_CLASSIC );
 	CHECK_EQ( TheGlobalData->m_hudWidth, HUD_WIDTH_COUNT - 1 );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
+	CHECK_EQ( (Int)HUD_LAYOUT_COUNT, 3 );
+	pref[ AsciiString( "HudLayout" ) ] = AsciiString( "3" );
+	loadOptionsFromPreferences( pref );
+	CHECK_EQ( TheGlobalData->m_hudLayout, (Int)HUD_LAYOUT_CLASSIC );
+	pref[ AsciiString( "HudLayout" ) ] = AsciiString( "2" );
+	loadOptionsFromPreferences( pref );
+	CHECK_EQ( TheGlobalData->m_hudLayout, (Int)HUD_LAYOUT_RETAIL );
+
+	// the menu's Accept goes through the same setter
+	layout->set( HUD_LAYOUT_CLASSIC );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
+	layout->set( HUD_LAYOUT_SIDEBAR );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
+	layout->set( HUD_LAYOUT_RETAIL );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
+
+	// Classic stands on the Reforged bar's rectangles, and only Reforged has the command tabs
+	HudLayoutRects reforged, retail;
+	HudLayoutForScreen( 1920, 1080, HUD_LAYOUT_CLASSIC, HUD_WIDTH_FULL, &reforged );
+	HudLayoutForScreen( 1920, 1080, HUD_LAYOUT_RETAIL, HUD_WIDTH_FULL, &retail );
+	CHECK_EQ( retail.layout, (Int)HUD_LAYOUT_CLASSIC );
+	CHECK_EQ( retail.play.hi.x, reforged.play.hi.x );
+	CHECK_EQ( retail.play.hi.y, reforged.play.hi.y );
+	CHECK( hudLayoutHasCommandTabs( HUD_LAYOUT_CLASSIC ) );
+	CHECK( !hudLayoutHasCommandTabs( HUD_LAYOUT_RETAIL ) );
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
@@ -17708,6 +17796,26 @@ TEST(replay_crc_queue_aligns_to_either_kind_of_network_recording)
 	CHECK_EQ( 0x22222222, desync.readCRCFor( 0x22222222 ) );		// decided once: nothing shifts later
 }
 
+/** A recorded CRC ahead of its computed one waits, and one whose partner never comes stays counted,
+	 which is what the end of a playback logs (finishReplayCRCs). */
+TEST(replay_crc_parked_ahead_of_its_partner_is_counted_until_taken)
+{
+	CRCInfo info;
+	CHECK( info.mustParkRecorded() );
+	info.parkRecorded( 0x11111111 );
+	info.parkRecorded( 0x22222222 );
+	CHECK_EQ( 2, info.parkedRecordedCount() );
+
+	UnsignedInt parked = 0;
+	CHECK( !info.takeParkedRecorded( parked ) );		// nothing computed yet to pair with
+	info.addCRC( 0x11111111 );
+	CHECK( info.takeParkedRecorded( parked ) );
+	CHECK_EQ( 0x11111111, parked );
+	CHECK_EQ( 0x11111111, info.readCRCFor( parked ) );
+	CHECK_EQ( 1, info.parkedRecordedCount() );			// its partner never came
+	CHECK( !info.takeParkedRecorded( parked ) );
+}
+
 
 /** The build queue strip has nine buttons, and that is the production cap: a shift-click that
 	 would overshoot stops at nine, and so does the factory itself (INI MaxQueueEntries, default 9). */
@@ -21631,9 +21739,6 @@ TEST(hud_layout_rects_tile_the_screen)
 	CHECK_EQ( r.stripButtons[ 0 ].width(), HUD_CAMEO_ART_W );
 	CHECK_EQ( r.stripButtons[ 0 ].height(), HUD_CAMEO_ART_H );
 	CHECK_EQ( r.stripClock.lo.x, 1500 );
-	CHECK_EQ( r.stripSpare.lo.x, 908 );
-	CHECK_EQ( r.stripSpare.lo.y, 1024 );
-	CHECK_EQ( r.stripSpare.hi.y, 1072 );
 	CHECK_EQ( r.card.lo.x, 0 );
 	CHECK_EQ( r.card.lo.y, 896 );
 	CHECK_EQ( r.card.hi.x, 470 );
@@ -21780,9 +21885,6 @@ TEST(hud_layout_rects_tile_the_screen)
 				strip[ n++ ] = &r.stripButtons[ i ];
 			strip[ n++ ] = &r.stripClock;
 			checkHudCells( strip, n, r.strip );
-			CHECK( hudRegionInside( r.stripSpare, r.strip ) );
-			CHECK( r.stripSpare.lo.x >= r.stripButtons[ HUD_STRIP_BUTTONS - 1 ].hi.x );
-			CHECK( r.stripSpare.hi.x <= r.stripClock.lo.x );
 
 			// the card welded to the strip: the medallion and the label plate side by side in it, the
 			// portrait and the rank in the medallion, the name, the groove and the tray on the plate, the
@@ -23835,6 +23937,38 @@ TEST(empty_building_slots_are_a_check_box_that_starts_on)
 	delete scratch;
 }
 
+TEST(hit_flash_is_a_check_box_that_starts_off_and_lights_only_fresh_hits)
+{
+	const OptionDef *def = findOptionDef( "HitFlash" );
+	CHECK( def != NULL );
+	if( def == NULL )
+		return;
+	CHECK_EQ( (Int)def->kind, (Int)OPTION_BOOL );
+	CHECK_EQ( (Int)def->apply, (Int)APPLY_LIVE );
+	CHECK( strstr( def->widgetName, "CheckHitFlash" ) != NULL );
+
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+	CHECK( !scratch->m_hitFlash );
+	def->set( 1 );
+	CHECK( scratch->m_hitFlash );
+	TheWritableGlobalData = saved;
+	delete scratch;
+
+	const UnsignedInt never = 0xffffffff;
+	CHECK( !Drawable_hitFlashDue( never, never, 100, 6, 18 ) );		// never hit
+	CHECK( !Drawable_hitFlashDue( never, 90, 100, 6, 18 ) );		// a stamp in the future is no hit
+	CHECK( Drawable_hitFlashDue( 100, never, 100, 6, 18 ) );		// hit this tick
+	CHECK( Drawable_hitFlashDue( 98, 70, 100, 6, 18 ) );				// hit during a catch-up pass
+	CHECK( !Drawable_hitFlashDue( 100, 100, 101, 6, 18 ) );			// already answered
+	CHECK( !Drawable_hitFlashDue( 40, never, 100, 6, 18 ) );		// old stamp seen first after a load or a mid-match tick
+	CHECK( !Drawable_hitFlashDue( 94, never, 100, 6, 18 ) );		// as old as the flash itself
+	CHECK( !Drawable_hitFlashDue( 110, 100, 110, 6, 18 ) );			// restamp inside the cooldown stays dark
+	CHECK( Drawable_hitFlashDue( 118, 100, 118, 6, 18 ) );			// the first hit after it lights
+	CHECK( !Drawable_hitFlashDue( 110, 100, 118, 6, 18 ) );			// a hit skipped in the cooldown is stale by its end
+}
+
 TEST(aircraft_altitude_lines_are_a_check_box_that_starts_on)
 {
 	const OptionDef *def = findOptionDef( "AircraftAltitudeLine" );
@@ -24008,7 +24142,7 @@ TEST(no_options_file_is_the_classic_game_with_every_added_row_off)
 		"ShadowsForProjectiles", "ShadowsForProps", "ShadowsForParticles", "VolumetricSmokeShadows", "SmokeFireLighting",
 		"DebrisTrails", "MapLight", "TeamGlow", "WaterFoam", "GroundMarks", "Firelight", "HemiAmbient", "AmbientOcclusion",
 		"Weather", "WaterSplashes", "Atmosphere", "StructureCollapse", "InternalHdr", "Smoke", "ParticleBounce",
-		"HeatHaze", "GroundFoliage", NULL
+		"HeatHaze", "GroundFoliage", "UnderwaterClarity", "FullDetailAtDistance", NULL
 	};
 	for( Int i = 0; off[ i ] != NULL; ++i )
 		CHECK_EQ( findOptionDef( off[ i ] )->get(), 0 );
@@ -26361,6 +26495,56 @@ TEST(control_server_refuses_a_web_pages_origin)
 	CHECK( !ControlServer_originAllowed( request.c_str() ) );
 }
 
+TEST(cinematic_font_descriptions_are_bounded_and_keep_multiword_names)
+{
+	CHECK(bootOnce());
+	AsciiString name;
+	Int size = 0;
+	Bool bold = FALSE;
+	CHECK(ScriptActions_parseCinematicFont("Times New Roman - Size: 18 [Bold]", name, size, bold));
+	CHECK_STR(name.str(), "Times New Roman"); CHECK_EQ(size, 18); CHECK(bold);
+	CHECK(ScriptActions_parseCinematicFont("Arial - Size: 12", name, size, bold));
+	CHECK_STR(name.str(), "Arial"); CHECK_EQ(size, 12); CHECK(!bold);
+	const char *bad[] = {"", "Arial", "Arial - Size:", "Arial - Size: 0", "Arial - Size: -1",
+		"Arial - Size: 999999999999999999999", "Arial - Size: 18junk", " - Size: 12", "Arial - Size: 513"};
+	for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i)
+		CHECK(!ScriptActions_parseCinematicFont(bad[i], name, size, bold));
+	CHECK(!ScriptActions_parseCinematicFont((std::string(300, 'a') + " - Size: 12").c_str(), name, size, bold));
+}
+
+TEST(script_parameter_counts_are_rejected_before_allocating_or_reading_parameters)
+{
+	CHECK(bootOnce());
+	// A minimal chunk with enough serialized parameter bytes to pass the file-size check.
+	// The fixed-array capacity must be checked independently of the available input bytes.
+	const Int counts[] = {-1, MAX_PARMS + 1, 0x7fffffff};
+	for (size_t c = 0; c < sizeof(counts) / sizeof(counts[0]); ++c) {
+		for (int action = 0; action < 2; ++action) {
+			std::string bytes("CkMp\0\0\0\0", 8);
+			const Int id = 0, type = 0, dataSize = 8 + (MAX_PARMS + 1) * 14;
+			const unsigned short version = 1;
+			bytes.append((const char *)&id, sizeof(id));
+			bytes.append((const char *)&version, sizeof(version));
+			bytes.append((const char *)&dataSize, sizeof(dataSize));
+			bytes.append((const char *)&type, sizeof(type));
+			bytes.append((const char *)&counts[c], sizeof(counts[c]));
+			bytes.append((MAX_PARMS + 1) * 14, '\0');
+			MemoryChunkInputStream stream(bytes.data(), (Int)bytes.size());
+			DataChunkInput input(&stream);
+			DataChunkVersionType readVersion;
+			input.openDataChunk(&readVersion);
+			DataChunkInfo info;
+			info.version = version;
+			Bool rejected = FALSE;
+			try {
+				if (action) ScriptAction::ParseActionDataChunk(input, &info, NULL);
+				else Condition::ParseConditionDataChunk(input, &info, NULL);
+			} catch (ErrorCode error) { rejected = error == ERROR_CORRUPT_FILE_FORMAT; }
+			CHECK(rejected);
+		}
+	}
+}
+
 /* Telling a click from a drag.
  *
  * Three terms, and each of them has been wrong at some point. The screen distance was compared one
@@ -27117,6 +27301,47 @@ TEST(countdown_timer_equality_holds_for_every_value_it_passes)
 	CHECK_EQ( skipped, LOGICFRAMES_PER_GAME_SECOND < RETAIL_LOGICFRAMES_PER_SECOND * LOGICFRAMES_PER_RETAIL_FRAME ? TRUE : FALSE );
 }
 
+/* What an earlier script in the same pass does to a timer that passed its number this tick.  Pausing
+	 leaves the value, so a later "timer == n" still holds, as a one-step tick's plain compare would.  An
+	 adjust moves the window with the value: the old number no longer holds, the shifted one does.  A
+	 set, or another frame, ends it. */
+TEST(countdown_timer_equality_survives_pause_and_follows_adjust_in_the_same_pass)
+{
+	const UnsignedInt FRAME = 77;
+	TCounter timer;
+	timer.isCountdownTimer = TRUE;
+	timer.valueBeforeTick = 301;
+	timer.value = 299;
+	timer.valueAfterTick = 299;
+	timer.countdownFrame = FRAME;
+	CHECK( ScriptEngine_countdownEquals( timer, 300, FRAME ) );
+	CHECK( !ScriptEngine_countdownEquals( timer, 300, FRAME + 1 ) );	// only on the tick it passed
+
+	TCounter paused = timer;
+	paused.isCountdownTimer = FALSE;		// STOP_TIMER earlier in the pass
+	CHECK( ScriptEngine_countdownEquals( paused, 300, FRAME ) );
+	CHECK( ScriptEngine_countdownEquals( paused, 299, FRAME ) );
+
+	TCounter adjusted = timer;
+	ScriptEngine_adjustCountdown( adjusted, 30 );		// ADD_TO_MSEC_TIMER earlier in the pass
+	CHECK_EQ( adjusted.value, 329 );
+	CHECK( ScriptEngine_countdownEquals( adjusted, 330, FRAME ) );
+	CHECK( !ScriptEngine_countdownEquals( adjusted, 300, FRAME ) );
+	ScriptEngine_adjustCountdown( adjusted, -30 );
+	CHECK( ScriptEngine_countdownEquals( adjusted, 300, FRAME ) );
+
+	TCounter set = timer;
+	set.value = 1000;		// SET_TIMER / SET_COUNTER earlier in the pass
+	CHECK( !ScriptEngine_countdownEquals( set, 300, FRAME ) );
+
+	TCounter plain;		// a counter that never counts down has no window
+	plain.isCountdownTimer = FALSE;
+	plain.value = plain.valueBeforeTick = plain.valueAfterTick = 5;
+	plain.countdownFrame = FRAME;
+	CHECK( !ScriptEngine_countdownEquals( plain, 4, FRAME ) );
+	CHECK( ScriptEngine_countdownEquals( plain, 5, FRAME ) );
+}
+
 TEST(retail_helpers_carry_the_game_speed_and_are_the_identity_at_100)
 {
 	const Bool atHundred = GAME_SPEED_PERCENT == 100;
@@ -27598,6 +27823,29 @@ TEST(handicap_rides_the_slot_entry_and_full_health_leaves_the_string_unchanged)
 	AsciiString atNative = picked;
 	atNative.concat( RecorderClass::replayLogicRateField( NATIVE_GAME_SPEED_PERCENT ) );
 	CHECK_EQ( RecorderClass::takeReplayGameSpeed( atNative ), (Int)NATIVE_GAME_SPEED_PERCENT );
+
+	/* A network room's game speed rides as SP=, written only when the host moved it off the room
+	   kind's own, so a room left at its default sends and records the string it always did.  A replay
+	   header's GS= comes off last and leaves SP= for the parser. */
+	CHECK( strstr( picked.str(), "SP=" ) == NULL );
+	host.setGameSpeedPercent( 200 );
+	const AsciiString sped = GameInfoOptionsString( &host, mapPath, 0 );
+	host.setGameSpeedPercent( host.getDefaultGameSpeedPercent() );
+	CHECK( strstr( sped.str(), "SP=200;" ) != NULL );
+	CHECK( ParseAsciiStringToGameInfo( &guest, sped ) );
+	CHECK_EQ( guest.getGameSpeedPercent(), 200 );
+	CHECK( ParseAsciiStringToGameInfo( &guest, picked ) );	// the host put it back
+	CHECK_EQ( guest.getGameSpeedPercent(), guest.getDefaultGameSpeedPercent() );
+	CHECK_STR( GameInfoOptionsString( &host, mapPath, 0 ).str(), picked.str() );
+	AsciiString spedRecorded = sped;
+	spedRecorded.concat( RecorderClass::replayLogicRateField( 200 ) );
+	CHECK_EQ( RecorderClass::takeReplayGameSpeed( spedRecorded ), 200 );
+	CHECK_EQ( RecorderClass::takeReplayLogicRate( spedRecorded ), (Int)LOGICFRAMES_PER_SECOND );
+	CHECK_STR( spedRecorded.str(), sped.str() );
+	// a speed no build offers refuses the string rather than playing a neighbour of the host's
+	std::string oddSpeed = odd.str();
+	oddSpeed.insert( oddSpeed.find( ";S=H" ) + 1, "SP=130;" );
+	CHECK( !ParseAsciiStringToGameInfo( &guest, AsciiString( oddSpeed.c_str() ) ) );
 
 	// the host's answer to a guest's request
 	GameSlot *asker = host.getSlot( 0 );
@@ -29104,4 +29352,65 @@ TEST(tab_order_skips_what_the_screen_hides_both_ways)
 	CHECK_EQ( *findTabStop( lone.begin(), lone.end(), 3, tabStopShown ), 3 );
 	lone.pop_back();
 	CHECK( findTabStop( lone.begin(), lone.end(), 2, tabStopShown ) == lone.end() );
+}
+
+#include "GameClient/LoadScreen.h"
+
+class BriefingVoiceTestAudio : public NullAudioManager
+{
+public:
+	Bool enabled = TRUE;
+	Real volume = 1.0f;
+	Int plays = 0;
+	AsciiString played;
+	Bool isOn(AudioAffect) const override { return enabled; }
+	Real getVolume(AudioAffect) override { return volume; }
+	void friend_forcePlayAudioEventRTS(const AudioEventRTS *event) override
+	{ ++plays; played = event->getEventName(); }
+};
+
+TEST(original_generals_briefing_voice_starts_once_at_movie_cue_or_fallback)
+{
+	CHECK(bootOnce());
+	BriefingVoiceTestAudio audio;
+	AudioEventRTS voice("BriefingUSA01");
+	CampaignBriefingPlayback playback;
+	playback.update(audio, voice, 0, 254, FALSE);
+	CHECK_EQ(audio.plays, 0);
+	playback.update(audio, voice, 0, 256, FALSE); // a skipped movie frame still crosses the cue
+	playback.update(audio, voice, 0, 300, FALSE);
+	playback.update(audio, voice, 0, 0, TRUE); // movie completion must not replay it
+	CHECK_EQ(audio.plays, 1);
+	CHECK_STR(audio.played.str(), "BriefingUSA01");
+	for (Int path = 0; path < 3; ++path) // minimum-spec, missing movie, buffer failure share fallback
+	{
+		playback.reset();
+		playback.update(audio, voice, 0, 0, TRUE);
+		playback.update(audio, voice, 0, 0, TRUE);
+		CHECK_EQ(audio.plays, path + 2);
+	}
+}
+
+TEST(original_generals_briefing_voice_respects_empty_muted_and_cancelled_loads)
+{
+	CHECK(bootOnce());
+	BriefingVoiceTestAudio audio;
+	CampaignBriefingPlayback playback;
+	playback.update(audio, AudioEventRTS(), 0, 300, FALSE); // stock Zero Hour movie owns its audio
+	playback.update(audio, AudioEventRTS("NoSound"), 0, 0, TRUE);
+	CHECK_EQ(audio.plays, 0);
+	AudioEventRTS voice("BriefingGLA01");
+	for (Int muted = 0; muted < 2; ++muted)
+	{
+		playback.reset(); audio.enabled = muted != 0; audio.volume = muted ? 0.0f : 1.0f;
+		playback.update(audio, voice, 0, 255, FALSE);
+		audio.enabled = TRUE; audio.volume = 1.0f;
+		playback.update(audio, voice, 0, 300, FALSE); // unmuting later does not start a surprise voice
+		CHECK_EQ(audio.plays, 0);
+	}
+	playback.reset(); playback.cancel();
+	playback.update(audio, voice, 0, 0, TRUE); // focus loss/quit must not start a fallback voice
+	CHECK_EQ(audio.plays, 0);
+	playback.reset(); playback.update(audio, voice, 0, 0, TRUE);
+	CHECK_EQ(audio.plays, 1);
 }

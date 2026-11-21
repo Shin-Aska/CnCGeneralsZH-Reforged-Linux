@@ -163,6 +163,23 @@ void DisconnectMenu::setPlayerTimeoutTime(Int playerNum, time_t newTime) {
 	}
 }
 
+void DisconnectMenu::setPlayerReconnectTime(Int playerNum, UnicodeString name, time_t msLeft) {
+	if (m_playerNameTextControlNames[playerNum] == NULL)
+		return;
+	Int seconds = (Int)((msLeft + 999) / 1000);		// the last fraction of a second still reads 0:01
+	UnicodeString text;
+	text.format(TheGameText->fetch("Network:WaitingForReconnect"), name.str(), seconds / 60, seconds % 60);
+
+	GameWindow *control = TheWindowManager->winGetWindowFromId(NULL, TheNameKeyGenerator->nameToKey(m_playerNameTextControlNames[playerNum]));
+	if (control != NULL) {
+		GadgetStaticTextSetText(control, text);
+	}
+	control = TheWindowManager->winGetWindowFromId(NULL, TheNameKeyGenerator->nameToKey(m_playerTimeoutTextControlNames[playerNum]));
+	if (control != NULL) {
+		GadgetStaticTextSetText(control, UnicodeString(u""));
+	}
+}
+
 void DisconnectMenu::showPlayerControls(Int slot) {
 	if (m_playerNameTextControlNames[slot] == NULL)
 		return;
@@ -286,7 +303,7 @@ void DisconnectMenu::quitGame() {
 	TheNetwork->quitGame();
 }
 
-void DisconnectMenu::removePlayer(Int slot, UnicodeString playerName) {
+void DisconnectMenu::removePlayer(Int slot, UnicodeString playerName, Bool mayComeBack) {
 	hidePlayerControls(slot);
 
 	NameKeyType displayID = TheNameKeyGenerator->nameToKey(m_textDisplayControlName);
@@ -295,7 +312,7 @@ void DisconnectMenu::removePlayer(Int slot, UnicodeString playerName) {
 	UnicodeString text;
 //	UnicodeString name;
 //	name.translate(playerName);
-	text.format(TheGameText->fetch("Network:PlayerLeftGame"), playerName.str());
+	text.format(TheGameText->fetch(mayComeBack ? "Network:PlayerLostConnection" : "Network:PlayerLeftGame"), playerName.str());
 
 	if (displayControl != NULL) {
 		GadgetListBoxAddEntryText(displayControl, text, chatNormalColor, -1, -1);

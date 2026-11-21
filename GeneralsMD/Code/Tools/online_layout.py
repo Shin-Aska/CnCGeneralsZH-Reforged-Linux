@@ -142,6 +142,11 @@ def card_button(box):
     return (left + 24, top + 326, width - 48, ROW_HEIGHT)
 
 
+# Rejoin, at the recent matches' foot on the right: the card is the match still running while the server
+# offers one (WOLWelcomeMenu.cpp), and the button shows only then
+HUB_REJOIN = (HUB_RECENT[0] + HUB_RECENT[2] - 24 - 300, HUB_RECENT[1] + HUB_RECENT[3] - 24 - ROW_HEIGHT, 300, ROW_HEIGHT)
+
+
 # The player card's two tabs under its head, a page tab's look: QUICK MATCH 147 / HIZLI MAC 105 and
 # VS AI 54 / BILGISAYARA KARSI 208 in Arial at 21 px, plus 22 each side
 CARD_TABS = [(CARD[0] + 24, CARD[1] + 158, 192, TAB_HEIGHT), (CARD[0] + 224, CARD[1] + 158, 252, TAB_HEIGHT)]
@@ -202,11 +207,12 @@ SCREENS = {
         framed=[("ButtonHolder", FRAME, CLEAR, CLEAR)],
         adds=[button("ButtonPlayVsAI", "ButtonQuickMatch", card_button(HUB_CARDS[0]), "GUI:OnlineHubPlay"),
               button("ButtonSignOut", "ButtonBack", RIGHT, "GUI:OnlineHubSignOut"),
-              listbox("ListboxRecent", "InfoListbox", inset(HUB_RECENT))],
+              listbox("ListboxRecent", "InfoListbox", inset(HUB_RECENT)),
+              button("ButtonRejoin", "ButtonQuickMatch", HUB_REJOIN, "GUI:OnlineRejoin")],
         place={"ButtonQuickMatch": card_button(HUB_CARDS[1]), "ButtonCustomMatch": card_button(HUB_CARDS[2]),
                "InfoListbox": inset(HUB_MOTD), "ButtonBack": BACK, "ButtonMyInfo": SECOND_RIGHT},
         aligned=[],
-        hide=["ButtonOptions", "ButtonBuddies", "PlayerInfoParent"]),
+        hide=["ButtonOptions", "ButtonBuddies", "PlayerInfoParent", "ButtonRejoin"]),
 
     "WOLQuickMatchMenu": dict(
         panel="SubParent", home="SubParent", title="StaticTextTitle", title_text="GUI:OnlineTabQuickMatch",
@@ -578,8 +584,9 @@ def selfcheck():
         with open(path, "rb") as fp:
             tracked = fp.read().decode("latin-1").replace("\r\n", "\n")
         layout = wndlayout.parse(tracked)
-        # The writer emits CRLF, while Git may check out the masters with LF.
-        if layout.text().replace("\r\n", "\n") != tracked:
+        # WND writers use CRLF; Git checkouts may use LF. Compare all content, including final newlines.
+        lf = tracked.replace("\r\n", "\n")
+        if layout.text().replace("\r\n", "\n") != lf:
             problems.append("%s.wnd does not round trip through wndlayout.py" % menu)
         for name in LOOKUPS[menu] + new_names(spec):
             if layout.find(name) is None:
@@ -588,8 +595,7 @@ def selfcheck():
         if stale:
             problems.append("%s.wnd: %d windows not authored at 1920x1080, %s first" % (menu, len(stale), stale[0]))
         try:
-            rebuilt = build(wndlayout.parse(tracked), menu, kit).text().replace("\r\n", "\n")
-            if rebuilt != tracked:
+            if build(wndlayout.parse(tracked), menu, kit).text().replace("\r\n", "\n") != lf:
                 problems.append("%s.wnd is not what online_layout.py writes; regenerate it" % menu)
         except (KeyError, ValueError) as error:
             problems.append("%s.wnd no longer builds: %s" % (menu, error))

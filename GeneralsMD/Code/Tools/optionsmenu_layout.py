@@ -173,6 +173,7 @@ NEW_CONTROLS = [
     (CHECK,  "CheckClassicGraphics",   "GUI:ClassicGraphics"),
     (CHECK,  "CheckDetailedModels",    "GUI:DetailedModels"),
     (CHECK,  "CheckHDTextures",        "GUI:HDTextures"),
+    (CHECK,  "CheckFullDetailAtDistance", "GUI:FullDetailAtDistance"),
     (LABEL,  "LabelWaterStyle",       "GUI:WaterStyle"),
     (COMBO,  "ComboBoxWaterStyle",      None),
     (LABEL,  "LabelCloudStyle",        "GUI:CloudStyle"),
@@ -188,7 +189,8 @@ NEW_CONTROLS = [
     (COMBO,  "ComboBoxWaterFftResolution", None),
     (LABEL,  "LabelWaterRefractionQuality", "GUI:WaterRefractionQuality"),
     (COMBO,  "ComboBoxWaterRefractionQuality", None),
-    (LABEL,  "LabelMSAA",              "GUI:MSAA"),
+    (CHECK,  "CheckUnderwaterClarity", "GUI:UnderwaterClarity"),
+    (LABEL,  "LabelMSAA",             "GUI:MSAA"),
     (COMBO,  "ComboBoxMSAA",           None),
     (LABEL,  "LabelBloom",             "GUI:Bloom"),
     (COMBO,  "ComboBoxBloom",          None),
@@ -207,6 +209,7 @@ NEW_CONTROLS = [
     (CHECK,  "CheckSelectionOutlines", "GUI:SelectionOutlines"),
     (CHECK,  "CheckNetBox",            "GUI:NetBox"),
     (CHECK,  "CheckEmptyBuildingPips", "GUI:EmptyBuildingPips"),
+    (CHECK,  "CheckHitFlash",          "GUI:HitFlash"),
     (CHECK,  "CheckZoomToCursor",      "GUI:ZoomToCursor"),
     (CHECK,  "CheckIsometricCamera",   "GUI:IsometricCamera"),
     (CHECK,  "CheckCameraShake",       "GUI:CameraShake"),
@@ -390,15 +393,18 @@ GROUP_LAYOUT = [
             ("check", "CheckSmoothMotion"),
             ("check", "CheckHeatHaze"),
             ("check", "CheckGroundFoliage"),
-            # beside Classic Graphics on the Graphics page if there were room
-            ("check", "CheckDetailedModels"),
-            ("check", "CheckHDTextures"),
             # the Screen column is full with the monitor and the resolution note
             setting("LabelFrameRateLimit", "ComboBoxFrameRateLimit")]),
         # from Interface, whose first column ran past the page once HUD took Layout and HUD Width
         ("GUI:OptionsGroupMenus", [
             setting("LabelMenuTransitionSpeed", "SliderMenuTransitionSpeed", "ValueMenuTransitionSpeed"),
-            ("check", "CheckAssetPreloading")])]),
+            ("check", "CheckAssetPreloading")]),
+        # the art the Reforged picture draws its models and textures with; beside Classic Graphics on the
+        # Graphics page if there were room
+        ("GUI:OptionsGroupModels", [
+            ("check", "CheckDetailedModels"),
+            ("check", "CheckHDTextures"),
+            ("check", "CheckFullDetailAtDistance")])]),
 
     ("PageGraphics", [
         # the particle limit went to Effects' Particles group to make room for the quality slider
@@ -456,7 +462,8 @@ GROUP_LAYOUT = [
             ("check", "CheckWaterShoreWaveTurning"),
             ("check", "CheckWaterWaveFiltering"),
             setting("LabelWaterFftResolution", "ComboBoxWaterFftResolution"),
-            setting("LabelWaterRefractionQuality", "ComboBoxWaterRefractionQuality")]),
+            setting("LabelWaterRefractionQuality", "ComboBoxWaterRefractionQuality"),
+            ("check", "CheckUnderwaterClarity")]),
         ("GUI:OptionsGroupReflections", [
             ("check", "CheckWaterReflectionEnabled"),
             setting("LabelWaterReflection", "ComboBoxWaterReflection"),
@@ -510,7 +517,9 @@ GROUP_LAYOUT = [
             setting("LabelHudWidth", "ComboBoxHudWidth"),
             setting("LabelHotkeyScheme", "ComboBoxHotkeyScheme"),
             ("check", "CheckNetBox"),
-            setting("LabelMinimapSize", "SliderMinimapSize", "ValueMinimapSize")]),
+            setting("LabelMinimapSize", "SliderMinimapSize", "ValueMinimapSize"),
+            # here and not under the battlefield, whose column is full to the page's foot
+            ("check", "CheckHitFlash")]),
         ("GUI:OptionsGroupBattlefield", [
             setting("LabelHealthBars", "ComboBoxHealthBars"),
             setting("LabelHealthBarColors", "ComboBoxHealthBarColors"),
@@ -879,6 +888,10 @@ def build_hdassets_footer(layout, template):
 
 def build(layout):
     if layout.find("PageDisplay"):
+        # Upgrade older tracked masters before reflowing the new Models group.
+        if not layout.find("CheckFullDetailAtDistance"):
+            layout.find("PageDisplay").children.append(make_control(
+                layout.find(CHECK), "CheckFullDetailAtDistance", "GUI:FullDetailAtDistance", 0, 0, 1, 1))
         reflow_existing_pages(layout, ("PageDisplay", "PageInterface"))
         build_hdassets_footer(layout, layout.find("ButtonDefaults"))
         return update_water_page(layout)
@@ -1224,7 +1237,8 @@ def selfcheck():
     water_controls = ["CheckWaterShoreWaveTurning", "CheckWaterWaveFiltering", "LabelWaterFftResolution", "ComboBoxWaterFftResolution",
                       "LabelWaterRefractionQuality", "ComboBoxWaterRefractionQuality",
                       "CheckWaterReflectionEnabled", "LabelWaterReflection", "ComboBoxWaterReflection",
-                      "LabelWaterReflectionDetail", "ComboBoxWaterReflectionDetail"]
+                      "LabelWaterReflectionDetail", "ComboBoxWaterReflectionDetail",
+                      "CheckUnderwaterClarity"]
     for name in water_controls:
         control = layout.find(name)
         if not water_page or not control or control not in water_page.children:

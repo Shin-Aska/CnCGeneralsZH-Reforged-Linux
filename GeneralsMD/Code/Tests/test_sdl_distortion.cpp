@@ -196,9 +196,9 @@ static void gpu()
     CHECK(module.Apply_Blast_Warp(*frame,scene,output));compare(read(*frame,output),reference(p,scene.Width,scene.Height,{a}));end();
     CHECK(module.Resources().Textures==1);
 
-    for(const char *point : {"program","pipeline","target"}) {
-        SdlPostDistortion recovery;p=begin();key=identity(*frame,scene);setenv("ZH_TEST_SDL_DISTORTION_FAILURE",point,1);
-        CHECK(!recovery.Prepare_Blast_Warps(*frame,post,scene,output,key,&a,1));unsetenv("ZH_TEST_SDL_DISTORTION_FAILURE");
+    for(auto point:{SdlPostDistortion::TestFailure::Program,SdlPostDistortion::TestFailure::Pipeline,SdlPostDistortion::TestFailure::Target}) {
+        SdlPostDistortion recovery;p=begin();key=identity(*frame,scene);recovery.Set_Failure_For_Test(point);
+        CHECK(!recovery.Prepare_Blast_Warps(*frame,post,scene,output,key,&a,1));recovery.Set_Failure_For_Test(SdlPostDistortion::TestFailure::None);
         CHECK(post.Finish(*frame,scene,output));CHECK(!recovery.Apply_Blast_Warp(*frame,scene,output));compare(read(*frame,output),p);end();
         p=begin();CHECK(recovery.Prepare_Blast_Warps(*frame,post,scene,output,identity(*frame,scene),&a,1));CHECK(post.Finish(*frame,scene,output));CHECK(recovery.Apply_Blast_Warp(*frame,scene,output));end();CHECK(recovery.Release(*frame));
     }

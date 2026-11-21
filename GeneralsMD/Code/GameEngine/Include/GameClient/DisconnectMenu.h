@@ -55,13 +55,14 @@ public:
 
 	void setPlayerName(Int playerNum, UnicodeString name);
 	void setPlayerTimeoutTime(Int playerNum, time_t newTime);
+	void setPlayerReconnectTime(Int playerNum, UnicodeString name, time_t msLeft);	///< "Waiting for <name> to reconnect (m:ss)" in place of the name and countdown
 	void setPacketRouterTimeoutTime(time_t newTime);
 
 	void sendChat(UnicodeString text);
 	void showChat(UnicodeString text);
 
 	void quitGame();
-	void removePlayer(Int slot, UnicodeString playerName);
+	void removePlayer(Int slot, UnicodeString playerName, Bool mayComeBack);	///< "lost connection" when the seat can rejoin, "has left the game" when not
 	void voteForPlayer(Int slot);
 	void updateVotes(Int slot, Int votes);
 

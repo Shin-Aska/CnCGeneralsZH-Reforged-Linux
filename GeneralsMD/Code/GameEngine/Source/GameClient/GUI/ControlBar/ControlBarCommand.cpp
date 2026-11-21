@@ -33,6 +33,7 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 
 #include "Common/NameKeyGenerator.h"
+#include "Common/OptionsCatalog.h"
 #include "Common/ThingTemplate.h"
 #include "Common/ThingFactory.h"
 #include "Common/Player.h"
@@ -1061,7 +1062,7 @@ void ControlBar::updateContextCommand( void )
 		// whatever is still running below puts its own clock back on
 		//
 		GadgetButtonClearClock( win );
-		win->winClearStatus( WIN_STATUS_CANCEL_WHEN_DISABLED );
+		win->winClearStatus( WIN_STATUS_CANCEL_WHEN_DISABLED | WIN_STATUS_DRAW_DISABLED );
 
 		// the spinning repeat mark: some selected factory builds this unit on repeat
 		const Bool repeating = command->getCommandType() == GUI_COMMAND_UNIT_BUILD &&
@@ -1185,8 +1186,12 @@ void ControlBar::updateContextCommand( void )
 		// reach the button to stop it, and a plain click is refused by the build path below with
 		// the message it already has. Build buttons come back RESTRICTED far more often than
 		// CANT_AFFORD (getCommandAvailability), so testing CANT_AFFORD alone left repeat stuck on.
+		// Enabled, it would draw in full colour, so it is drawn as the disabled button it stands for.
 		if( repeating && ( availability == COMMAND_CANT_AFFORD || availability == COMMAND_RESTRICTED ) )
+		{
 			win->winEnable( TRUE );
+			win->winSetStatus( WIN_STATUS_DRAW_DISABLED );
+		}
 
 		//Determine by the production type of this button, whether or not the created object
 		//will have a veterancy rank
@@ -2066,7 +2071,8 @@ Bool ControlBar::getCommandGridRect( IRegion2D *rect ) const
 //-------------------------------------------------------------------------------------------------
 void ControlBar::toggleCommandTab( Int tab )
 {
-	if( tab < 0 || tab >= COMMAND_TAB_COUNT )
+	// the Classic layout (HUD_LAYOUT_RETAIL) has no tabs to open
+	if( tab < 0 || tab >= COMMAND_TAB_COUNT || !hudLayoutHasCommandTabs( TheGlobalData->m_hudLayout ) )
 		return;
 
 	// a structure on the cursor belongs to the bar it was picked from
@@ -2115,8 +2121,9 @@ void ControlBar::updateCommandTabButtons( void )
 	const Bool seated = m_controlBarSchemeManager != NULL && m_controlBarSchemeManager->getCommandTabSeats( seatTab, &seatPlate );
 	IRegion2D grid;
 	const Bool haveGrid = getCommandGridRect( &grid );
-	// the sidebar has its own tabs (ControlBarSidebar.h): these hide and close under it
-	const Bool shown = playing && !m_sidebarLayout && m_contextParent[ CP_MASTER ] != NULL && !m_contextParent[ CP_MASTER ]->winIsHidden()
+	// the sidebar has its own tabs (ControlBarSidebar.h): these hide and close under it, and the
+	// Classic layout has none (drawPainting leaves their socket off the bar too)
+	const Bool shown = playing && !m_sidebarLayout && hudLayoutHasCommandTabs( TheGlobalData->m_hudLayout ) && m_contextParent[ CP_MASTER ] != NULL && !m_contextParent[ CP_MASTER ]->winIsHidden()
 		&& !TheInGameUI->isQuitMenuVisible() && ( seated || ( haveGrid && grid.lo.y < (Int)TheDisplay->getHeight() ) );
 
 	GameWindow *parent = m_commandTabParent;
@@ -2564,7 +2571,7 @@ void ControlBar::setCommandTabArrow( Int a, Int slot )
 	GadgetButtonSetBorder( win, GAME_COLOR_UNDEFINED, FALSE );
 	GadgetButtonEnableCheckLike( win, FALSE, FALSE );
 	win->winClearStatus( WIN_STATUS_SHORTCUT_BUTTON | WIN_STATUS_NOT_READY
-		| WIN_STATUS_CANCEL_WHEN_DISABLED | WIN_STATUS_FLASHING );
+		| WIN_STATUS_CANCEL_WHEN_DISABLED | WIN_STATUS_FLASHING | WIN_STATUS_DRAW_DISABLED );
 	// greyed out at an end as EA's always-colour cells are, the picture at 144/255: the grayscale
 	// draw a disabled command cell gets otherwise blackens the key's clear corners and leaves the
 	// white glyph white
@@ -2745,7 +2752,7 @@ void ControlBar::populateCommandTab( Bool full )
 		if( m_commandTab == COMMAND_TAB_BUILDINGS )
 			continue;
 		GadgetButtonClearClock( win );
-		win->winClearStatus( WIN_STATUS_CANCEL_WHEN_DISABLED );
+		win->winClearStatus( WIN_STATUS_CANCEL_WHEN_DISABLED | WIN_STATUS_DRAW_DISABLED );
 		GadgetButtonSetRepeat( win, FALSE );
 		GroupPanel_showAvailability( win, entry->best );
 		GadgetButtonDrawOverlayImage( win, calculateVeterancyOverlayForThing( entry->thing ) );
@@ -2854,8 +2861,10 @@ void ControlBar::updateSignalKeys( void )
 {
 	IRegion2D seat[ SIGNAL_KEYS ], plate;
 	const Bool seated = m_controlBarSchemeManager != NULL && m_controlBarSchemeManager->getSignalSeats( seat, &plate );
-	// the seats are painted on the Classic bar's radar plate, which the sidebar does not have
-	const Bool shown = seated && !m_sidebarLayout && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame()
+	// the seats are painted on the Classic bar's radar plate, which the sidebar does not have; the
+	// Classic layout (HUD_LAYOUT_RETAIL) leaves them off, plate and all.  The keys' own hotkeys still
+	// signal
+	const Bool shown = seated && !m_sidebarLayout && TheGlobalData->m_hudLayout != HUD_LAYOUT_RETAIL && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame()
 		&& m_contextParent[ CP_MASTER ] != NULL && !m_contextParent[ CP_MASTER ]->winIsHidden()
 		&& !TheInGameUI->isQuitMenuVisible();
 

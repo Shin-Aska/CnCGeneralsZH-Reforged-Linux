@@ -243,6 +243,9 @@ struct HudTray
 	const Image *cornerUncovered;		///< the open side's corner at the far side
 	const Image *step;							///< open side by far side, in a short row's cell where it meets the longer
 	Int openW, footH, uncoveredH;		///< each edge's thickness at the cells' scale
+	const Image *close;							///< down the screen side, openW thick, where a tray closes there too (the superweapons')
+	const Image *closeFoot;					///< its corner at the foot
+	const Image *closeUncovered;		///< and at the far side
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -277,6 +280,19 @@ static const Image *mirroredTrayPiece( const char *prefix, const char *piece, co
 	name.format( "%sProTray%s", prefix, piece );
 	const Image *image = TheMappedImageCollection->findImageByName( name );
 	return image != NULL ? image : standIn;
+}
+
+/// a house colour as the player's units show it: the colour is the texture's tint, darker than what a
+/// lit model gives back (Chocolate is 90,50,20 and its units read about 234,121,43), so its hue and
+/// saturation are kept and its value raised to 0.9, opaque
+static Color readableHouseColor( Color house )
+{
+	UnsignedByte r, g, b, a;
+	GameGetColorComponents( house, &r, &g, &b, &a );
+	const Int brightest = max( (Int)r, max( (Int)g, (Int)b ) );
+	const Real lift = brightest > 0 ? 0.9f * 255.0f / brightest : 1.0f;
+	return GameMakeColor( min( REAL_TO_INT( r * lift + 0.5f ), 255 ), min( REAL_TO_INT( g * lift + 0.5f ), 255 ),
+												min( REAL_TO_INT( b * lift + 0.5f ), 255 ), 255 );
 }
 
 /// the edges as thick, against the cell, as the powers tray's are against its cell
@@ -457,7 +473,12 @@ static HudCellStyle hudCellStyle( void )
 		tray[ ControlBarScheme::TRAY_CORNER_TL ],
 		tray[ ControlBarScheme::TRAY_CORNER_BL ],
 		mirroredTrayPiece( prefix, "StepDown", tray[ ControlBarScheme::TRAY_STEP ] ),
-		0, 0, 0
+		0, 0, 0,
+		// closed on the screen side as well, the left edge and its corners mirrored, so its steel stands
+		// whole against the screen's edge rather than running off it
+		mirroredTrayPiece( prefix, "EdgeRight", tray[ ControlBarScheme::TRAY_EDGE_LEFT ] ),
+		mirroredTrayPiece( prefix, "CornerTopRight", tray[ ControlBarScheme::TRAY_CORNER_TL ] ),
+		mirroredTrayPiece( prefix, "CornerBottomRight", tray[ ControlBarScheme::TRAY_CORNER_BL ] )
 	};
 	style.production = production;
 	style.superweapon = superweapon;
@@ -527,6 +548,18 @@ static void drawHudTray( const HudTray &tray, const IRegion2D *cells, Int count,
 			piece( tray.foot, c.lo.x, footLo, c.hi.x, footHi );
 			if( innermost )
 				piece( tray.cornerFoot, openLo, footLo, openHi, footHi );
+		}
+		// a tray closed on the screen side too: its edge down every row's outermost cell, cornered at the
+		// foot and the far side.  The caller leaves openW free between the cells and the screen's edge
+		if( place == 0 && tray.close != NULL )
+		{
+			const Int closeLo = openSide > 0 ? c.lo.x - tray.openW : c.hi.x;
+			const Int closeHi = closeLo + tray.openW;
+			piece( tray.close, closeLo, c.lo.y, closeHi, c.hi.y );
+			if( row == 0 )
+				piece( tray.closeFoot, closeLo, footLo, closeHi, footHi );
+			if( !covered )
+				piece( tray.closeUncovered, closeLo, farLo, closeHi, farHi );
 		}
 	}
 }
@@ -3866,7 +3899,6 @@ void InGameUI::update( void )
 	if( TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
 		watchDozers();
 	updateSignalMarks();
-	RadarContactMarks_update();	// what a Turkiye radar paints in the fog, on the ground
 	ReachOverlay_update();		// the ground a selected or sited defence hits, drawn on the terrain
 	UnsignedByte r, g, b, a;
 	Int amount;
@@ -4455,6 +4487,19 @@ void InGameUI::drawClassicMessages( void )
 		line.text->draw( x, y, line.color, GameMakeColor( 0, 0, 0, a ) );
 		y += line.text->getFont()->height;
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The foot of the message lines as drawClassicMessages stacks them when all six are up:
+	* MessagePosition's y and six lines of the message font, the language's when it names one.  All
+	* six whether or not they show now, so whatever sits under them does not jump as lines come and
+	* fade (the squad list). */
+//-------------------------------------------------------------------------------------------------
+Int InGameUI::getMessageLinesBottom( void ) const
+{
+	GameFont *font = TheFontLibrary->getFont( m_messageFont,
+		TheGlobalLanguageData->adjustFontSize( m_messagePointSize ), m_messageBold );
+	return m_messagePosition.y + ( font != NULL ? CLASSIC_MESSAGES * font->height : 0 );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5547,6 +5592,7 @@ Bool InGameUI::addPendingOrderHint( const Object *obj, const std::vector<OrderHi
 				return FALSE;
 			hint.to = orderTargetSpot( target );
 			hint.onObject = TRUE;
+			hint.target = it->target;		// its ring and outline, as once logic has run the order
 		}
 		addOrderHint( hint, previous );
 		return TRUE;
@@ -6442,17 +6488,26 @@ Bool InGameUI::issueAttackCircle( void )
 	}
 
 	std::vector<AttackAssignSlot> targets;
-	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( &center, radius, FROM_CENTER_2D, NULL );
+	// a radar ring is measured where it was painted, up to a sweep behind its unit, so the query
+	// reaches past the circle and each spot is held to the circle itself.
+	// ponytail: a unit that ran further than RING_LAG in one sweep drops out of its ring's circle
+	const Real RING_LAG = 150.0f;
+	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( &center, radius + RING_LAG, FROM_CENTER_2D, NULL );
 	MemoryPoolObjectHolder holder( iter );
 	for( Object *obj = iter->first(); obj; obj = iter->next() )
 	{
-		if( !isAttackListTarget( obj, local ) )
+		const Coord3D *spot = attackListSpot( obj, local );
+		if( spot == NULL )
+			continue;
+		const Real dx = spot->x - center.x;
+		const Real dy = spot->y - center.y;
+		if( dx * dx + dy * dy > radius * radius )
 			continue;
 
 		AttackAssignSlot slot;
 		slot.id = obj->getID();
-		slot.x = obj->getPosition()->x;
-		slot.y = obj->getPosition()->y;
+		slot.x = spot->x;
+		slot.y = spot->y;
 		targets.push_back( slot );
 	}
 
@@ -6488,16 +6543,27 @@ Bool InGameUI::issueAttackCircle( void )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Would the circle or the attack line put this on the target list? */
+/** Where the circle or the attack line measures this, or NULL when it does not go on the target
+	* list.  A unit under the shroud goes on it only as a radar ring the player sees, and is measured
+	* at the ring: its own spot would tell the circle's edge what the fog hides. */
 //-------------------------------------------------------------------------------------------------
-Bool InGameUI::isAttackListTarget( const Object *obj, const Player *local ) const
+const Coord3D *InGameUI::attackListSpot( const Object *obj, const Player *local ) const
 {
 	if( obj->isEffectivelyDead() )
-		return FALSE;
+		return NULL;
 	if( local->getRelationship( obj->getTeam() ) != ENEMIES )
-		return FALSE;
+		return NULL;
+	const Coord3D *spot = obj->getPosition();
 	if( isHiddenByShroud( obj ) )
-		return FALSE;
+	{
+		spot = NULL;
+		const std::vector<RadarContact> &rings = RadarContactMarks_fresh();
+		for( size_t i = 0; i < rings.size() && spot == NULL; ++i )
+			if( rings[ i ].id == obj->getID() )
+				spot = &rings[ i ].pos;
+		if( spot == NULL )
+			return NULL;
+	}
 
 	//
 	// Shroud is only half of invisible. A stealthed tank sitting in ground the player has
@@ -6506,7 +6572,7 @@ Bool InGameUI::isAttackListTarget( const Object *obj, const Player *local ) cons
 	// stealth by dragging a circle over it. Undetected means not in the circle.
 	//
 	if( obj->testStatus( OBJECT_STATUS_STEALTHED ) && !obj->testStatus( OBJECT_STATUS_DETECTED ) )
-		return FALSE;
+		return NULL;
 
 	//
 	// Not everything hostile standing in the circle is something to shoot at.  A shell or a
@@ -6515,7 +6581,9 @@ Bool InGameUI::isAttackListTarget( const Object *obj, const Player *local ) cons
 	// wherever it scans.  Each one that reached the list cost the group a two second stall on a
 	// target that was about to stop existing.
 	//
-	return !obj->isKindOf( KINDOF_PROJECTILE ) && !obj->isKindOf( KINDOF_UNATTACKABLE );
+	if( obj->isKindOf( KINDOF_PROJECTILE ) || obj->isKindOf( KINDOF_UNATTACKABLE ) )
+		return NULL;
+	return spot;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -6568,10 +6636,11 @@ Int InGameUI::issueAttackLine( const std::vector<Coord3D>& line )
 	std::vector<AttackAssignSlot> targets;
 	for( Object *obj = iter->first(); obj; obj = iter->next() )
 	{
-		if( !isAttackListTarget( obj, local ) )
+		// the reach's footprint slack also covers a radar ring left up to a sweep behind its unit
+		const Coord3D *pos = attackListSpot( obj, local );
+		if( pos == NULL )
 			continue;
 
-		const Coord3D *pos = obj->getPosition();
 		const Real allowed = obj->getGeometryInfo().getBoundingCircleRadius() + LINE_TOLERANCE;
 		Real bestDistanceSqr = allowed * allowed;
 		Real along = -1.0f;
@@ -9068,6 +9137,7 @@ void InGameUI::postDraw( void )
   //  IMPORTANT: Don't bail out of this block early just because you don't 
   //  want to display the timers -- Eva still needs to be checked
 	m_superweaponCells = 0;		// nothing drawn is nothing to click
+	m_classicSuperweaponLines.clear();
 	m_superweaponTab = noHudTab();
 	// the spectator's rack hangs under the superweapon tray when there is one
 	Int rackPlateTop = max( hudStripBottom(), TheUIRect().y ) + stripPixels( RACK_NO_TRAY_DROP );
@@ -9228,14 +9298,15 @@ void InGameUI::postDraw( void )
 		if( !m_superweaponHiddenByScript && !listed.empty() )
 		{
 			// the local player's own first, then everyone else's, each soonest first: twelve cells and a
-			// "+N" must never leave your own nuke behind the tag
-			std::stable_sort( listed.begin(), listed.end(), []( const ListedSuperweapon &a, const ListedSuperweapon &b )
-				{
-					const Bool ownA = a.jump != INVALID_ID, ownB = b.jump != INVALID_ID;
-					if( ownA != ownB )
-						return ownA;
-					return a.ready != b.ready ? a.ready : a.seconds < b.seconds;
-				} );
+			// "+N" must never leave your own nuke behind the tag.  The Classic layout keeps EA's order
+			if( TheGlobalData->m_hudLayout != HUD_LAYOUT_RETAIL )
+				std::stable_sort( listed.begin(), listed.end(), []( const ListedSuperweapon &a, const ListedSuperweapon &b )
+					{
+						const Bool ownA = a.jump != INVALID_ID, ownB = b.jump != INVALID_ID;
+						if( ownA != ownB )
+							return ownA;
+						return a.ready != b.ready ? a.ready : a.seconds < b.seconds;
+					} );
 
 			const HudCellStyle style = hudCellStyle();
 			const HudLayoutRects rects = hudRects();
@@ -9425,6 +9496,85 @@ void InGameUI::postDraw( void )
 					drawHudTab( style.tabUp, m_superweaponTab, -1, cellString( m_superweaponMoreText, rest ) );
 				}
 			}
+			else if( TheGlobalData->m_hudLayout == HUD_LAYOUT_RETAIL )
+			{
+				//
+				// The Classic layout draws them as EA's game did, the 1.04 code with only its loop over
+				// the players read off `listed` (gathered in EA's order, players then powers, and left
+				// unsorted for this layout): from SuperweaponCountdownPosition in InGameUI.ini down, a line
+				// each, "Name: " right-aligned to that x and "m:ss" after it, in the owner's colour on a
+				// black drop.  A charged one goes to the ready font and, with a flash duration, blinks
+				// between its owner's colour and SuperweaponCountdownFlashColor; past 82% of the view's
+				// height a single "..." stands for the rest.  What EA did not have: a click on a line
+				// looks at your own building, as a cell's does; the owner's colour is the one his units
+				// show (readableHouseColor), a dark house colour being lost on sand; and the lines are
+				// drawn by drawHudOverlay, after the world's health bars, which went over them.
+				//
+				Int startX = (Int)( m_superweaponPosition.x * TheDisplay->getWidth() );
+				// never under the info strip at the top (the clock, the rates, the net box): while it is up the
+				// list starts below its foot, as the icon tray does, and from InGameUI.ini's place otherwise
+				Int startY = (Int)( m_superweaponPosition.y * TheDisplay->getHeight() );
+				if( hudStripBottom() > 0 )
+					startY = max( startY, hudStripBottom() + stripPixels( SUPERWEAPON_TRAY_DROP ) );
+				const Int bottomMargin = (Int)( (Real)TheTacticalView->getHeight() * 0.82f );
+				const Real flashFrames = m_superweaponFlashDuration;
+				Int rows = 0;
+				for( Int each = 0; each < (Int)listed.size(); each++ )
+				{
+					const ListedSuperweapon &line = listed[ each ];
+					SuperweaponInfo *info = line.info;
+					if( startY >= bottomMargin )
+					{
+						UnicodeString ellipsis;
+						ellipsis.format( u"..." );
+						info->setText( ellipsis, ellipsis );
+						info->setFont( m_superweaponReadyFont, m_superweaponNormalPointSize, m_superweaponNormalBold );
+						const ClassicSuperweaponLine more = { info, startX, startY, m_superweaponFlashColor, TRUE };
+						m_classicSuperweaponLines.push_back( more );
+						break;
+					}
+
+					if( line.ready )
+						info->setFont( m_superweaponReadyFont, m_superweaponReadyPointSize, m_superweaponReadyBold );
+					else
+						info->setFont( m_superweaponNormalFont, m_superweaponNormalPointSize, m_superweaponNormalBold );
+					AsciiString label;
+					label.format( "GUI:%s", line.power.str() );
+					UnicodeString name, time;
+					name.format( u"%ls: ", TheGameText->fetch( label ).str() );
+					time.format( u"%d:%2.2d", line.seconds / 60, line.seconds % 60 );
+					info->setText( name, time );
+
+					Color color = readableHouseColor( clientColor( info->getColor() ) );
+					if( line.ready && flashFrames != 0.0f )
+					{
+						if( TheGameLogic->getFrame() >= m_superweaponLastFlashFrame + (Int)flashFrames )
+						{
+							m_superweaponUsedFlashColor = !m_superweaponUsedFlashColor;
+							m_superweaponLastFlashFrame = TheGameLogic->getFrame();
+						}
+						if( !m_superweaponUsedFlashColor )
+							color = m_superweaponFlashColor;
+					}
+					const ClassicSuperweaponLine drawn = { info, startX, startY, color, FALSE };
+					m_classicSuperweaponLines.push_back( drawn );
+
+					const Int h = (Int)info->getHeight();
+					if( rows < SUPERWEAPON_LIST_CELLS )
+					{
+						IRegion2D &box = m_superweaponPlace[ rows ];
+						box.lo.x = startX - info->getNameString()->getWidth();
+						box.hi.x = startX + info->getTimeString()->getWidth();
+						box.lo.y = startY;
+						box.hi.y = startY + h;
+						m_superweaponJump[ rows ] = line.jump;
+						rows++;
+					}
+					startY += h;
+				}
+				m_superweaponCells = rows;
+				rackPlateTop = startY + rackPx( RACK_TRAY_GAP );
+			}
 			else
 			{
 				// rows of SUPERWEAPON_LIST_COLUMNS in one tray hard against the right edge of the HUD's
@@ -9434,7 +9584,8 @@ void InGameUI::postDraw( void )
 				// from the tray
 				const Int cameoW = style.cameoW;
 				const Int cameoH = style.cameoH;
-				const Int right = rects.play.hi.x;
+				// the cells stand the tray's closing edge in from the screen's edge (drawHudTray)
+				const Int right = rects.play.hi.x - ( style.superweapon.close != NULL ? style.superweapon.openW : 0 );
 				const Int top = max( hudStripBottom(), TheUIRect().y ) + stripPixels( SUPERWEAPON_TRAY_DROP ) + style.superweapon.footH;
 				const Bool more = (Int)listed.size() > SUPERWEAPON_LIST_CELLS;
 				const Int cameos = more ? SUPERWEAPON_LIST_CELLS : (Int)listed.size();
@@ -12176,6 +12327,16 @@ void InGameUI::drawHudOverlay( void )
 	// because the notice draws inside the overlap window, where peace time and the vote are not to be read
 	m_noticeTop = 0;
 
+	// the Classic layout's superweapon lines postDraw laid out, here so the health bars go under them
+	const Color drop = GameMakeColor( 0, 0, 0, 255 );
+	for( size_t each = 0; each < m_classicSuperweaponLines.size(); each++ )
+	{
+		const ClassicSuperweaponLine &line = m_classicSuperweaponLines[ each ];
+		if( !line.timeOnly )
+			line.info->drawName( line.x, line.y, line.color, drop );
+		line.info->drawTime( line.x, line.y, line.color, drop );
+	}
+
 	// only once a real game is under way - not in the shell, and not on the menu's background map
 	if( !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
 		return;
@@ -12897,6 +13058,10 @@ void InGameUI::drawProductionList( void )
 	m_productionListTab = noHudTab();
 	m_heroCell = noHudTab();
 	if( !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
+		return;
+
+	// the Classic layout (HUD_LAYOUT_RETAIL) has neither the list nor the hero's cell over it
+	if( TheGlobalData->m_hudLayout == HUD_LAYOUT_RETAIL )
 		return;
 
 	// a watcher has no queue of his own
@@ -13722,13 +13887,18 @@ void InGameUI::removeIdleWorker( Object *obj, Int playerNumber )
 	return;
 }
 
-// The camera stays put, for the hotkey and the idle buttons alike.
+// The worker key and the worker button.  Reforged and Red Alert Style leave the camera where the
+// player has it; Classic is the original game's bar and centres it on the worker picked, or on what
+// carries it, as the original game's selectNextIdleWorker did (issue #232).
 Object *InGameUI::selectNextIdleWorker( void )
 {
 	// the same walk the button's light comes from, so a lit button always has a worker to give
 	KindOfMaskType mustBeSet, mustBeClear;
 	idleUnitKinds( GameMessage::MSG_META_SELECT_NEXT_IDLE_WORKER, &mustBeSet, &mustBeClear );
-	return selectNextIdleUnit( mustBeSet, mustBeClear );
+	Object *picked = selectNextIdleUnit( mustBeSet, mustBeClear );
+	if( picked && TheGlobalData->m_hudLayout == HUD_LAYOUT_RETAIL && TheTacticalView )
+		TheTacticalView->lookAt( picked->getPosition() );
+	return picked;
 }
 
 // A unit of the local player's that is standing on the field with no order: not a dozer, a worker
@@ -14014,6 +14184,10 @@ void InGameUI::recreateControlBar( void )
 
 	createControlBar();
 
+	// the radar kept a pointer to the old bar's radar window, and every minimap click went through it
+	if( TheRadar )
+		TheRadar->bindRadarWindow();
+
 	//
 	// The bar is rebuilt from its windows rather than replaced.  Replacing it re-parsed
 	// CommandButton.ini and CommandSet.ini and handed out new CommandButton addresses, while every
@@ -14104,13 +14278,13 @@ WindowMsgHandledType IdleWorkerSystem( GameWindow *window, UnsignedInt msg,
 			static NameKeyType buttonSelectID = NAMEKEY( "IdleWorker.wnd:ButtonSelectNextIdleWorker" );
 			if (control && control->winGetWindowId() == buttonSelectID)
 			{
-				// the same as the control bar's worker button: camera left alone, Shift for every idle worker
+				// the same as the control bar's worker button: the worker key's cycle, Shift for every idle worker
 				KindOfMaskType mustBeSet, mustBeClear;
 				InGameUI::idleUnitKinds( GameMessage::MSG_META_SELECT_NEXT_IDLE_WORKER, &mustBeSet, &mustBeClear );
 				if( TheKeyboard->isShift() )
 					TheInGameUI->selectAllIdleUnits( mustBeSet, mustBeClear );
 				else
-					TheInGameUI->selectNextIdleUnit( mustBeSet, mustBeClear );
+					TheInGameUI->selectNextIdleWorker();
 			}
 			break;
 

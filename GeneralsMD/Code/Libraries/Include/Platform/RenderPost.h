@@ -9,6 +9,7 @@ struct Settings {
     bool Classic = false, WorldAO = false, IndependentScene = false, InternalHDR = false;
     float BloomThreshold = 1, BloomIntensity = 0.75f, AdditiveGain = 1, Grade = 0;
     float BloomSaturation = 1, Clarity = 0;
+    float ClearAlpha = 1; // main-scene clear alpha
     unsigned BlurPasses = 2;
 };
 struct GroundHazeSettings {
@@ -41,6 +42,7 @@ void SetEnvironment(const Environment &environment);
 // Stable producer admission, including map-load/weather update before a scene. Independent of user
 // options and current routing; user-visible feature capabilities are advertised after integration.
 bool EnvironmentAvailable();
+bool DistortionAvailable();
 void BeginMain(const Settings &settings);
 bool SetChain(const char *chain);
 unsigned BeginView(bool eligible, float nearPlane, float farPlane, bool reflection = false);
@@ -59,6 +61,8 @@ class ViewScope {
 public:
     ViewScope(bool eligible, float nearPlane, float farPlane, bool reflection = false) : Previous(BeginView(eligible, nearPlane, farPlane, reflection)) {}
     ~ViewScope() { EndView(Previous); }
+    ViewScope(const ViewScope &) = delete;
+    ViewScope &operator=(const ViewScope &) = delete;
 };
 }
 #if !defined(_WIN32)
@@ -69,6 +73,7 @@ void SetEnvironment(IDirect3DDevice9 *, const Environment &);
 void SetWarps(IDirect3DDevice9 *, const Warp *, unsigned);
 void SetHeatSplats(IDirect3DDevice9 *, const float *, unsigned);
 bool EnvironmentAvailable(IDirect3DDevice9 *);
+bool DistortionAvailable(IDirect3DDevice9 *);
 unsigned BeginView(IDirect3DDevice9 *, bool, float, float, bool);
 void EndView(IDirect3DDevice9 *, unsigned);
 void Sky(IDirect3DDevice9 *);

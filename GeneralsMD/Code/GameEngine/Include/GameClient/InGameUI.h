@@ -425,6 +425,7 @@ public:  // ********************************************************************
 	virtual Bool isMessagesOn( void ) { return m_messagesOn; }	///< are the display messages on
 	void freeMessageResources( void );				///< empty the message list
 	Color getMessageColor(Bool altColor) { return (altColor)?m_messageColor2:m_messageColor1; }
+	Int getMessageLinesBottom( void ) const;	///< the foot of the six message lines in the top left, all six up
 	
 	// interface for military style messages
 	virtual void militarySubtitle( const AsciiString& label, Int duration );			// time in milliseconds
@@ -611,7 +612,7 @@ public:  // ********************************************************************
 	void updateAttackCircle( const ICoord2D& pt );
 	Bool issueAttackCircle( void );		///< FALSE when the press never became a drag, so it was an ordinary attack click
 	Int issueAttackLine( const std::vector<Coord3D>& line );	///< enemies the stroke crosses, shared along it across the units that can shoot
-	Bool isAttackListTarget( const Object *obj, const Player *local ) const;	///< would the circle or the attack line take this
+	const Coord3D *attackListSpot( const Object *obj, const Player *local ) const;	///< where the circle or the attack line measures this, NULL when they do not take it
 	void cancelAttackCircle( void ) { m_isAttackCircling = FALSE; }
 	Bool isAttackCircling( void ) const { return m_isAttackCircling; }
 	const ICoord2D& getAttackCircleAnchor( void ) const { return m_attackCircleAnchor; }
@@ -1315,7 +1316,7 @@ public:  // ********************************************************************
 	virtual void addIdleWorker( Object *obj );
 	void addIdleWorkerFor( Object *obj, Int playerIndex );	///< addIdleWorker with the owner read at the call
 	virtual void removeIdleWorker( Object *obj, Int playerNumber );
-	virtual Object *selectNextIdleWorker( void );	///< what it selected, NULL with no idle worker; never moves the camera
+	virtual Object *selectNextIdleWorker( void );	///< what it selected, NULL with no idle worker; the camera goes to it on the Classic layout only, as in the original game
 	Object *selectNextIdleUnit( KindOfMaskType mustBeSet, KindOfMaskType mustBeClear );	///< the same cycle for fighting units of those kinds standing with no order; what it selected, or NULL
 	Int selectAllIdleUnits( KindOfMaskType mustBeSet, KindOfMaskType mustBeClear );	///< every one that cycle visits at once, the camera left alone; how many
 	static Bool isIdleCombatUnit( const Object *obj );	///< the local player's fighting unit standing with no order
@@ -1432,14 +1433,16 @@ public:
 	/** The pathfinder's build grid under a pending structure.  Public and called from the terrain
 		* renderer rather than from preDraw: it is geometry lying on the ground, and it has to go down
 		* with the terrain so that everything drawn after the terrain covers it. */
-	virtual void drawBuildGrid( void ) { }
+	virtual void drawBuildGrid( Bool shadeByShroud ) { }
 
 	/** The wash inside the attack circle, on the ground for the same reason: the units being swept
 		* up stand on top of it instead of being painted over. */
-	virtual void drawAttackCircleFill( void ) { }
+	virtual void drawAttackCircleFill( Bool shadeByShroud ) { }
 
-	/** The order rings (getOrderRings), on the ground with the terrain so the units stand on them. */
-	virtual void drawOrderRings( void ) { }
+	/** The order rings (getOrderRings), on the ground with the terrain so the units stand on them.
+		* shadeByShroud multiplies these three sheets by the shroud's texture, as the ground under them
+		* was: the terrain draws them after whatever shroud it laid down. */
+	virtual void drawOrderRings( Bool shadeByShroud ) { }
 
 	/// the control socket's "spectator" verb: the camera, the followed player, the fog, and replay
 	/// pause, seek and speed
@@ -1666,6 +1669,15 @@ protected:
 	IRegion2D										m_heroCell;								///< the hero's cell over the queue, empty when not drawn
 	IRegion2D										m_superweaponPlace[ SUPERWEAPON_LIST_CELLS ];
 	ObjectID										m_superweaponJump[ SUPERWEAPON_LIST_CELLS ];	///< the building a click looks at, INVALID_ID for none
+	/// the Classic layout's superweapon lines: laid out by postDraw, drawn by drawHudOverlay, over the health bars
+	struct ClassicSuperweaponLine
+	{
+		SuperweaponInfo *info;
+		Int x, y;
+		Color color;
+		Bool timeOnly;		///< the "..." that stands for the lines past the margin
+	};
+	std::vector< ClassicSuperweaponLine >	m_classicSuperweaponLines;
 	Int													m_superweaponCells;				///< cells drawn
 	IRegion2D										m_superweaponTab;
 	UnsignedInt									m_hudCellPass;						///< client passes, counted by update()

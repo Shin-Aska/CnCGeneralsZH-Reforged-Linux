@@ -429,16 +429,17 @@ struct AIAbilityButton
 	SpecialPowerType power;			///< the button's special power, for a special
 };
 
-/** One template's buttons, kept by template ID with the command set they were read from: an upgrade that
-	* swaps the set has them read again.  Filled on the logic thread only, and only ever indexed. */
+/** One template's buttons under one command set.  Kept by template ID, one entry for each set its units
+	* have been seen with: two Helixes on different upgrade sets used to take turns throwing the other's
+	* answer away, and one match read them again 291,000 times.  Filled on the logic thread only, and only
+	* ever indexed or compared. */
 struct AIAbilityClass
 {
 	const CommandSet *set;
-	Bool known;
 	std::vector<AIAbilityButton> buttons;
-	AIAbilityClass() : set( NULL ), known( FALSE ) {}
+	AIAbilityClass() : set( NULL ) {}
 };
-static std::vector<AIAbilityClass> theAbilityClasses;
+static std::vector< std::vector<AIAbilityClass> > theAbilityClasses;
 
 /** A unit in the middle of one of its buttons: a special walking up or under way, or a weapon locked for a
 	* shot that is not its first slot (the lock the button and the laser lock take, which lasts the clip). */
@@ -17565,6 +17566,10 @@ static Real fixedGunPower( const Object *obj, Real *reach )
 	return power;
 }
 
+static Bool lowerObjectID( const Object *a, const Object *b );
+
+/** Walked in ObjectID order: the partition's own order differs after a load, and the sums, the armies
+	* and the gun list built here come out of it. */
 void AIPlayer::measureFight( const Coord3D *centre, Bool countHolders, Real *myHealth, Real *myPower,
 														 Real *enemyHealth, Real *enemyPower, std::vector<Real> *enemyGuns, Real *advantage, Real *defencePower )
 {
@@ -17582,10 +17587,14 @@ void AIPlayer::measureFight( const Coord3D *centre, Bool countHolders, Real *myH
 	SimpleObjectIterator *nearby = ThePartitionManager->iterateObjectsInRange(
 			centre, RETREAT_ENGAGEMENT_RADIUS, FROM_CENTER_2D, filters );
 	hold.hold( nearby );
+	std::vector<Object *> met;
 	for( Object *e = nearby->first(); e; e = nearby->next() )
+		if( !e->isKindOf( KINDOF_PROJECTILE ) )
+			met.push_back( e );
+	std::sort( met.begin(), met.end(), lowerObjectID );
+	for( size_t m = 0; m < met.size(); ++m )
 	{
-		if( e->isKindOf( KINDOF_PROJECTILE ) )
-			continue;
+		Object *e = met[ m ];
 		const Bool fixed = e->isKindOf( KINDOF_STRUCTURE ) || e->isKindOf( KINDOF_IMMOBILE );
 
 		if( e->getControllingPlayer() == m_player )
@@ -19666,12 +19675,13 @@ static std::vector<AIAbilityButton> abilitiesOf( const Object *obj )
 	const UnsignedInt id = tmpl->getTemplateID();
 	if( id >= theAbilityClasses.size() )
 		theAbilityClasses.resize( id + 1 );
-	AIAbilityClass &entry = theAbilityClasses[ id ];
-	if( entry.known && entry.set == set )
-		return entry.buttons;
-	entry.known = TRUE;
+	std::vector<AIAbilityClass> &seen = theAbilityClasses[ id ];
+	for( size_t s = 0; s < seen.size(); ++s )
+		if( seen[ s ].set == set )
+			return seen[ s ].buttons;
+	seen.push_back( AIAbilityClass() );
+	AIAbilityClass &entry = seen.back();
 	entry.set = set;
-	entry.buttons.clear();
 	Int toggles = 0;
 	for( Int i = 0; set && i < MAX_COMMANDS_PER_SET; ++i )
 	{

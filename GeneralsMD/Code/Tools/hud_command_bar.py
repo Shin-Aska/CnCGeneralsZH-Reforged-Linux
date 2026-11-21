@@ -1052,16 +1052,37 @@ def well(p, poly, depth=6, lip=2.5):
     p.sink([T(poly)], depth, lip)
 
 
-def openings(p, kind, c):
-    """Every opening, the same on every side; kind and c are the side's corner (corner_points)."""
+# The Classic layout's bar (socket False) has no idle column either (ControlBar::showIdleButtons hides it), so its
+# centre box ends 22 past the grid's last cell, as the grid's well starts 22 before the first: X1_NO_TABS.  The
+# rail's right end keeps its shape squeezed in from NARROW_FROM, the power bar's well's end, so the power bar
+# stays inside the rail; what each side fixes to that end is placed again by hand in bar_<side>.
+X1_NO_TABS = 1340
+NARROW_FROM = 1306
+
+
+def right_end(socket):
+    return X1 if socket else X1_NO_TABS
+
+
+def narrow(poly, socket):
+    """The outline as drawn, or for the Classic bar with every point right of NARROW_FROM squeezed toward it."""
+    if socket:
+        return poly
+    k = (X1_NO_TABS - NARROW_FROM) / (X1 - NARROW_FROM)
+    return [(NARROW_FROM + (x - NARROW_FROM) * k if x > NARROW_FROM else x, y) for x, y in poly]
+
+
+def openings(p, kind, c, x1=X1):
+    """Every opening, the same on every side; kind and c are the side's corner (corner_points), x1 the centre
+    box's right end."""
     L = layout()
     S = lambda r: (r[0], r[1] + TOP, r[2], r[3] + TOP)  # noqa: E731
     g = RADAR_GLASS_AT
     floor(p, plate(0, g[1] - 5, g[2] + 5, 1080, tr=(kind, c)))
     well(p, plate(*grow(g, 2)), 5, 2)
-    floor(p, plate(X0 + 9, 912, X1 - 9, 1080, tl=(kind, c), tr=(kind, c)))
+    floor(p, plate(X0 + 9, 912, x1 - 9, 1080, tl=(kind, c), tr=(kind, c)))
     floor(p, plate(576, 916, 638, 1080, tl=(kind, c * 0.5), tr=(kind, c * 0.5)))     # the toolbar's own recess
-    well(p, plate(646, 916, 1374, 1077, tl=(kind, c * 0.6), tr=(kind, c * 0.6)), 6, 2.5)
+    well(p, plate(646, 916, x1 - 10, 1077, tl=(kind, c * 0.6), tr=(kind, c * 0.6)), 6, 2.5)
     well(p, plate(*grow(S(L["power"]), 2)), 5, 1.6)
     well(p, plate(*grow(MONEY_WELL, 1), tl=(kind, c), tr=(kind, c), br=(kind, c), bl=(kind, c)), 6, 2)
     floor(p, plate(RIGHT_BOX[0] + 12, RIGHT_BOX[1] + 12, 1916, 1080, tl=(kind, c * 1.5)))
@@ -1069,30 +1090,37 @@ def openings(p, kind, c):
     well(p, plate(*S(L["exp"])), 6, 2)
 
 
-def bar_america(p):
+def bar_america(p, socket=True):
     """Aerospace plate: 45 degree cuts, a rail whose shoulders sweep down like a wing's leading edge, blue
-    chevrons swept toward the money, a ledge ending in an arrow point, panel seams, octagon studs."""
+    chevrons swept toward the money, a ledge ending in an arrow point, panel seams, octagon studs.  socket
+    False draws the rail straight past where the command tabs' plate stands (tab_cover) and the centre box
+    narrow (X1_NO_TABS)."""
+    x1 = right_end(socket)
     stack(p, [(0, 812), (317, 812), (345, 840), (345, 1080), (0, 1080)])
     stack(p, [(0, 795), (226, 795), (262, 809), (226, 823), (0, 823)], 9, 12, 4, 2.0)
-    stack(p, plate(X0, 898, X1, 1080, tl=("cut", 22), tr=("cut", 22)))
+    stack(p, plate(X0, 898, x1, 1080, tl=("cut", 22), tr=("cut", 22)))
     left = [(X0, 922), (X0 + 70, 878), (TAB0 - 28, 878), (TAB0 - 4, 840), (TAB0 + 8, 830)]
     t, d = TAB_PLATE_TOP, TAB_PLATE_DX
     tabs = [(X0 + 70, 878), (642, 878), (650, 870), (650, 852), (664, t),      # 45 degree cuts, as the money tab's
-            (762 + d, t), (776 + d, 852), (776 + d, 870), (784 + d, 878)]
-    stack(p, left[:1] + tabs + left[2:] + mirror(left), 9, 13, 4, 2.2)
+            (762 + d, t), (776 + d, 852), (776 + d, 870), (784 + d, 878)] if socket else left[1:2]
+    stack(p, left[:1] + tabs + left[2:] + narrow(mirror(left), socket), 9, 13, 4, 2.2)
     stack(p, plate(*RIGHT_BOX, tl=("cut", 36)))
     stack(p, plate(*MOUNT, tl=("cut", 20)), 9, 12, 4, 2.2)
-    openings(p, "cut", 6)
-    tab_seats(p, "cut", 3)
-    for x in (657, 769 + d):
-        p.stud(x, 861 - TOP, 2.2)
-    p.inlay([T(plate(654, t + 4, 760 + d, t + 5))], ACCENT, 0.5)                # the plate's blue hairline
+    openings(p, "cut", 6, x1)
+    if socket:
+        tab_seats(p, "cut", 3)
+        for x in (657, 769 + d):
+            p.stud(x, 861 - TOP, 2.2)
+        p.inlay([T(plate(654, t + 4, 760 + d, t + 5))], ACCENT, 0.5)            # the plate's blue hairline
 
     def swept(x, y0, y1, w, t, s):
         ym = (y0 + y1) / 2
         return [(x, y0), (x + s * t, y0), (x + s * (t + w), ym), (x + s * t, y1), (x, y1), (x + s * w, ym)]
+    # the narrow end has room for two, closer, between the power bar's well and the squeezed slope
+    rx = [X1 - 34 - 13 * i for i in range(3)] if socket else [x1 - 21, x1 - 30, None]
     for i in range(3):
-        p.inlay([T(swept(X0 + 34 + 13 * i, 898, 914, 7, 3.2, 1)), T(swept(X1 - 34 - 13 * i, 898, 914, 7, 3.2, -1))], ACCENT, 0.7)
+        p.inlay([T(swept(X0 + 34 + 13 * i, 898, 914, 7, 3.2, 1))] + ([T(swept(rx[i], 898, 914, 7, 3.2, -1))] if rx[i] else []),
+                ACCENT, 0.7)
     seams = [plate(x, 902, x + 1, 914) for x in (TAB0 - 90, TAB0 - 180, TAB2 + 90, TAB2 + 180)]
     seams += [plate(333, y, 345, y + 1) for y in (900, 1000)] + [plate(x, 866, x + 1, 875) for x in (1700, 1780)]
     seams += [plate(30, 798, 31, 820), plate(120, 798, 121, 820)]
@@ -1102,14 +1130,15 @@ def bar_america(p):
         p.stud(x, y - TOP, 2.6)
 
 
-def bar_china(p):
+def bar_china(p, socket=True):
     """A pagoda: the money tab in two eaved steps, the rail's ends flicking up like eaves, stepped corners,
     red lacquer bands, gold studs and rows of rivets on heavy cast steel."""
     stack(p, [(0, 812), (321, 812), (321, 822), (333, 822), (333, 832), (345, 832), (345, 1080), (0, 1080)])
     ledge = [(0, 795), (214, 795)]
     ledge += (curve((214, 795), (238, 795), (262, 781), 8) + curve((256, 787), (244, 815), (226, 815), 8))[1:] + [(0, 815)]
     stack(p, ledge, 9, 12, 4, 2.0)
-    stack(p, plate(X0, 898, X1, 1080, tl=("notch", 12), tr=("notch", 12)))
+    x1 = right_end(socket)
+    stack(p, plate(X0, 898, x1, 1080, tl=("notch", 12), tr=("notch", 12)))
     left = [(X0 + 6, 922), (X0 + 12, 894)] + curve((X0 + 2, 882), (X0 - 4, 872), (X0 - 10, 862), 5)
     left += curve((X0 + 2, 870), (X0 + 30, 878), (X0 + 74, 880), 6)
     tail = [(TAB0 - 40, 880)] + curve((TAB0 - 52, 866), (TAB0 - 58, 858), (TAB0 - 68, 850), 4)
@@ -1122,23 +1151,24 @@ def bar_china(p):
     tabs += curve((652, 840), (662, t), (676, t), 4)
     tabs += curve((754 + d, t), (768 + d, t), (778 + d, 840), 4) + curve((790 + d, 834), (784 + d, 842), (780 + d, 848), 4)[1:]
     tabs += [(780 + d, 868), (788 + d, 868), (788 + d, 880)]
-    stack(p, left + tabs + tail + mirror(left + tail), 9, 13, 4, 2.2)
+    stack(p, left + (tabs if socket else []) + tail + narrow(mirror(left + tail), socket), 9, 13, 4, 2.2)
     stack(p, [(1626, 1080), (1626, 879), (1634, 879), (1634, 871), (1642, 871), (1642, 863), (1920, 863), (1920, 1080)])
     stack(p, [(1816, 878), (1816, 808), (1824, 808), (1824, 794), (1920, 794), (1920, 878)], 9, 12, 4, 2.2)
-    openings(p, "notch", 4)
-    tab_seats(p, "notch", 2.5)
-    p.inlay([T(plate(662, t + 3, 768 + d, t + 6))], ACCENT, 0.3)                # a red lacquer band under the eave
-    for x in (657, 773 + d):
-        for y in (866, 874):
-            p.rivet(x, y - TOP, 1.8)
-    p.bump([regular(x, 853 - TOP, 2.3, 12) for x in (657, 773 + d)], 2.2, 1.4, GOLDM)
+    openings(p, "notch", 4, x1)
+    if socket:
+        tab_seats(p, "notch", 2.5)
+        p.inlay([T(plate(662, t + 3, 768 + d, t + 6))], ACCENT, 0.3)            # a red lacquer band under the eave
+        for x in (657, 773 + d):
+            for y in (866, 874):
+                p.rivet(x, y - TOP, 1.8)
+        p.bump([regular(x, 853 - TOP, 2.3, 12) for x in (657, 773 + d)], 2.2, 1.4, GOLDM)
     L = layout()
     px0, px1 = L["power"][0], L["power"][2]
-    bands = [plate(X0 + 16, 906, px0 - 6, 911), plate(px1 + 6, 906, X1 - 16, 911), plate(X0 + 30, 903, X1 - 30, 905),
-             plate(TAB0 - 36, 874, TAB2 + 36, 878), plate(10, 802, 200, 807), plate(1665, 867, 1900, 871),
-             plate(1840, 798, 1910, 800)]
+    bands = [plate(X0 + 16, 906, px0 - 6, 911), plate(px1 + 6, 906, x1 - 16 if socket else x1 - 12, 911),
+             plate(X0 + 30, 903, x1 - 30, 905), plate(TAB0 - 36, 874, TAB2 + 36, 878), plate(10, 802, 200, 807),
+             plate(1665, 867, 1900, 871), plate(1840, 798, 1910, 800)]
     p.inlay([T(b) for b in bands], ACCENT, 0.3)
-    for x in range(X0 + 26, X1 - 20, 34):
+    for x in range(X0 + 26, x1 - 20, 34):
         if not px0 - 10 < x < px1 + 10:
             p.rivet(x, 894 - TOP, 2.2)
     for x in list(range(TAB0 - 30, TAB0 + 1, 15)) + list(range(TAB2, TAB2 + 31, 15)):
@@ -1147,18 +1177,19 @@ def bar_china(p):
         p.rivet(x, 1076 - TOP, 2.0)
     for y in range(842, 1070, 26):
         p.rivet(339, y - TOP, 2.2)
-    gold = [regular(x, 907 - TOP, 2.6, 12) for x in (X0 + 30, X1 - 30)]
+    gold = [regular(x, 907 - TOP, 2.6, 12) for x in (X0 + 30, x1 - 30 if socket else x1 - 20)]
     gold += [regular(x, 836 - TOP, 2.4, 12) for x in (TAB0 + 6, TAB2 - 6)]
     gold += [regular(x, 869 - TOP, 2.4, 12) for x in range(1670, 1900, 44)]
     p.bump(gold, 2.2, 1.4, GOLDM)
 
 
-def bar_gla(p):
+def bar_gla(p, socket=True):
     """Welded scrap: nothing square or symmetric, a bent rail, a lopsided tab, ragged edges, patch plates
     laid on out of square and welded, odd bolts.  No pipes or hoses."""
     stack(p, jag([(0, 816), (180, 812), (296, 806), (340, 820), (349, 852), (347, 1080), (0, 1080)], 5))
     stack(p, jag([(0, 799), (130, 795), (200, 787), (238, 791), (244, 809), (0, 817)], 7, 1.5), 9, 12, 4, 2.0)
-    stack(p, jag([(X0, 1080), (X0, 910), (X0 + 10, 898), (X1 - 4, 902), (X1, 1080)], 9))
+    x1 = right_end(socket)
+    stack(p, narrow(jag([(X0, 1080), (X0, 910), (X0 + 10, 898), (X1 - 4, 902), (X1, 1080)], 9), socket))
     rail = [(X0 + 2, 920), (X0 + 16, 888), (TAB0 - 46, 884), (TAB0 - 12, 836), (TAB2 + 4, 832), (TAB2 + 50, 876),
             (X1 - 100, 878), (X1 - 34, 874), (X1, 914)]
     # the tabs' plate: a scrap sheet bent up off the rail, out of square, its top crooked, ragged on its own seed
@@ -1170,23 +1201,26 @@ def bar_gla(p):
     edge = jag(rail, 11, 1.6, 18)
     i0, i1 = edge.index((X0 + 16, 888)), edge.index((TAB0 - 46, 884))
     run = edge[i0 + 1:i1]
-    edge = edge[:i0 + 1] + [q for q in run if q[0] < 638] + tabs + [q for q in run if q[0] > 788 + d] + edge[i1:]
-    stack(p, edge, 9, 13, 4, 2.2)
+    if socket:
+        edge = edge[:i0 + 1] + [q for q in run if q[0] < 638] + tabs + [q for q in run if q[0] > 788 + d] + edge[i1:]
+    stack(p, narrow(edge, socket), 9, 13, 4, 2.2)
     stack(p, jag([(1626, 1080), (1628, 885), (1648, 866), (1780, 863), (1920, 867), (1920, 1080)], 13))
     stack(p, jag([(1814, 878), (1818, 808), (1842, 794), (1920, 798), (1920, 878)], 17, 1.5), 9, 12, 4, 2.2)
-    openings(p, "rough", 4)
-    tab_seats(p, "rough", 3)
-    for i, (x, y, r) in enumerate([(656, 858, 2.4), (657, 871, 1.9), (774 + d, 864, 2.2)]):
-        p.bolt(x, y - TOP, r, seed=40 + i)
-    patches = [(574, 894, 616, 914, -7), (1316, 884, 1374, 904, 4), (333, 897, 349, 957, 3), (1660, 866, 1740, 876, -2),
+    openings(p, "rough", 4, x1)
+    if socket:
+        tab_seats(p, "rough", 3)
+        for i, (x, y, r) in enumerate([(656, 858, 2.4), (657, 871, 1.9), (774 + d, 864, 2.2)]):
+            p.bolt(x, y - TOP, r, seed=40 + i)
+    end_patch = (1316, 884, 1374, 904, 4) if socket else (1310, 884, 1334, 904, 4)
+    patches = [(574, 894, 616, 914, -7), end_patch, (333, 897, 349, 957, 3), (1660, 866, 1740, 876, -2),
                (60, 795, 120, 813, -3), (1830, 1062, 1912, 1078, 2)]
     for i, (a, b, c, e, deg) in enumerate(patches):
         sh = sheet(a, b, c, e, deg)
         p.bump([T(sh)], 1.4, 0.8, STEEL)
         for e0, e1 in zip(sh, sh[1:] + sh[:1]):
             p.weld((e0[0], e0[1] - TOP), (e1[0], e1[1] - TOP), seed=31 + i * 7 + int(e0[0]), r=1.2)
-    for i, (x, y) in enumerate(((340, 1066), (10, 1068), (X0 + 5, 1040), (X1 - 5, 1040), (1632, 1068), (1912, 1064),
-                                (1822, 866), (588, 904), (1350, 894), (90, 805))):
+    for i, (x, y) in enumerate(((340, 1066), (10, 1068), (X0 + 5, 1040), (x1 - 5, 1040), (1632, 1068), (1912, 1064),
+                                (1822, 866), (588, 904), (1350 if socket else 1324, 894), (90, 805))):
         p.bolt(x, y - TOP, 2.6 + (i % 3) * 0.4, seed=i)
 
 
@@ -1203,23 +1237,26 @@ def ring(cx, cy, r, w=1.0, n=28):
             for u, v in zip(a, a[1:])]
 
 
-def bar_turkiye(p):
+def bar_turkiye(p, socket=True):
     """The modern Turkish defence industry: clean angular armour with wide chamfers, a flat-topped money tab,
     armour panels laid over the rail with gaps and recessed fasteners, an optic housing on the ledge, range
     ticks and sensor windows, a faint pixel camouflage, and one low-contrast girih etching on the ledge and
     along the rail.  Its LED lines and lamps are bar_lights."""
     stack(p, [(0, 812), (321, 812), (345, 836), (345, 1080), (0, 1080)])
     stack(p, [(0, 795), (224, 795), (248, 819), (0, 821)], 9, 12, 4, 2.0)
-    stack(p, plate(X0, 898, X1, 1080, tl=("cut", 18), tr=("cut", 18)))
+    x1 = right_end(socket)
+    stack(p, plate(X0, 898, x1, 1080, tl=("cut", 18), tr=("cut", 18)))
     left = [(X0, 920), (X0 + 44, 880), (TAB0 - 42, 880), (TAB0 - 12, 850), (TAB0 + 8, 832)]
     t, d = TAB_PLATE_TOP, TAB_PLATE_DX
     tabs = [(636, 880), (650, 866), (650, 856), (668, t),                      # wide chamfers, as the money tab's
-            (758 + d, t), (776 + d, 856), (776 + d, 866), (790 + d, 880)]
-    stack(p, left[:2] + tabs + left[2:] + mirror(left), 9, 13, 4, 2.2)
+            (758 + d, t), (776 + d, 856), (776 + d, 866), (790 + d, 880)] if socket else []
+    stack(p, left[:2] + tabs + left[2:] + narrow(mirror(left), socket), 9, 13, 4, 2.2)
     stack(p, plate(*RIGHT_BOX, tl=("cut", 30)))
     stack(p, plate(*MOUNT, tl=("cut", 16)), 9, 12, 4, 2.2)
+    end_panel = [(X1 - 12, 914), (X1 - 44, 884), (X1 - 76, 884), (X1 - 76, 914)] if socket else \
+        [(x1 - 7, 914), (x1 - 24, 884), (1310, 884), (1310, 914)]
     panels = [[(X0 + 12, 914), (X0 + 44, 884), (X0 + 76, 884), (X0 + 76, 914)],
-              [(X1 - 12, 914), (X1 - 44, 884), (X1 - 76, 884), (X1 - 76, 914)],
+              end_panel,
               [(TAB0 - 30, 878), (TAB0 - 8, 856), (TAB0 + 2, 856), (TAB0 + 2, 878)],
               [(TAB2 + 30, 878), (TAB2 + 8, 856), (TAB2 - 2, 856), (TAB2 - 2, 878)],
               [(1640, 877), (1660, 871), (1740, 871), (1740, 877)]]
@@ -1227,14 +1264,15 @@ def bar_turkiye(p):
     shell(p, plate(186, 785, 218, 805, tl=("cut", 4), tr=("cut", 6)), 9.0)
     p.bump([T(plate(189, 787, 215, 803, tl=("cut", 3), tr=("cut", 5)))], 4.0, 1.4, STEEL)
     well(p, regular(205, 795, 4.2, 16), 3, 1.2)
-    openings(p, "cut", 5)
-    tab_seats(p, "cut", 3)
-    for x, y in ((657, 862), (657, 873), (769 + d, 862), (769 + d, 873)):
+    openings(p, "cut", 5, x1)
+    if socket:
+        tab_seats(p, "cut", 3)
+    for x, y in ((657, 862), (657, 873), (769 + d, 862), (769 + d, 873)) if socket else ():
         p.inlay([T(regular(x, y, 2.6, 12))], DARK, 1.0)              # a recessed fastener
         p.bump([T(regular(x, y, 1.4, 6))], 0.6, 0.6, STEEL)
-    for x in (X0 + 22, X1 - 40):                                     # sensor windows
-        well(p, plate(x, 902, x + 18, 907), 3, 1.0)
-    gaps = [plate(x, 882, x + 1, 914) for x in (X0 + 78, X1 - 79, TAB0 - 70, TAB2 + 69)]
+    for x, w in ((X0 + 22, 18), (X1 - 40, 18)) if socket else ((X0 + 22, 18), (x1 - 28, 12)):     # sensor windows
+        well(p, plate(x, 902, x + w, 907), 3, 1.0)
+    gaps = [plate(x, 882, x + 1, 914) for x in (X0 + 78, X1 - 79 if socket else 1307, TAB0 - 70, TAB2 + 69)]
     gaps += [plate(333, y, 345, y + 1) for y in (900, 980)] + [plate(x, 866, x + 1, 875) for x in (1760, 1840)]
     gaps += [plate(120, 796, 121, 820)]
     p.inlay([T(q) for q in gaps], INKM, 0.9)
@@ -1246,7 +1284,7 @@ def bar_turkiye(p):
     etch += [T(q) for x in range(20, 116, 16) for q in ring(x, 808, 7.2, 0.6, 20)]
     etch += [T(star8(x, 907.5, 3.6)) for x in np.arange(L["power"][0] + 8, L["power"][2] - 4, 14)]
     p.inlay(etch, DARK, 0.25)
-    for x, y in ((X0 + 5, 1000), (X1 - 5, 1000), (339, 1068), (1632, 1068), (X0 + 60, 910), (X1 - 60, 910),
+    for x, y in ((X0 + 5, 1000), (x1 - 5, 1000), (339, 1068), (1632, 1068), (X0 + 60, 910), (X1 - 60, 910) if socket else (1315, 893),
                  (1906, 874), (14, 816), (236, 817), (1822, 866)):
         p.inlay([T(regular(x, y, 2.8, 12))], DARK, 1.0)              # a recessed fastener
         p.bump([T(regular(x, y, 1.5, 6))], 0.6, 0.6, STEEL)
@@ -1261,16 +1299,19 @@ def bar_turkiye(p):
 TURQ, AMBER = (64, 226, 214), (255, 176, 48)
 
 
-def bar_lights(img, p):
+def bar_lights(img, p, socket=True):
     """Turkiye's turquoise LED edge lines and status lamps and its amber indicators, with a little glow kept
     on the plate."""
     lay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(lay)
-    for (a, b) in (((X0 + 46, 883), (X0 + 74, 883)), ((X1 - 46, 883), (X1 - 74, 883)), ((TAB0 - 38, 877), (TAB0 - 10, 850)),
+    plate_line = (((668, TAB_PLATE_TOP + 3), (756 + TAB_PLATE_DX, TAB_PLATE_TOP + 3)),) if socket else ()
+    x1 = right_end(socket)          # the narrow end's panel top is 1310..x1 - 24, its sensor x1 - 28..x1 - 16
+    end_line = ((X1 - 46, 883), (X1 - 74, 883)) if socket else ((x1 - 23, 883), (1311, 883))
+    for (a, b) in (((X0 + 46, 883), (X0 + 74, 883)), end_line, ((TAB0 - 38, 877), (TAB0 - 10, 850)),
                    ((TAB2 + 38, 877), (TAB2 + 10, 850)), ((1660, 869), (1740, 869)), ((6, 818), (110, 818)),
-                   ((1834, 875), (1908, 875)), ((668, TAB_PLATE_TOP + 3), (756 + TAB_PLATE_DX, TAB_PLATE_TOP + 3))):
+                   ((1834, 875), (1908, 875))) + plate_line:
         d.line([(a[0], a[1] - TOP), (b[0], b[1] - TOP)], fill=TURQ + (245,), width=1)
-    for x, y, c in ((X0 + 31, 904.5, TURQ), (X1 - 31, 904.5, TURQ), (1640, 1066, AMBER), (1650, 1066, TURQ),
+    for x, y, c in ((X0 + 31, 904.5, TURQ), (X1 - 31 if socket else x1 - 22, 904.5, TURQ), (1640, 1066, AMBER), (1650, 1066, TURQ),
                     (1822, 806, TURQ), (1822, 840, AMBER), (205, 795, TURQ)):
         d.ellipse((x - 1.8, y - TOP - 1.8, x + 1.8, y - TOP + 1.8), fill=c + (255,))
     glow = np.asarray(lay.filter(ImageFilter.GaussianBlur(3)), np.float32)
@@ -1341,12 +1382,46 @@ def money_sign(img):
     return out
 
 
-def paint_bar(side_name="America"):
+def paint_bar(side_name="America", socket=True):
     look = BAR_LOOKS[side_name]
     p = Painter(2048, 512)
-    BARS[side_name](p)
+    BARS[side_name](p, socket)
     img = money_sign(bar_finish(shade(p, look, SEAMS), p, look))
-    return BAR_POST[side_name](img, p) if side_name in BAR_POST else img
+    return BAR_POST[side_name](img, p, socket) if side_name in BAR_POST else img
+
+
+# The Classic and Plain layouts have no command tabs, so the tabs' plate must not stand empty on the rail there:
+# ControlBarScheme drawPainting draws <S>ProCommandBarNoTabs in its place, the same bar drawn with the rail running
+# straight past (socket False), so rim, bevel and light run on unbroken.  The two drawings part only round the plate
+# (check_no_tabs), and with the same encoder every other DXT block of the two textures is the same bytes.
+# That layout has no idle column either, so the centre box ends at X1_NO_TABS, and its schemes name the
+# Production blocker of that narrower box as BlockProductionNoTabsUL/LR.
+NO_TABS_SPANS = ((600, 800, 850, 920), (NARROW_FROM - 16, 820, X1 + 24, 1080))     # screen x0, y0, x1, y1 they may differ in
+
+
+def check_no_tabs(bar, plain, side_name):
+    a, b = np.asarray(bar).astype(np.int32), np.asarray(plain).astype(np.int32)
+    ys, xs = np.nonzero(np.abs(a - b).max(-1) > 0)
+    ys = ys + TOP
+    inside = np.zeros(len(xs), bool)
+    for x0, y0, x1, y1 in NO_TABS_SPANS:
+        inside |= (xs >= x0) & (xs < x1) & (ys >= y0) & (ys < y1)
+    assert len(xs) and inside.all(), "the Classic bar differs outside %s: x %d..%d, y %d..%d" % (
+        NO_TABS_SPANS, xs[~inside].min(), xs[~inside].max(), ys[~inside].min(), ys[~inside].max())
+    al = b[..., 3]
+    for x in SEAMS:
+        assert not al[:, x - 2:x + 3].any(), "Classic bar: art across the cut at texel %d" % x
+    L = layout()
+    for r in [L[n] for n in ("radar", "money", "power", "portrait", "exp", "minmax", "general")] + L["cells"] + L["tools"]:
+        assert (al[r[1]:r[3], r[0]:r[2]] == 255).all(), "Classic bar: window %s is not on the plate" % (r,)
+    assert not al[:, X1_NO_TABS + 16:RIGHT_BOX[0] - 8].any(), "Classic bar: steel where the idle column was"
+    have, want = bar_blocks(np.asarray(bar)[..., 3] >= 250), bar_blocks(al >= 250)
+    assert {k: v for k, v in want.items() if k != "Production"} == {k: v for k, v in have.items() if k != "Production"}, \
+        "the Classic bar moves a blocker other than Production: %s against %s" % (want, have)
+    for scheme in side_schemes(side_name):
+        got = scheme_rects(scheme, ["BlockProductionNoTabs"])["BlockProductionNoTabs"]
+        assert got == want["Production"], "%s's BlockProductionNoTabs %s, the Classic art asks for %s" % (
+            scheme, got, want["Production"])
 
 
 def wing_chevrons(p, cx, y0, y1, w, material, gap=9):
@@ -2158,7 +2233,9 @@ def mount_button(side_name, kind, state, w, h):
 #   SquadKey    the hotkey as a key: the toolbar buttons' bezel round a dark face, the code writes the digit;
 #               KeyP is the chosen squad's, pressed and its face lit.  The ledge's well wears the same key.
 #   BuildLedge  the tray's head, a 3-slice cut from one ledge drawn whole: the side's point (L), plain lip that
-#               stretches (T), the right end with a well for the squad's key and count (R).
+#               stretches (T), the right end with a well for the squad's key and count (R).  America's point
+#               carries swept chevrons, so it has LFolded too, the ledge drawn again with them pointing out of
+#               the edge for the folded tray (TODO Group panel 3); the other builds' L reads either way.
 #   BuildFold   the point's raised face in the bar's second accent with a chevron, Fold toward the edge and
 #               Unfold back, each lit from the top left (drawn again, never flipped).
 SQUAD_KEY = (20, 18)
@@ -2275,13 +2352,14 @@ def page_arrow_pieces(side_name):
             for d in ("Next", "Prev") for state in COMMAND_TAB_STATES}
 
 
-def key_piece(side_name, w, h, state, glyph_polys, corner=1, glyph_scale=1.0):
+def key_piece(side_name, w, h, state, glyph_polys, corner=1, glyph_scale=1.0, build=None, open_colour=None, lit_k=1.0):
     """A key in the tabs' family, w x h: a dark rim, the squad key's bezel in the side's build, a dark glass face
     and a flat glyph (raised and ink polygons in a 22 box round (11, 11)) filling the face's height times
     glyph_scale.  '' up, 'H' under the pointer, 'P' down (lit in the side's open colour, the glyph dark),
-    'I' disabled.  corner scales the corners."""
+    'I' disabled.  corner scales the corners; build, open_colour and lit_k (the lit face's brightness) default
+    to the side's."""
     look = BAR_LOOKS[side_name]
-    build = look["build"]
+    build = build or look["build"]
     edge = MOUNT_GLYPH_BUILD.get(build, build)
     o = 32
     p = Painter(w + 2 * o, h + 2 * o)
@@ -2305,9 +2383,9 @@ def key_piece(side_name, w, h, state, glyph_polys, corner=1, glyph_scale=1.0):
         return m.resize((w, h), Image.BOX)
 
     if down:                                    # open: the face lit, a brighter bar along its foot, scanlines
-        lit = np.asarray(COMMAND_TAB_OPEN[side_name], np.float32)
+        lit = np.asarray(open_colour or COMMAND_TAB_OPEN[side_name], np.float32)
         yy = np.arange(h, dtype=np.float32)[:, None, None]
-        ramp = 0.62 + 0.5 * (yy - i) / (h - 2 * i)
+        ramp = (0.62 + 0.5 * (yy - i) / (h - 2 * i)) * lit_k
         rgb = np.broadcast_to(lit * ramp * np.where(yy % 2 == 0, 0.9, 1.0), (h, w, 3)).copy()
         rgb[int(h - i - 3):int(h - i)] = np.minimum(lit * 1.25 + 60, 255)
         layer = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8), "RGB").convert("RGBA")
@@ -2352,9 +2430,10 @@ FOLD_FACES = {"machined": [(16, 0), (28, 0), (28, 28), (16, 28), (0, 14)],
               "faceted": [(20, 0), (28, 0), (28, 28), (8, 28), (2, 18), (2, 10.4)]}
 
 
-def build_ledge(side_name):
+def build_ledge(side_name, folded=False):
     """The ledge drawn whole, L, T and R side by side, and cut in three, so each joint meets as drawn; T is
-    made even across, since the code stretches it."""
+    made even across, since the code stretches it.  folded draws it again with the chevrons pointing left,
+    lit from the top left like the rest (never flipped), and returns only its L."""
     look = BAR_LOOKS[side_name]
     build = look["build"]
     lw, tw, rw = LEDGE_W
@@ -2367,6 +2446,8 @@ def build_ledge(side_name):
     if build == "machined":                         # the swept chevrons and seams
         def swept(x, ya, yb, w, t):
             ym = (ya + yb) / 2
+            if folded:                              # the same chevron over the same span, pointing left
+                return [(x + t + w, ya), (x + w, ya), (x, ym), (x + w, yb), (x + t + w, yb), (x + t, ym)]
             return [(x, ya), (x + t, ya), (x + t + w, ym), (x + t, yb), (x, yb), (x + w, ym)]
         p.inlay([swept(50 + 13 * i, 12, 28, 7, 3.2) for i in range(3)], ACCENT, 0.7)
         p.inlay([plate(45, 7, 46, 33), plate(rx + 1, 7, rx + 2, 33)], INKM, 0.8)
@@ -2394,6 +2475,8 @@ def build_ledge(side_name):
     img = bar_finish(shade(p, look, shadow=True, falloff=False), p, look, gloss=False)
     if build == "faceted":                          # the LED line along the top lip, a lamp by the well
         img = led(img, [((44, 3), (W, 3))], [(rx + 61, 20, TURQ)])
+    if folded:
+        return {"BuildLedgeLFolded": img.crop((0, 0, lw, LEDGE_H))}
     return {"BuildLedgeL": img.crop((0, 0, lw, LEDGE_H)), "BuildLedgeT": even(img.crop((lw, 0, lw + tw, LEDGE_H)), 1),
             "BuildLedgeR": img.crop((rx, 0, W, LEDGE_H))}
 
@@ -2424,16 +2507,20 @@ def build_fold(side_name, unfold, state):
 def group_pieces(side_name):
     out = {"SquadKey": squad_key(side_name, False), "SquadKeyP": squad_key(side_name, True)}
     out.update(build_ledge(side_name))
+    if BAR_LOOKS[side_name]["build"] == "machined":
+        out.update(build_ledge(side_name, folded=True))
     for unfold, kind in ((False, "Fold"), (True, "Unfold")):
         for state in ("", "H", "P"):
             out["Build" + kind + state] = build_fold(side_name, unfold, state)
     return out
 
 
-def group_sizes():
+def group_sizes(side_name):
     """Each group panel piece's size, by its name without the prefix, as pieces.md gives it to the code."""
     out = {"SquadKey": SQUAD_KEY, "SquadKeyP": SQUAD_KEY}
     out.update({"BuildLedge" + k: (w, LEDGE_H) for k, w in zip("LTR", LEDGE_W)})
+    if BAR_LOOKS[side_name]["build"] == "machined":
+        out["BuildLedgeLFolded"] = (LEDGE_W[0], LEDGE_H)
     out.update({"Build" + k + s: FOLD for k in ("Fold", "Unfold") for s in ("", "H", "P")})
     return out
 
@@ -3171,12 +3258,18 @@ TAB_TABLE = (16, TAB_ROWS[0][0] - 6, 1362, TAB_ROWS[-1][1] + 6)
 # Diplomacy.cpp to TAB_HIDE's top left (as a share of the window) so the corner's cut clears its socket
 TAB_HIDE = (1160, 650, 1160 + tab_u(763) - tab_u(671), 650 + tab_u(397) - tab_u(370))
 TAB_COLUMNS = [tab_u(u) for u in (46, 178, 319, 364, 408, 460, 560)]   # between mute, player, side, ping, fps, team, status, money
+# the Communicator page's wells, in the window at 1080, between the titles' top and the table's foot: Diplomacy.cpp
+# dressForPanel stands ListboxBuddies, ListboxBuddyChat and TextEntryChat in them, 6 in from each side (3 for the entry)
+TAB_COMM_WELLS = dict(Buddies=(16, TAB_TITLES[1], 1362, 318), Chat=(16, 328, 1362, 556), Entry=(16, 566, 1362, TAB_TABLE[3]))
 
 
-def tab_panel(side, solo=False):
+def tab_panel(side, solo=False, comm=False):
     """The Tab screen's painting on its sheet, the buttons beside it; solo is the campaign's (<prefix>TabSolo on
     ReforgedHud<Side>TabSolo), where the briefing list stands: the titles' and the table's wells are one, with
-    no bands or rulings for its lines to fall across, and its sheet holds the painting alone."""
+    no bands or rulings for its lines to fall across, and its sheet holds the painting alone.  comm is the online
+    Communicator page's (<prefix>TabComm on ReforgedHud<Side>TabComm): a well for the buddy list, one for the
+    chat and one for the line typed into it (TAB_COMM_WELLS), its sheet the painting alone too."""
+    solo = solo or comm
     look = BAR_LOOKS[side]
     build = look.get("skin", look["build"])
     W, H = TAB_PANEL
@@ -3196,7 +3289,9 @@ def tab_panel(side, solo=False):
               [(10, 10), (W - 11, 10), (W - 11, H - 44), (W - 22, H - 44), (W - 22, H - 22), (W - 44, H - 22), (W - 44, H - 13),
                (10, H - 13)]], (True, False, True, False))
     c = 6 if kind != "rough" else 5
-    if solo:
+    if comm:
+        p.sink([shape(build, *r, c) for r in TAB_COMM_WELLS.values()], 6, 2.5)
+    elif solo:
         p.sink([shape(build, TAB_TITLES[0], TAB_TITLES[1], TAB_TITLES[2], TAB_TABLE[3], c)], 6, 2.5)
     else:
         p.sink([shape(build, *TAB_TITLES, c)], 6, 2.5)
@@ -3228,6 +3323,9 @@ def tab_panel(side, solo=False):
             put(sheet_img, tab_button(side, kind, state), boxes["Tab" + kind + state])
     for name, piece in tab_track(side).items():
         put(sheet_img, piece, boxes["Tab" + name])
+    for state in TAB_STATES:
+        for name, piece in tab_radio(side, state).items():
+            put(sheet_img, piece, boxes["Tab" + name + state])
     if side in SIDES:                           # the smoke signals' plate and keys share the side's sheet
         boxes = signal_boxes(side)
         for name, piece in signal_pieces(side).items():
@@ -3336,6 +3434,11 @@ def tab_button_boxes():
     for name, (w, h) in TAB_TRACK.items():
         boxes["Tab" + name] = (TAB_TRACK_X, y, TAB_TRACK_X + w, y + h)
         y += h + 4
+    for i, state in enumerate(TAB_STATES):          # the online tabs' pieces, a state a row
+        x, y = TAB_RADIO_X, 4 + (TAB_RADIO_H + 5) * i
+        for name, w in (("RadioL", TAB_RADIO_END), ("RadioC", TAB_RADIO_MID), ("RadioR", TAB_RADIO_END)):
+            boxes["Tab" + name + state] = (x, y, x + w, y + TAB_RADIO_H)
+            x += w + 4
     return boxes
 
 
@@ -3390,20 +3493,54 @@ def tab_track(side):
             "TrackSmall": Image.fromarray(np.repeat(middle, 2, axis=0), "RGBA")}
 
 
-def check_tab(sheet_img, side_name, prefix, solo_img=None):
+# The two tabs over the online Tab screen (Diplomacy.wnd RadioButtonInGame and RadioButtonBuddies, shown when the
+# player is signed in): the command tabs' family (key_piece) at a tab's size, in the panel's build, the code's text
+# on the face.  The radio button draws three pieces, the ends at their own width and the middle repeated between,
+# so each state is one tab drawn wide and cut: L and R its ends, C its middle made even across.  Up (''), under
+# the pointer (H), the open tab (P, lit in the side's colour, dimmed so the code's white text reads) and D.
+TAB_RADIO_H = tab_u(34) - tab_u(10)             # 43 at 1080
+TAB_RADIO_END, TAB_RADIO_MID = 16, 8
+TAB_RADIO_X = 1932                              # the pieces' column on the TabPanel sheet
+TAB_RADIO_OPEN_K = 0.55
+TAB_RADIO_OBS_OPEN = (118, 126, 138)            # the observer's open tab: lit graphite, no side's colour
+
+
+def tab_radio(side, state):
+    look = BAR_LOOKS[side]
+    w, h, e, m = 96, TAB_RADIO_H, TAB_RADIO_END, TAB_RADIO_MID
+    img = key_piece(side, w, h, "I" if state == "D" else state, ([], []), build=look.get("skin", look["build"]),
+                    open_colour=COMMAND_TAB_OPEN.get(side, TAB_RADIO_OBS_OPEN), lit_k=TAB_RADIO_OPEN_K)
+    return {"RadioL": img.crop((0, 0, e, h)), "RadioC": even(img.crop(((w - m) // 2, 0, (w + m) // 2, h)), 1),
+            "RadioR": img.crop((w - e, 0, w, h))}
+
+
+def check_tab(sheet_img, side_name, prefix, solo_img=None, comm_img=None):
     """The paintings and the buttons are mapped where the generator put them, each painting opaque along the
-    screen's two edges it stands on, and the rows, the titles and the Main Menu button stand on it."""
+    screen's two edges it stands on, and the rows, the titles and the Main Menu button stand on it; the
+    Communicator's wells are glass, darker than the steel between them."""
     M = read_mapped(side_name, "TabPanel")
     want = {prefix + "TabPanel": (0, 0) + TAB_PANEL}
     if solo_img is not None:
         want[prefix + "TabSolo"] = (0, 0) + TAB_PANEL
+    if comm_img is not None:
+        want[prefix + "TabComm"] = (0, 0) + TAB_PANEL
+        lum = np.asarray(comm_img.convert("L"), np.float32)
+        def middle(img, r):                         # a well's glass: 12 rows across its middle, clear of the lips
+            x0, y0, x1, y1 = r
+            return img[(y0 + y1) // 2 - 6:(y0 + y1) // 2 + 6, x0 + 12:x1 - 12].mean()
+        # against the campaign's one well (or the In Game page's wells) at the same place: the glass darkens down
+        # the page, so a well is held to the glass that stands where it does
+        ref = np.asarray((solo_img or sheet_img).convert("L"), np.float32)
+        for name, r in TAB_COMM_WELLS.items():
+            glass, there = middle(lum, r), middle(ref, r)
+            assert abs(glass - there) < 10, "the Communicator's %s well is %.0f, the glass there %.0f" % (name, glass, there)
     want.update({prefix + name: box for name, box in tab_button_boxes().items()})
     if side_name in SIDES:
         want.update({prefix + name: box for name, box in signal_boxes(side_name).items()})
         want.update({prefix + name: box for name, box in grown_boxes(side_name).items()})
     assert M == want, "ReforgedHud%sTabPanel.ini maps %s, the generator draws %s" % (side_name, sorted(set(M) ^ set(want)) or M, want)
     W, H = TAB_PANEL
-    for img in [sheet_img] + ([solo_img] if solo_img is not None else []):
+    for img in [sheet_img] + [i for i in (solo_img, comm_img) if i is not None]:
         a = np.asarray(img)[..., 3]
         assert (a[0, :W - 60] == 255).all() and (a[:H - 60, 0] == 255).all(), "the Tab screen leaves the screen's edge"
         for x0, y0, x1, y1 in [TAB_TITLES, TAB_TABLE, TAB_HIDE]:
@@ -4320,7 +4457,7 @@ def check_sheet(sheet_img, side_name, glow="B"):
     for st in ("", "H", "I"):
         want["GenPowerClose" + st] = (60, 50)
     want.update(tip_sizes())
-    want.update(group_sizes())
+    want.update(group_sizes(side_name))
     want.update({n: (COMMAND_TAB_W, COMMAND_TAB_H) for n in command_tab_boxes()})
     want.update({n: PAGE_ARROW for n in PAGE_ARROW_AT})
     for n, at in PAGE_ARROW_AT.items():
@@ -4483,7 +4620,8 @@ def main():
             made["ReforgedHudHelpbox"] = helpbox = paint_helpbox()
             check_helpbox(helpbox)
             made["ReforgedHudObsTabPanel"] = tab = tab_panel("Observer")
-            check_tab(tab, "Obs", "Helpbox")
+            made["ReforgedHudObsTabComm"] = comm = tab_panel("Observer", comm=True)
+            check_tab(tab, "Obs", "Helpbox", comm_img=comm)
         elif args.talents_only:
             made["ReforgedHud%sTalents" % side] = paint_talents(side)
         else:
@@ -4491,11 +4629,14 @@ def main():
             frame = radar_frame(side)
             made["ReforgedHud%sCommandBar" % side] = img = paint_bar(side)
             check(img, side)
+            made["ReforgedHud%sCommandBarNoTabs" % side] = plain = paint_bar(side, socket=False)
+            check_no_tabs(img, plain, side)
             made["ReforgedHud%sPowers" % side] = sheet_img = paint_powers(side, args.emblem, frame, args.ready_glow)
             check_sheet(sheet_img, side, args.ready_glow)
             made["ReforgedHud%sTabPanel" % side] = tab = tab_panel(side)
             made["ReforgedHud%sTabSolo" % side] = solo = tab_panel(side, solo=True)
-            check_tab(tab, side, side + "Pro", solo)
+            made["ReforgedHud%sTabComm" % side] = comm = tab_panel(side, comm=True)
+            check_tab(tab, side, side + "Pro", solo, comm)
         for name, img in made.items():
             img.save(os.path.join(args.out, name + ".png"))
             if args.dds:
@@ -4505,7 +4646,60 @@ def main():
                 with open(os.path.join(args.dds, name + ".dds"), "rb") as f:
                     assert f.read(88)[84:88] == b"DXT5", "%s.dds is not DXT5: Pillow %s cannot write it, use 11.2 or later" % (
                         name, Image.__version__)
+                dxt5_touch_up(os.path.join(args.dds, name + ".dds"), img)
             print("wrote", name)
+
+
+def _565(c):
+    """RGB (n, 3) 0..255 to 565 words and back to the 8 bit colours a decoder expands them to."""
+    q = (np.round(c[..., 0] * 31 / 255).astype(np.int32) << 11) | (np.round(c[..., 1] * 63 / 255).astype(np.int32) << 5) \
+        | np.round(c[..., 2] * 31 / 255).astype(np.int32)
+    r, g, b = q >> 11, (q >> 5) & 63, q & 31
+    return q, np.stack([(r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2)], -1)
+
+
+def dxt5_touch_up(path, img, worst=20):
+    """Pillow's DXT5 encoder picks a block's two colours badly when a block holds a third one: a turquoise
+    glyph on grey steel over a dark keyline came out a pale teal smear (Turkiye's mount and fold buttons,
+    2026-11-20).  Every block whose decoded colour misses the source by more than worst on an opaque texel
+    gets its colour half encoded again by trying every pair of its own texels (and its principal axis's
+    ends) as the endpoints, kept where it is closer.  The alpha half stays Pillow's."""
+    data = bytearray(open(path, "rb").read())
+    src = np.asarray(img.convert("RGBA")).astype(np.int32)
+    got = np.asarray(Image.open(path).convert("RGBA")).astype(np.int32)
+    H, W = src.shape[:2]
+    bw = W // 4
+    weight = src[..., 3] / 255.0
+    miss = (np.abs(src[..., :3] - got[..., :3]).max(-1) * (src[..., 3] > 0)).reshape(H // 4, 4, bw, 4).max(axis=(1, 3))
+    for by, bx in zip(*np.nonzero(miss > worst)):
+        px = src[by * 4:by * 4 + 4, bx * 4:bx * 4 + 4, :3].reshape(16, 3).astype(np.float64)
+        w = weight[by * 4:by * 4 + 4, bx * 4:bx * 4 + 4].reshape(16)
+        old = got[by * 4:by * 4 + 4, bx * 4:bx * 4 + 4, :3].reshape(16, 3)
+        old_err = (((old - px) ** 2).sum(-1) * w).sum()
+        mean = (px * w[:, None]).sum(0) / max(w.sum(), 1e-6)
+        axis = np.linalg.svd((px - mean) * w[:, None])[2][0]
+        t = (px - mean) @ axis
+        cands = np.vstack([px, mean + axis * t.min(), mean + axis * t.max()]).clip(0, 255)
+        words, cols = _565(cands)
+        i, j = np.triu_indices(len(cands), 1)
+        keep = words[i] != words[j]
+        i, j = i[keep], j[keep]
+        hi = np.where(words[i] > words[j], i, j)          # c0 > c1: the four colour mode
+        lo = np.where(words[i] > words[j], j, i)
+        a, b = cols[hi].astype(np.float64), cols[lo].astype(np.float64)
+        pal = np.stack([a, b, (2 * a + b) // 3, (a + 2 * b) // 3], 1)          # (pairs, 4, 3)
+        d = ((px[None, :, None, :] - pal[:, None, :, :]) ** 2).sum(-1)       # (pairs, 16, 4)
+        idx = d.argmin(-1)
+        err = (d.min(-1) * w[None]).sum(-1)
+        if len(err) == 0 or err.min() >= old_err:
+            continue
+        k = err.argmin()
+        bits = 0
+        for n, v in enumerate(idx[k]):
+            bits |= int(v) << (2 * n)
+        o = 128 + (by * bw + bx) * 16 + 8
+        data[o:o + 8] = int(words[hi[k]]).to_bytes(2, "little") + int(words[lo[k]]).to_bytes(2, "little") + bits.to_bytes(4, "little")
+    open(path, "wb").write(data)
 
 
 if __name__ == "__main__":

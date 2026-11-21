@@ -126,6 +126,7 @@ public:
 	virtual void update( Int percent ); ///< Update the state of the slider bars
 	virtual void processProgress(Int playerId, Int percentage) = 0;
 	virtual void setProgressRange( Int min, Int max ) = 0;
+	virtual void showRejoin( Int percent, Bool waitingForLog ) { }	///< a returning seat catches up behind the board
 	virtual void finishLoading();	///< Join ready assets with queued dialogue before fading this screen out.
 protected:
 	void setLoadScreen( GameWindow *g ) { m_loadScreen = g; }
@@ -308,6 +309,7 @@ public:
 	virtual void update(Int percent);		 ///< Update the state of the progress bar
 	void processProgress(Int playerId, Int percentage);
 	virtual void setProgressRange( Int min, Int max ) { }
+	virtual void showRejoin( Int percent, Bool waitingForLog );
 private:
 	LoadScreenBoard *m_board;
 
@@ -331,6 +333,7 @@ public:
 	virtual void update(Int percent);		 ///< Update the state of the progress bar
 	void processProgress(Int playerId, Int percentage);
 	virtual void setProgressRange( Int min, Int max ) { }
+	virtual void showRejoin( Int percent, Bool waitingForLog );
 private:
 	LoadScreenBoard *m_board;
 };

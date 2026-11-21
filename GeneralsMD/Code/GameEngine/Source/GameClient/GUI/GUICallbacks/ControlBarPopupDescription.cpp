@@ -92,6 +92,7 @@
 #include "GameClient/MetaEvent.h"
 #include "GameClient/ControlBar.h"
 #include "GameClient/ControlBarScheme.h"
+#include "GameClient/GroupPanel.h"
 #include "GameClient/DisplayStringManager.h"
 #include "GameLogic/AI.h"
 #include "GameLogic/Armor.h"
@@ -961,19 +962,21 @@ void ControlBar::populateBuildTooltipLayout( const CommandButton *commandButton,
 				//Special case: When building upgrades
 				else if( upgradeTemplate && !player->hasUpgradeInProduction( upgradeTemplate ) )
 				{
-					if( commandButton->getCommandType() == GUI_COMMAND_PLAYER_UPGRADE ||
+					// canAffordUpgrade also refuses a Pro Rules ban, and the card read that as money: Neutron
+					// Shells sat greyed on the silo saying "Not enough money" with ten thousand in the bank.
+					// The Nuke Cannon's own Neutron Shells button (NEED_UPGRADE) stays grey for the same
+					// reason and its card said nothing at all, so it says the ban too.
+					if( TheGameLogic->isProRules() && ProRulesBanUpgrade( upgradeTemplate->getUpgradeName() ) )
+					{
+						cardWarning = TheGameText->fetch( "TOOLTIP:TooltipProRulesBanUpgrade" );
+					}
+					else if( commandButton->getCommandType() == GUI_COMMAND_PLAYER_UPGRADE ||
 						  commandButton->getCommandType() == GUI_COMMAND_OBJECT_UPGRADE )
 					{
 						ProductionUpdateInterface *pui = selectedObject->getProductionUpdateInterface();
 						if( pui && pui->getProductionCount() >= getQueueCap( pui ) )
 						{
 							cardWarning = TheGameText->fetch( "TOOLTIP:TooltipCannotPurchaseBecauseQueueFull" );
-						}
-						// canAffordUpgrade also refuses a Pro Rules ban, and the card read that as money: Neutron
-						// Shells sat greyed on the silo saying "Not enough money" with ten thousand in the bank
-						else if( TheGameLogic->isProRules() && ProRulesBanUpgrade( upgradeTemplate->getUpgradeName() ) )
-						{
-							cardWarning = TheGameText->fetch( "TOOLTIP:TooltipProRulesBanUpgrade" );
 						}
 						else if( !TheUpgradeCenter->canAffordUpgrade( ThePlayerList->getLocalPlayer(), upgradeTemplate, FALSE ) )
 						{
@@ -1406,6 +1409,9 @@ void ControlBar::populateBuildTooltipLayout( const CommandButton *commandButton,
 		}
 		else if( isSidebarLayout() )
 			cardAt.y = hud.strip.lo.y - REAL_TO_INT( 6 * k ) - cardHeight;	// no cell to lean on: over the strip
+		// a build tray button's card stands beside the tray, here and on every refill of a dirty bar
+		const ICoord2D cardSize = { size.x, cardHeight };
+		GroupPanel_buildTooltipPosition( anchor, &cardSize, &cardAt );
 		cardAt.y = max( 0, min( cardAt.y, hud.screen.hi.y - cardHeight ) );
 		parent->winSetPosition( cardAt.x, cardAt.y );
 

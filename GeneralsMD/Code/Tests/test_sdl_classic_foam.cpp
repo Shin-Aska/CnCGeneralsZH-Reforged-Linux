@@ -52,6 +52,7 @@ static void reflect(const std::vector<unsigned char> &spirv)
     CHECK(spvc_compiler_get_declared_struct_size(compiler,type,&size)==SPVC_SUCCESS);
     CHECK(size==2528 && size==offsetof(SdlEnginePixelConstants,DrawEffectParameters));
     CHECK(spvc_type_get_num_member_types(type)==sizeof(members)/sizeof(members[0]));
+    if(spvc_type_get_num_member_types(type)!=sizeof(members)/sizeof(members[0]))return;
     for(unsigned i=0;i<sizeof(members)/sizeof(members[0]);++i) {
         unsigned offset=0;size_t bytes=0;
         CHECK(std::strcmp(spvc_compiler_get_member_name(compiler,block.base_type_id,i),members[i].Name)==0);
@@ -285,19 +286,19 @@ static std::vector<float> sampled_depth(const FoamGpu &gpu,const SDL_GPUViewport
     }
     return pixels;
 }
-static void gpu()
+static int gpu()
 {
-    const bool initialized=SDL_Init(SDL_INIT_VIDEO);CHECK(initialized);if(!initialized)return;
+    const bool initialized=SDL_Init(SDL_INIT_VIDEO);if(!initialized)return 77;
     struct Video {~Video(){SDL_Quit();}} video;
     {
-        FoamGpu g;if(!g.init())return;
+        FoamGpu g;if(!g.init())return 77;
         auto *a=g.texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,g.W,g.H,nullptr,0,true);
         auto *b=g.texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,g.W,g.H,nullptr,0,true);
         const unsigned char base[]={25,51,76,128},black[]={0,0,0,255},white[]={255,255,255,255},edge[]={0,0,0,128},zeroAlpha[]={0,0,0,0};
         auto colour=[&](const unsigned char *p){return g.texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,1,1,p,4);};
         auto *baseTexture=colour(base),*blackTexture=colour(black),*whiteTexture=colour(white),*edgeTexture=colour(edge),*zeroEdge=colour(zeroAlpha);
         CHECK(a && b && baseTexture && blackTexture && whiteTexture && edgeTexture && zeroEdge);
-        if(!(a && b && baseTexture && blackTexture && whiteTexture && edgeTexture && zeroEdge))return;
+        if(!(a && b && baseTexture && blackTexture && whiteTexture && edgeTexture && zeroEdge))return 1;
         const SDL_GPUViewport views[]={{0,0,float(g.W),float(g.H),0,1},{7,9,61,43,.2f,.8f}};
         for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID_FOAM,ENGINE_SHADER_WATER_RIVER_FOAM}) {
             auto *actual=g.pipeline(program);auto *diagnostic=g.pipeline(program,nullptr,true);
@@ -355,9 +356,10 @@ static void gpu()
             }
         }
     }
+    return failures?1:0;
 }
 int main(int argc,char **argv)
 {
-    cpu();if(argc>1 && std::strcmp(argv[1],"--gpu")==0)gpu();
+    cpu();if(argc>1 && std::strcmp(argv[1],"--gpu")==0){int result=gpu();if(result==77)return 77;}
     std::printf("Classic foam: %u checks, %u failures\n",checks,failures);return failures?1:0;
 }

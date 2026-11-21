@@ -302,12 +302,13 @@ static int gpu()
 
         // Prepare failures never draw or mark a stage complete; partial fallbacks remain safely owned.
         haze.Strength=1;atmosphere.Strength=1;
-        for(const char *point:{"program","pipeline","target","target-after-one"}) {
+        using Failure=SdlPostAtmosphere::TestFailure;
+        for(Failure point:{Failure::Program,Failure::Pipeline,Failure::Target,Failure::TargetAfterOne}) {
             presentation=frame->Back_Buffer_Target();CHECK(post.Prepare(*frame,presentation,post_settings(),scene));fill(*frame,scene);
-            SdlPostAtmosphere recovery;setenv("ZH_TEST_SDL_ATMOSPHERE_FAILURE",point,1);
+            SdlPostAtmosphere recovery;recovery.Set_Failure_For_Test(point);
             CHECK(!recovery.Prepare(*frame,post,scene,main_identity(*frame,scene),down,haze,atmosphere,views));
             CHECK(!recovery.Draw_Sky(*frame,scene));CHECK(component(read(*frame,scene),w,w/2,h/2)==0);
-            unsetenv("ZH_TEST_SDL_ATMOSPHERE_FAILURE");
+            recovery.Set_Failure_For_Test(Failure::None);
             CHECK(recovery.Prepare(*frame,post,scene,main_identity(*frame,scene),down,haze,atmosphere,views));
             CHECK(recovery.Draw_Sky(*frame,scene));end();CHECK(recovery.Release(*frame));
         }
@@ -373,7 +374,7 @@ static int gpu()
 }
 int main(int argc,char **argv)
 {
-    unsetenv("ZH_TEST_SDL_ATMOSPHERE_FAILURE");cpu();if(failures)return 1;
+    cpu();if(failures)return 1;
     const int result=argc>1&&!std::strcmp(argv[1],"--gpu")?gpu():0;
     std::printf("SDL atmosphere/haze: %u checks, %u failures\n",checks,failures);return result;
 }

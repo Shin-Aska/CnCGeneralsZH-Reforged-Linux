@@ -55,6 +55,7 @@
 //
 //-----------------------------------------------------------------------------
 
+#include "Platform/RenderPost.h"
 #include "dx8wrapper.h"
 #include "Lib/Clock.h"
 #include "assetmgr.h"
@@ -79,13 +80,11 @@
 #include "Common/GameLOD.h"
 #include "d3dx9runtime.h"
 #include "WW3D2/dx11runtime.h"
-#include "Platform/RenderPost.h"
 #if defined(_WIN32)
 #include "dx11post.h"	//DX11Post_Set_Bloom; the library is not built off Windows
 #endif
 #include "d3d8shadertranslate.h"
 #include "dx8caps.h"
-#include "Common/GameLOD.h"
 #include "benchmark.h"
 #include <math.h>
 #include <string.h>	// memset, strcpy, strlen
@@ -589,7 +588,9 @@ void W3DShaderManager::pushProtoHaze(void)
 	}
 	s_hazed = weatherHaze || TheGlobalData->m_mapLight;
 	pushAtmosphere(weatherHaze);
-	if ((TheGlobalData->m_mapLight || TheGlobalData->m_ambientOcclusion || TheGlobalData->m_atmosphere || weatherHaze) && Direct3D11_Is_Active())
+	// Outside Classic the fog's memory look reads it too (W3DShroud::pushDirect3D11).
+	if ((TheGlobalData->m_mapLight || TheGlobalData->m_ambientOcclusion || TheGlobalData->m_atmosphere || weatherHaze
+			|| !TheGlobalData->m_classicGraphics) && Direct3D11_Is_Active())
 		pushShroudFrame();
 #elif defined(__linux__)
     s_nativeEnvironment = {};
@@ -634,6 +635,7 @@ void W3DShaderManager::beginMainPostScene(void)
 	RenderPost::Settings settings;
 	settings.Chain = TheGlobalData->m_direct3D11PostChain.str();
 	settings.Classic = TheGlobalData->m_classicGraphics != FALSE;
+	settings.ClearAlpha = TheWaterTransparency->m_minWaterOpacity;
 	settings.WorldAO = TheGlobalData->m_ambientOcclusion != FALSE;
 	settings.BloomThreshold = tuning.threshold; settings.BloomIntensity = tuning.intensity;
 	settings.BloomSaturation = tuning.saturation;

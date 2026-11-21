@@ -696,8 +696,12 @@ void FadeTransition::draw( void )
 {
 	if(!m_win)
 		return;
+	// the promotion window is two panels and a tree over one 542 painting: it fades as itself, unstretched
+	if( m_drawState >= FADETRANSITION_FADE_IN_1 && m_drawState <= FADETRANSITION_FADE_IN_9 && TheControlBar
+			&& TheControlBar->drawFadingPurchaseScience( m_win, 25 * m_drawState ) )
+		return;
 	const Image *image = m_win->winGetEnabledImage(0);
-	switch (m_drawState) 
+	switch (m_drawState)
 	{
 		case FADETRANSITION_FADE_IN_1:
 		{
@@ -1711,7 +1715,8 @@ void ControlBarArrowTransition::init( GameWindow *win )
 	
 	m_arrowImage = TheControlBar->getArrowImage();
 	GameWindow *twin = TheWindowManager->winGetWindowFromId(NULL, TheNameKeyGenerator->nameToKey("ControlBar.wnd:ButtonGeneral"));
-	if(!twin || !m_arrowImage)
+	// no arrow at a General button that is not there (the Red Alert style sidebar hides it)
+	if(!twin || !m_arrowImage || twin->winIsHidden())
 	{
 		m_isFinished = TRUE;
 		return;

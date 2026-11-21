@@ -31,10 +31,10 @@ struct RegisterReachProvider {
 Bool SdlReachOverlay_Draw(CameraClass &, const std::vector<const ReachOverlayField *> &fields)
 {
     SdlMainViewSnapshot snapshot;
-    if (fields.empty() ? !PosixRenderer_Main_View(snapshot) :
-        !PosixRenderer_Capture_Main_View(SdlSceneCapturePhase::TerrainOverlay, snapshot))
-        return FALSE;
-    if (!snapshot.Frame)
+    if (!PosixRenderer_Main_View(snapshot) || !snapshot.Frame || !snapshot.Frame->Supports_Scene_Depth()
+        || !SdlReachOverlay::Supported(*snapshot.Frame)) return FALSE;
+    // Empty selections retire arrays without acquiring a new depth capture.
+    if (!fields.empty() && !PosixRenderer_Capture_Main_View(SdlSceneCapturePhase::TerrainOverlay, snapshot))
         return FALSE;
 
     SdlReachOverlay::Inputs input;

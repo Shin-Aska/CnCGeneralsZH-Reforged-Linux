@@ -38,6 +38,9 @@ static void drawFramerateBar(void);
 static void resetSmoothMotionLiveRate(void);
 
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
+#include "Platform/RenderEffects.h"
+#include "Platform/RenderParticles.h"
+#include "Platform/RenderPost.h"
 #include <stdlib.h>
 #include <algorithm>
 #include "Lib/Clock.h"
@@ -65,10 +68,8 @@ static void resetSmoothMotionLiveRate(void);
 #include "ffprobe.h"
 #include "ffshadercache.h"
 #include "dx11runtime.h"
-#include "Platform/RenderPost.h"
-#include "Platform/RenderParticles.h"
-#include "Platform/RenderEffects.h"
 #include "Platform/RenderLighting.h"
+#include "W3DDevice/GameClient/W3DCinematicCamera.h"
 #include "Common/PerfTimer.h"
 #include "Common/JobSystem.h"
 #include "Common/FileSystem.h"
@@ -84,7 +85,6 @@ static void resetSmoothMotionLiveRate(void);
 #include "GameClient/Drawable.h"
 #include "W3DDevice/GameClient/W3DSmoothMotion.h"
 #include "W3DDevice/GameClient/W3DSmoothMotionRate.h"
-#include "W3DDevice/GameClient/W3DCinematicCamera.h"
 #include "W3DDevice/GameClient/Module/W3DModelDraw.h"
 #include "GameLogic/Object.h"
 #include "GameClient/Keyboard.h"		// TheKeyboard; on Windows WinMain.h brought it too
@@ -153,7 +153,6 @@ static void resetSmoothMotionLiveRate(void);
 #include "WW3D2/meshmdl.h"
 #include "WW3D2/rddesc.h"
 #include "TARGA.H"
-#include "Lib/BaseType.h"
 
 #include "GameLogic/ScriptEngine.h"		// For TheScriptEngine - jkmcd
 #include "GameLogic/GameLogic.h"
@@ -2637,12 +2636,6 @@ CinematicAnimationClockMode CinematicCameraModeForClientUpdate()
 	return mode;
 }
 
-bool CinematicAnimationClockFrozen(bool explicitlyFrozen, bool repeatedPicture,
-	const CinematicAnimationClockMode &mode)
-{
-	return explicitlyFrozen || (repeatedPicture && !mode.allowsRenderTime());
-}
-
 void W3DDisplay::draw( void )
 {
 #if !defined(_WIN32)
@@ -4715,6 +4708,11 @@ static void saveScreenShot(void)
 	if (!writeFrameBMP(pathname))
 		return;
 
+	// a -cinema list takes its shots back to back, and the note stays up for seconds, so with the
+	// HUD on every shot after the first carried the one before it in its picture
+	if (!TheGlobalData->m_cinemaScript.isEmpty())
+		return;
+
 	UnicodeString ufileName;
 	ufileName.translate(leafname);
 	TheInGameUI->message(TheGameText->fetch("GUI:ScreenCapture"), ufileName.str());
@@ -5623,4 +5621,14 @@ static void drawFramerateBar(void)
 
 	TheDisplay->drawFillRect(1, 1, width, 15, colorToUse);
 	prevTime = now;
+}
+
+Bool W3DDisplay::supportsPerPixelLighting(void) const
+{
+	return DX8Wrapper::Supports_Per_Pixel_Lighting();
+}
+
+Bool W3DDisplay::supportsHemisphericAmbient(void) const
+{
+	return DX8Wrapper::Supports_Hemispheric_Ambient();
 }

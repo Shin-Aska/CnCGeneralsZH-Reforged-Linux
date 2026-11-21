@@ -105,6 +105,7 @@ struct SdlRecordedDraw
 	SDL_GPUBuffer * IndexBuffer;		///< as VertexBuffer, when IndexSize is not 0
 	uint32_t IndexOffset;
 	uint32_t IndexSize;					///< 0 (not indexed), 2 or 4
+	uint32_t InstanceCount;              ///< zero retains the existing single-instance draw
 	uint32_t Count;						///< vertices, or indices
 	uint32_t First;						///< the first vertex, or the first index
 	int32_t BaseVertex;
@@ -170,6 +171,7 @@ public:
 	/// Scene capture owners use these independent identities, never the water snapshot serial.
 	uint64_t Scene_Frame() const { return SceneFrame; }
 	uint64_t Scene_Generation() const { return SceneGeneration; }
+	uint64_t Device_Generation() const { return DeviceGeneration; }
 	unsigned int Target_Depth_Format(const SdlTarget &target) const;
 	static unsigned int Target_Colour_Format(const SdlTarget &target);
 	/// Sampleable depth-only sun target. A replacement retires after all recorded users.
@@ -223,11 +225,15 @@ public:
 	/// Where the next Stage() would put its bytes: the stream's end, aligned as Stage aligns it.
 	uint32_t Stage_Offset_Next() const;
 	/// Room for bytes going to a GPU copy, and the uploads that take them there in the copy pass.  A
-	/// buffer or level-0 upload cycles its target, so draws already submitted keep what they read.
+	/// buffer or full-chain level-0 upload cycles its target, so submitted draws keep what they read.
 	uint8_t * Upload_Space(uint32_t size, uint32_t & offset);
+	uint64_t Pending_Upload_Bytes() const { return UploadBytes.size(); }
 	void Queue_Buffer_Upload(SDL_GPUBuffer * buffer, uint32_t upload_offset, uint32_t size);
 	void Queue_Texture_Upload(SDL_GPUTexture * texture, unsigned int level, unsigned int width, unsigned int height,
 		uint32_t upload_offset);
+	/// Partial mip updates must preserve the other levels and therefore must not cycle the texture.
+	void Queue_Texture_Upload(SDL_GPUTexture * texture, unsigned int level, unsigned int width, unsigned int height,
+		uint32_t upload_offset, bool cycle);
 	/// A constant block's bytes, for stage 0 (vertex) or 1 (pixel); the same bytes as that stage's block
 	/// before at the same slot share its offset, so the flush pushes only a change.
 	uint32_t Constants(unsigned int stage, const void * bytes, uint32_t size, unsigned int slot=0);
@@ -267,6 +273,11 @@ public:
 	/// Successful visible swapchain submissions; excludes offscreen, hidden and missing drawables.
 	/// This is an API-return serial, not GPU completion or physical scanout timing.
 	uint64_t Visible_Present_Submissions() const { return VisiblePresentSubmissions; }
+	/// The claimed window's presentation policy. No window is a no-op, including
+	/// -offscreen's independent pacer. Unsupported immediate mode falls back to VSYNC.
+	bool Configure_Presentation(bool vsync);
+	bool Presentation_Ready() const { return Window == NULL || PresentationKnown; }
+	bool Using_VSync() const { return Window != NULL && VSync; }
 
 	/// PERF1's timing aid (PosixDevice9's ZH_GPU_TIMING): with Serialize_Submits, every submit waits for
 	/// its fence, so the waits add up to the GPU's time for the work (CPU and GPU no longer overlap, so a
@@ -491,9 +502,12 @@ private:
 		unsigned int height, unsigned int format, const uint16_t (*ramp)[256]);
 	SDL_GPUGraphicsPipeline * Gamma_Pipeline(unsigned int format);
 	bool Upload_Ramp(struct SDL_GPUCommandBuffer * commands, const uint16_t (*ramp)[256]);
+	void Finish_Ramp_Upload(bool submitted);
 
 	SDL_GPUDevice * GpuDevice;
 	SDL_Window * Window;				///< C2's, claimed; null for an offscreen frame
+	bool VSync;					///< last confirmed swapchain mode; SDL claims a window with VSYNC
+	bool PresentationKnown;		///< a failed backend change must be retried, never treated as a cache hit
 	SDL_GPUTexture * BackBuffer;
 	SDL_GPUTexture * DepthStencil;
 	SDL_GPUTexture * FrontCopy;			///< the last presented picture
@@ -516,7 +530,7 @@ private:
 		uint64_t CaptureSerial;
 	};
 	std::vector<WaterSnapshot> WaterSnapshots; // at most eight; replaced resources retire with their batch
-	uint64_t SceneFrame = 0, SceneGeneration = 0;
+	uint64_t SceneFrame = 0, SceneGeneration = 0, DeviceGeneration = 0;
 	uint64_t WaterFrame = 0;
 	uint64_t WaterCaptureSerial = 0;
 	uint64_t WaterColourCaptures = 0, WaterDepthCaptures = 0;
@@ -588,6 +602,7 @@ private:
 		SDL_GPUTexture * Texture;
 		unsigned int Level, Width, Height;
 		uint32_t Offset, Size;
+		bool CycleTexture;
 	};
 	std::vector<Command> Commands;
 	std::vector<SdlTarget> Targets;		///< this batch's, in first use order
@@ -624,7 +639,9 @@ private:
 	unsigned int GammaPipelineFormat;
 	SDL_GPUTexture * RampTexture;		///< 256 x 1, the three ramps in R, G and B
 	SDL_GPUSampler * PointSampler;
-	std::vector<uint16_t> UploadedRamp;	///< what RampTexture holds, to upload only a change
+	uint16_t UploadedRamp[3][256];	///< raw channels: compare before packing or allocating
+	bool UploadedRampValid;			///< published only after its command buffer was submitted
+	bool RampUploadPending;			///< recorded this frame; a failed frame must retry it
 };
 
 /// Whether the three ramps are D3D9's identity, value i as i * 257, which Present takes as a blit.

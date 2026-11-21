@@ -2,6 +2,7 @@
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #pragma once
 #include <string>
+#include <cmath>
 
 // Keep the native float4 declarations identical in C++ and generated HLSL.
 #define MODERN_WATER_MATERIAL_UNIFORMS(X) X(MaterialColor) X(MaterialParameters) X(MaterialOptics) X(MaterialSurface)
@@ -59,6 +60,16 @@ float modernWaterBubbleWeight(float pollution,float enabled,float depth) {
     return saturate(pollution)*saturate(enabled)*smoothstep(0.1,1.0,depth);
 }
 )HLSL";
+}
+
+// CPU analytic fallback and numerical checks share the production wind response.
+inline float WindGain(float resistance) {
+    if (!std::isfinite(resistance)) return 1.0f;
+    const float response=1.0f-(resistance<0?0:resistance>1?1:resistance);
+    return response*response;
+}
+template<class Sample> inline void ApplyWindGain(Sample &sample,float gain) {
+    sample.height*=gain;sample.dx*=gain;sample.dy*=gain;
 }
 
 // Shared by physical displacement and filtered lighting. Zero is an exact identity;

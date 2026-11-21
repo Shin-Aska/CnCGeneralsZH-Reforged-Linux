@@ -466,6 +466,8 @@ public:
 	static bool Is_Device_Lost() { return IsDeviceLost; }
 	static bool Is_Initted(void) { return IsInitted; }
 
+	static bool Supports_Per_Pixel_Lighting(void);
+	static bool Supports_Hemispheric_Ambient(void);
 	static bool Has_Stencil (void);
 
 	// Battle Marks use the shared terrain/scorch renderer on Linux SDL GPU and Windows DX11.

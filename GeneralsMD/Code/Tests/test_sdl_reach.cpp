@@ -2,7 +2,7 @@
 // atomic multi-owner native packets. --gpu uses actual Vulkan/Metal resources.
 #include "SdlReachOverlay.h"
 #include "SdlReachOverlayShader.h"
-#include "sdl3storage.h"
+#include "sdl3shadercompile.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -20,11 +20,10 @@ static void look_arrays(const SdlReachOverlay::Look &look,float a[4],float b[4],
     const float av[]={look.BorderWidth,look.BandWidth,look.FillAlpha,look.BandAlpha},bv[]={look.LineAlpha,look.LineWhite,0,seconds},cv[]={look.SoftWidth,look.SoftLine,look.RippleAlpha,look.RipplePeriod},dv[]={look.RippleSpan,look.RippleWidth,look.ShadeWidth,look.ShadeAlpha};memcpy(a,av,16);memcpy(b,bv,16);memcpy(c,cv,16);memcpy(d,dv,16);
 }
 static void cpu() {
-    std::string error,msl;std::vector<unsigned char> spirv;SDL3_StorageLayout layout;
+    std::string error,msl;std::vector<unsigned char> spirv;unsigned samplers=0,uniforms=0;
     require(SDL3_Compile_HLSL_To_SPIRV(SdlReachShader::Vertex(),true,spirv,error),error);require(SDL3_Translate_SPIRV_To_MSL(spirv,true,msl,error),error);
-    require(SDL3_Compile_HLSL_To_SPIRV(SdlReachShader::Pixel(),false,spirv,error),error);require(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error),error);require(SDL3_Reflect_Storage_SPIRV(spirv,SDL3_ShaderStage::Fragment,layout,error),error);
-    CHECK(layout.SampledTextures==2 && layout.UniformBuffers==1 && layout.ReadOnlyBuffers==0);
-    bool uniform=false;for(const auto &type:layout.Types)if(type.Name=="Reach"){uniform=true;CHECK(type.MemberOffsets==std::vector<unsigned>({0,64,80,96,112,128,144,160,672}));}CHECK(uniform);
+    require(SDL3_Compile_HLSL_To_SPIRV(SdlReachShader::Pixel(),false,spirv,error),error);require(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error),error);SDL3_Shader_Slots(spirv,false,samplers,uniforms);
+    CHECK(samplers==2 && uniforms==1);
     CHECK(sizeof(ReachOverlayShaderSources::Constants)==1184);CHECK(offsetof(ReachOverlayShaderSources::Constants,Grid)==160 && offsetof(ReachOverlayShaderSources::Constants,Size)==672);
     auto input=camera();ReachOverlayShaderSources::Constants constants={};CHECK(SdlReachOverlay::CameraConstants(input,constants));CHECK(std::fabs(constants.WorldFromClip[10]-1/.6f)<1e-6f);CHECK(std::fabs(constants.WorldFromClip[14]+.2f/.6f)<1e-6f);CHECK(constants.Viewport[0]==12.5f && constants.Viewport[1]==8.5f);
     CHECK(std::fabs(.5f*constants.WorldFromClip[10]+constants.WorldFromClip[14]-.5f)<1e-6f);
@@ -68,7 +67,7 @@ struct Scene {
         std::vector<unsigned char> spirv;require(SDL3_Compile_HLSL_To_SPIRV(SdlReachShader::Vertex(),true,spirv,Error),Error);Vertex=SDL3_Create_Shader(Frame->Device(),spirv,true,Error);require(Vertex!=nullptr,Error);
         require(SDL3_Compile_HLSL_To_SPIRV(GroundPixel,false,spirv,Error),Error);PixelShader=SDL3_Create_Shader(Frame->Device(),spirv,false,Error);require(PixelShader!=nullptr,Error);
         SDL_GPUColorTargetDescription target={};target.format=SDL_GPUTextureFormat(SdlGpuFrame::Target_Format());SDL_GPUGraphicsPipelineCreateInfo info={};info.vertex_shader=Vertex;info.fragment_shader=PixelShader;info.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;info.rasterizer_state.fill_mode=SDL_GPU_FILLMODE_FILL;info.rasterizer_state.cull_mode=SDL_GPU_CULLMODE_NONE;info.rasterizer_state.enable_depth_clip=true;info.depth_stencil_state.enable_depth_test=info.depth_stencil_state.enable_depth_write=true;info.depth_stencil_state.compare_op=SDL_GPU_COMPAREOP_ALWAYS;info.target_info.num_color_targets=1;info.target_info.color_target_descriptions=&target;info.target_info.has_depth_stencil_target=true;info.target_info.depth_stencil_format=SDL_GPUTextureFormat(Frame->Depth_Format());Ground=SDL_CreateGPUGraphicsPipeline(Frame->Device(),&info);require(Ground!=nullptr,Error);
-        Input=camera();Input.Target=Frame->Back_Buffer_Target();Input.Eligible=true;Input.DeviceGeneration=1;Input.ViewKey=77;Input.Viewport[0]=Input.Viewport[1]=0;Input.Viewport[2]=w;Input.Viewport[3]=h;Input.Viewport[4]=0;Input.Viewport[5]=1;Input.Scissor[2]=w;Input.Scissor[3]=h;
+        Input=camera();Input.Target=Frame->Back_Buffer_Target();Input.Eligible=true;Input.DeviceGeneration=Frame->Device_Generation();Input.ViewKey=77;Input.Viewport[0]=Input.Viewport[1]=0;Input.Viewport[2]=w;Input.Viewport[3]=h;Input.Viewport[4]=0;Input.Viewport[5]=1;Input.Scissor[2]=w;Input.Scissor[3]=h;
         return Ground && resize_depth();
     }
     bool resize_depth(){if(Depth)SDL_ReleaseGPUTexture(Frame->Device(),Depth);SDL_GPUTextureCreateInfo info={};info.type=SDL_GPU_TEXTURETYPE_2D;info.format=SDL_GPU_TEXTUREFORMAT_R32_FLOAT;info.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER;info.width=Input.Target.Width;info.height=Input.Target.Height;info.layer_count_or_depth=info.num_levels=1;Depth=SDL_CreateGPUTexture(Frame->Device(),&info);require(Depth!=nullptr,Error);return Depth;}
@@ -150,7 +149,7 @@ static int gpu() {
         require(scene.prepare(),"atomic recorder refusal scene");input=views(fields);scene.Frame->Fail_Next_Native_Record_For_Test();stats=SdlReachOverlay::Stats();CHECK(!SdlReachOverlay::Draw(*scene.Frame,scene.Input,input.data(),input.size(),SdlReachOverlay::DefaultLook(),policy()));scene.read(pixels);CHECK(baseline(pixels));CHECK(SdlReachOverlay::Stats().RecordedBatches==stats.RecordedBatches);
         // Every stale/wrong-owner/phase/format/alias request refuses before a
         // native packet. These are not interchangeable with OpaqueScene AO.
-        auto valid=scene.Input;for(unsigned which=0;which<8;++which){require(scene.prepare(),"invalid identity base");auto bad=scene.Input;if(which==0)bad.DepthCapture.Phase=SdlSceneCapturePhase::OpaqueScene;if(which==1)++bad.DepthCapture.Generation;if(which==2)++bad.DepthCapture.ViewKey;if(which==3)++bad.FrameSerial;if(which==4)bad.TerrainDepth=bad.Target.Colour;if(which==5)bad.TerrainDepth=bad.Target.Depth;if(which==6)bad.DepthFormat=SDL_GPU_TEXTUREFORMAT_R16_FLOAT;if(which==7)bad.Eligible=false;CHECK(!SdlReachOverlay::Draw(*scene.Frame,bad,input.data(),input.size(),SdlReachOverlay::DefaultLook(),policy()));scene.read(pixels);CHECK(baseline(pixels));}
+        auto valid=scene.Input;for(unsigned which=0;which<9;++which){require(scene.prepare(),"invalid identity base");auto bad=scene.Input;if(which==0)bad.DepthCapture.Phase=SdlSceneCapturePhase::OpaqueScene;if(which==1)++bad.DepthCapture.Generation;if(which==2)++bad.DepthCapture.ViewKey;if(which==3)++bad.FrameSerial;if(which==4)bad.TerrainDepth=bad.Target.Colour;if(which==5)bad.TerrainDepth=bad.Target.Depth;if(which==6)bad.DepthFormat=SDL_GPU_TEXTUREFORMAT_R16_FLOAT;if(which==7)bad.Eligible=false;if(which==8)++bad.DeviceGeneration;CHECK(!SdlReachOverlay::Draw(*scene.Frame,bad,input.data(),input.size(),SdlReachOverlay::DefaultLook(),policy()));scene.read(pixels);CHECK(baseline(pixels));}
         // Pending native readers keep arrays/programs alive on a failed flush;
         // a later successful submission still draws the old version exactly.
         require(scene.prepare(),"retained reader scene");input=views(fields);require(SdlReachOverlay::Draw(*scene.Frame,scene.Input,input.data(),input.size(),SdlReachOverlay::DefaultLook(),policy()),"old reader packet");auto old=fields;fields[0].Meta.Version++;std::fill(fields[0].Distance.begin(),fields[0].Distance.end(),16);input=views(fields);stats=SdlReachOverlay::Stats();failedFlush=true;CHECK(!SdlReachOverlay::Draw(*scene.Frame,scene.Input,input.data(),input.size(),SdlReachOverlay::DefaultLook(),policy()));CHECK(!SdlReachOverlay::TryRelease());CHECK(SdlReachOverlay::Stats().OwnedTextureBytes==stats.OwnedTextureBytes);failedFlush=false;scene.read(pixels);compare(scene,old,pixels);run(scene,fields,pixels);
@@ -158,6 +157,12 @@ static int gpu() {
         // A real resize keeps versioned arrays on the same device and requires
         // new depth identity. Repeated empty selection retires cached fields.
         scene.Input.WorldFromClip[8]=scene.Input.ViewProjection[8]=0;scene.Input.Viewport[0]=scene.Input.Viewport[1]=0;scene.Input.Viewport[2]=128;scene.Input.Viewport[3]=96;scene.Input.Viewport[4]=0;scene.Input.Viewport[5]=1;scene.Input.Scissor[0]=scene.Input.Scissor[1]=0;scene.Input.Scissor[2]=128;scene.Input.Scissor[3]=96;run(scene,fields,pixels);stats=SdlReachOverlay::Stats();auto stale=scene.Input;require(scene.Frame->Resize(160,100),"actual viewport resize");scene.Input.Target=scene.Frame->Back_Buffer_Target();scene.Input.Viewport[2]=160;scene.Input.Viewport[3]=72;scene.Input.Scissor[2]=160;scene.Input.Scissor[3]=100;require(scene.resize_depth(),"resized R32 depth");input=views(fields);CHECK(!SdlReachOverlay::Draw(*scene.Frame,stale,input.data(),input.size(),SdlReachOverlay::DefaultLook(),policy()));run(scene,fields,pixels);CHECK(SdlReachOverlay::Stats().TextureAllocations==stats.TextureAllocations);require(SdlReachOverlay::Draw(*scene.Frame,scene.Input,nullptr,0,SdlReachOverlay::DefaultLook(),policy()),"empty selection");CHECK(SdlReachOverlay::Stats().CachedBatches==0 && SdlReachOverlay::Stats().OwnedTextureBytes==0);
+        // Final frame teardown releases its registered native owner while the
+        // device is alive, even when the ordinary owner flush policy refuses.
+        require(scene.prepare(),"registered teardown scene");input=views(fields);
+        require(SdlReachOverlay::Draw(*scene.Frame,scene.Input,input.data(),input.size(),SdlReachOverlay::DefaultLook(),policy()),"registered teardown packet");
+        failedFlush=true;scene.Frame->Release_Owner_Hooks_For_Teardown();
+        CHECK(SdlReachOverlay::Stats().OwnedTextureBytes==0);CHECK(SdlReachOverlay::TryRelease());failedFlush=false;
         result=failures?1:0;
     }
     return result;

@@ -1,7 +1,7 @@
-// Classic-water foam admission. Hardware support remains independent of this view's readiness.
+// Classic-water foam capability is independent of current view readiness.
 #pragma once
-namespace RenderWaterFoam { bool Ready(); }
+namespace RenderWaterFoam { bool Available(); bool Ready(); }
 #if !defined(_WIN32)
 struct IDirect3DDevice9;
-namespace RenderWaterFoam { bool Ready(IDirect3DDevice9 *); }
+namespace RenderWaterFoam { bool Available(IDirect3DDevice9 *); bool Ready(IDirect3DDevice9 *); }
 #endif

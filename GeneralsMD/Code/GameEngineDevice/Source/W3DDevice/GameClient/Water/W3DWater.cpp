@@ -49,6 +49,7 @@
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/ModernWaterMaterial.h"
 #include "Platform/WaterPerformanceSettings.h"
+#include "Platform/WaterUnderwaterClarity.h"
 #include "Platform/WaterCoastalCrest.h"
 #include "Platform/WaterShoreOverlay.h"
 #include "Platform/WaterFoamWindow.h"
@@ -1817,6 +1818,9 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	setModernWaterConstants(6, optics, 1);
 	D3DXVECTOR4 materialColor, materialParameters, materialOptics, materialSurface;
 	getModernWaterMaterial(&materialColor.x, &materialParameters.x, &materialOptics.x, &materialSurface.x);
+	if (TheGlobalData->m_underwaterClarity && !TheGlobalData->m_classicGraphics && !river
+		&& WaterUnderwaterClarity::Supported())
+		materialOptics.x = max(materialOptics.x, WaterUnderwaterClarity::Strength);
 #if defined(__linux__)
 	materialParameters.w = pathReady ? 2.0f
 		: (WaterScreenReflection::Traces(mode) || mode==WaterScreenReflection::PathTraced ? 1.0f : 0.0f);
@@ -2493,7 +2497,7 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
                             // including BaseHeading on symmetric/open maps. No D override.
                             WaterWaveHeading::Field sea;
                             if(WaterWaveHeading::Build(field.wet.data(),field.exposure.data(),
-                                m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,sea))
+                                m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,sea,nullptr,nullptr,field.links.data()))
                                 WaterTuning::SetMapDirection(atan2(sea.prevailing.y,sea.prevailing.x)*180/WaterFftSpectrum::Pi,1,true);
                         }
                         if(m_modernClean && WaterCleanShore::Enabled() && getenv("ZH_WATER_SHORE_STATS")) { // A/B experiment only: diagnostics
@@ -7659,3 +7663,25 @@ void WaterRenderObjClass::renderSkyBody(Matrix3D *mat)
 /* The save's grid data (the snapshot that was here) is WaterGrid::xfer's; W3DTerrainVisual::xfer
 	 still writes it in the same place. */
 
+
+namespace WaterWaveHeading {
+bool Supported()
+{
+#if defined(__linux__)
+	return PosixWaterGpuAvailable(DX8Wrapper::_Get_D3D_Device());
+#else
+	return false;
+#endif
+}
+}
+
+namespace WaterUnderwaterClarity {
+bool Supported()
+{
+#if ZH_MODERN_WATER && !defined(_WIN32)
+	return PosixWaterGpuAvailable(DX8Wrapper::_Get_D3D_Device());
+#else
+	return false;
+#endif
+}
+}

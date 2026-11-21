@@ -60,6 +60,7 @@
 #if defined(__linux__)
 #include "Platform/RendererName.h"
 #endif
+#include "Platform/RenderEffects.h"
 #include "W3DDevice/GameClient/W3DAssetManager.h"
 #include "W3DDevice/GameClient/W3DGameClient.h"
 #include "W3DDevice/GameClient/W3DStatusCircle.h"
@@ -197,13 +198,7 @@ void W3DGameClient::structureFell(const Coord3D *pos, Real radius)
 	// a big one jolts the camera on top of what its FX shakes, a step under a nuke's kick; a barracks or
 	// a tower does not. Classic and Windows Direct3D 9 keep the old shake; native GPUs use the same jolt.
 	const Real JOLT_FROM_RADIUS = 40.0f;
-	if (radius >= JOLT_FROM_RADIUS && TheTacticalView && !TheGlobalData->m_classicGraphics
-#if defined(__linux__)
-		&& PosixRenderer_Has_Gpu(DX8Wrapper::_Get_D3D_Device())
-#else
-		&& Direct3D11_Present_Is_Enabled()
-#endif
-		)
+	if (radius >= JOLT_FROM_RADIUS && TheTacticalView && !TheGlobalData->m_classicGraphics && RenderEffects::WorldEffectsAvailable())
 		TheTacticalView->shake(pos, View::SHAKE_STRONG);
 }
 

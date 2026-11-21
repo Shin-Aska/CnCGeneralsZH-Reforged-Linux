@@ -1052,6 +1052,10 @@ endif()
 # ===========================================================================
 # Phase 3 - GameEngine.  ~580 files of game logic; no DX8, no device code.
 # ===========================================================================
+if(TARGET dx11post)
+  target_link_libraries(dx11post PUBLIC postprocess)
+endif()
+
 set(GE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngine)
 
 # The source tree is a frozen 2003 snapshot, so a glob cannot go stale the way
@@ -1379,7 +1383,7 @@ endif()
 set_tests_properties(gametext_csf PROPERTIES SKIP_RETURN_CODE 77)
 # The global operator new against the alignment the ABI promises for it, on Linux, where it is also the
 # one Mesa's libLLVM gets.  See Tests/test_global_new_alignment.cpp.
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_executable(test_global_new_alignment ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_global_new_alignment.cpp
     ${GE}/Source/Common/System/GameMemory.cpp ${GE}/Source/Common/System/MemoryInit.cpp
     ${GE}/Source/Common/System/UnicodeString.cpp ${GE}/Source/Common/System/AsciiString.cpp
@@ -1497,6 +1501,41 @@ if(ZH_PLATFORM_POSIX)
   # A3: with a window the device draws through SDL3 GPU, and compiles its own small programs (the gamma
   # pass) the way the generated ones are compiled.
   target_link_libraries(posixd3d9 PRIVATE SDL3::SDL3-static sdl3shadercompile engineshader ffshader ffvertex postprocess)
+
+  if(ZH_PLATFORM_LINUX)
+    add_executable(test_baseline_weather ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_baseline_weather.cpp)
+    set_target_properties(test_baseline_weather PROPERTIES CXX_STANDARD 17)
+    target_include_directories(test_baseline_weather PRIVATE
+      ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WW3D2
+      ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+    target_link_libraries(test_baseline_weather PRIVATE w3ddevice ww3d2 posixdevice gameengine SDL3::SDL3-static)
+    add_test(NAME test_baseline_weather COMMAND test_baseline_weather)
+    add_test(NAME test_baseline_weather_gpu COMMAND test_baseline_weather --gpu)
+    set_tests_properties(test_baseline_weather_gpu PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
+  endif()
+
+  add_executable(test_renderer_atmosphere ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_renderer_atmosphere.cpp)
+  set_target_properties(test_renderer_atmosphere PROPERTIES CXX_STANDARD 17)
+  target_include_directories(test_renderer_atmosphere PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+  target_link_libraries(test_renderer_atmosphere PRIVATE posixd3d9 SDL3::SDL3-static)
+  add_test(NAME test_renderer_atmosphere COMMAND test_renderer_atmosphere)
+  add_test(NAME test_renderer_atmosphere_gpu COMMAND test_renderer_atmosphere --gpu)
+  set_tests_properties(test_renderer_atmosphere_gpu PROPERTIES RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+
+  add_executable(test_sdl_gpu_particles_context ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_sdl_gpu_particles_context.cpp)
+  target_include_directories(test_sdl_gpu_particles_context PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+  target_link_libraries(test_sdl_gpu_particles_context PRIVATE posixd3d9 SDL3::SDL3-static)
+  set_target_properties(test_sdl_gpu_particles_context PROPERTIES CXX_STANDARD 17)
+  add_test(NAME test_sdl_gpu_particles_context COMMAND test_sdl_gpu_particles_context)
+  set_tests_properties(test_sdl_gpu_particles_context PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
+
+  add_executable(test_team_glow ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_team_glow.cpp)
+  set_target_properties(test_team_glow PROPERTIES CXX_STANDARD 17)
+  target_include_directories(test_team_glow PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+  target_link_libraries(test_team_glow PRIVATE posixd3d9 ffshader sdl3shadercompile SDL3::SDL3-static)
+  add_test(NAME test_team_glow COMMAND test_team_glow)
+  add_test(NAME test_team_glow_gpu COMMAND test_team_glow --gpu)
+  set_tests_properties(test_team_glow_gpu PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
 
   # Depth-format fallback follows the complete scene-depth capability, without requiring a GPU.
   add_executable(sdl_gpu_depth_format_selfcheck ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_sdl_gpu_depth_format.cpp)
@@ -1630,8 +1669,12 @@ if(ZH_PLATFORM_POSIX)
     target_include_directories(${name} PRIVATE ${ZH_POSIX_RENDER_DIR}
       ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include
       $<TARGET_PROPERTY:gameengine,INCLUDE_DIRECTORIES>)
-    target_compile_options(${name} PRIVATE -ffunction-sections -fdata-sections)
-    target_link_options(${name} PRIVATE -Wl,--gc-sections)
+    if(ZH_PLATFORM_LINUX)
+      target_compile_options(${name} PRIVATE -ffunction-sections -fdata-sections)
+      target_link_options(${name} PRIVATE -Wl,--gc-sections)
+    elseif(ZH_PLATFORM_MACOS)
+      target_link_options(${name} PRIVATE -Wl,-dead_strip)
+    endif()
     target_link_libraries(${name} PRIVATE posixd3d9 sdl3shadercompile SDL3::SDL3-static)
     add_test(NAME ${name} COMMAND ${name})
   endforeach()
@@ -1968,6 +2011,7 @@ list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/Source/SdlDevice/")
 list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/HazardCloudUnsupported\\.cpp$")
 # The same for the GPU particles (DX11GpuParticles.cpp here, GpuParticlesUnsupported.cpp elsewhere).
 list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/GpuParticlesUnsupported\\.cpp$")
+list(FILTER GAMEENGINEDEVICE_SOURCES EXCLUDE REGEX "/(SdlGpuParticlesAdapter|ParticleGpuShader)\\.cpp$")
 # Sound and video are the game's own.  Miles and Bink were binary-only, and the DLLs the retail
 # game ships are 32-bit, so there is nothing for a 64-bit exe to bind to: what it links instead is
 # those two APIs written over XAudio2 and FFmpeg.  FFmpeg decodes binkvideo and binkaudio natively,
@@ -2554,6 +2598,9 @@ add_lib_test(test_foliage_placement)
 target_include_directories(test_foliage_placement PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include)
 add_lib_test(test_fire_lights)
 target_include_directories(test_fire_lights PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include)
+# W3DDevice/GameClient/W3DCinematicCamera.h: a scripted camera drawn between its whole steps.
+add_lib_test(test_cinematic_camera)
+target_include_directories(test_cinematic_camera PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include)
 
 add_lib_test(test_hazard_cloud_policy)
 set_target_properties(test_hazard_cloud_policy PROPERTIES CXX_STANDARD 17)
@@ -2640,6 +2687,9 @@ if(ZH_PLATFORM_LINUX)
   set_target_properties(test_water_preview_preset PROPERTIES CXX_STANDARD 17)
   target_include_directories(test_water_preview_preset PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tools)
 endif()
+add_lib_test(test_water_clarity)
+set_target_properties(test_water_clarity PROPERTIES CXX_STANDARD 17)
+
 add_lib_test(test_modern_water_config)
 set_target_properties(test_modern_water_config PROPERTIES CXX_STANDARD 17)
 target_compile_definitions(test_modern_water_config PRIVATE
@@ -2798,11 +2848,24 @@ target_sources(test_terrain_golden PRIVATE ${TESTS}/test_gameengine_stubs.cpp)
 if(ZH_PLATFORM_POSIX)
   target_link_libraries(test_terrain_golden PRIVATE posixdevice w3ddevice)
 endif()
+# Without ZH_GAME_DATA it reads Run/ (ZH bigs loose, the base game's in ZH_Generals/), where any
+# checkout the game plays from has the maps; build.bat never sets ZH_GAME_DATA, so the test used to
+# skip on every ctest run.  It still skips when Run/ holds no MapsZH.big or ZH_Generals/maps.big.
 if(ZH_GAME_DATA)
   set_tests_properties(test_terrain_golden PROPERTIES ENVIRONMENT "ZH_DATA_DIR=${ZH_GAME_DATA}")
+else()
+  set_tests_properties(test_terrain_golden PROPERTIES ENVIRONMENT "ZH_DATA_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../Run")
 endif()
 # T1c (defect 17): the water grid's step, moved to the top of each logic frame, against the original
 # code's output under EA's one-pass-per-frame loop (Tests/water_grid_oracle.cpp), under catch-up too.
+if(ZH_PLATFORM_LINUX)
+  add_lib_test(test_water_heading_shader ffvertex engineshader sdl3shadercompile)
+  set_target_properties(test_water_heading_shader PROPERTIES CXX_STANDARD 17)
+endif()
+
+add_lib_test(test_water_wave_heading)
+set_target_properties(test_water_wave_heading PROPERTIES CXX_STANDARD 17)
+
 add_lib_test(test_water_grid gameengine)
 add_executable(test_weather_particle_math ${TESTS}/test_weather_particle_math.cpp)
 target_include_directories(test_weather_particle_math PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include ${CMAKE_CURRENT_SOURCE_DIR}/GameEngine/Include)
@@ -3272,6 +3335,8 @@ if(Python3_Interpreter_FOUND)
   endif()
   add_test(NAME bigfile_selfcheck
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/bigfile.py selfcheck)
+  add_test(NAME bigfile_extract_selfcheck
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_bigfile_extract.py)
   # Tools/artpack.py is the only guard on a rebuilt model batch, which the INI checksum no longer
   # covers; its selfcheck builds a model that breaks each rule and checks it is refused.
   add_test(NAME artpack_selfcheck
@@ -3477,7 +3542,7 @@ if(ZH_PLATFORM_POSIX)
   if(APPLE)
     foreach(_zh_test sdl_gpu_frame_selfcheck sdl_program_cache_selfcheck sdl_pipeline_state_selfcheck
                      posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck
-                     test_renderer_foundation_gpu test_renderer_lighting_gpu test_sdl_post_gpu test_sdl_ao_gpu test_sdl_storage_gpu test_sdl_atmosphere_gpu test_sdl_distortion_gpu test_sdl_heat_gpu test_sdl_reach_gpu test_sdl_owner_release_gpu test_sdl_classic_foam_gpu test_sdl_gpu_particles_gpu test_renderer_particles_gpu test_renderer_effects_gpu test_renderer_water_foam_gpu)
+                     test_renderer_foundation_gpu test_renderer_lighting_gpu test_sdl_post_gpu test_sdl_ao_gpu test_sdl_storage_gpu test_sdl_atmosphere_gpu test_sdl_distortion_gpu test_sdl_heat_gpu test_sdl_reach_gpu test_sdl_owner_release_gpu test_sdl_classic_foam_gpu test_sdl_gpu_particles_gpu test_renderer_particles_gpu test_renderer_effects_gpu test_renderer_water_foam_gpu test_sdl_gpu_particles_context test_renderer_atmosphere_gpu test_team_glow_gpu test_baseline_weather_gpu)
       if(TEST ${_zh_test})
         set_property(TEST ${_zh_test} APPEND PROPERTY ENVIRONMENT "SDL_VIDEO_DRIVER=dummy" "ZH_SDL_GPU_METAL_WINDOWLESS=1")
       endif()
@@ -3485,7 +3550,7 @@ if(ZH_PLATFORM_POSIX)
   elseif(ZH_PLATFORM_LINUX)
     foreach(_zh_test sdl_gpu_frame_selfcheck sdl_program_cache_selfcheck sdl_pipeline_state_selfcheck
                      posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck test_sun_shadow_sorting
-                     test_renderer_foundation_gpu test_renderer_lighting_gpu test_sdl_post_gpu test_sdl_ao_gpu test_sdl_storage_gpu test_sdl_atmosphere_gpu test_sdl_distortion_gpu test_sdl_heat_gpu test_sdl_reach_gpu test_sdl_owner_release_gpu test_sdl_classic_foam_gpu test_sdl_gpu_particles_gpu test_renderer_particles_gpu test_renderer_effects_gpu test_renderer_water_foam_gpu)
+                     test_renderer_foundation_gpu test_renderer_lighting_gpu test_sdl_post_gpu test_sdl_ao_gpu test_sdl_storage_gpu test_sdl_atmosphere_gpu test_sdl_distortion_gpu test_sdl_heat_gpu test_sdl_reach_gpu test_sdl_owner_release_gpu test_sdl_classic_foam_gpu test_sdl_gpu_particles_gpu test_renderer_particles_gpu test_renderer_effects_gpu test_renderer_water_foam_gpu test_sdl_gpu_particles_context test_renderer_atmosphere_gpu test_team_glow_gpu test_baseline_weather_gpu)
       if(TEST ${_zh_test})
         set_property(TEST ${_zh_test} APPEND PROPERTY ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
       endif()

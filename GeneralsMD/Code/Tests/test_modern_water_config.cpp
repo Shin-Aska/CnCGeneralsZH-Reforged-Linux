@@ -1,5 +1,7 @@
 #include "test_harness.h"
 #include "Platform/ModernWaterConfig.h"
+#include "Platform/ModernWaterMaterial.h"
+#include "Platform/WaterSurfaceModel.h"
 
 #include <fstream>
 #include <iterator>
@@ -360,4 +362,36 @@ TEST(modern_water_normalized_byte_colors_round_trip_exactly)
     CHECK(ByteColor(-1, 2, .5f) == (Color{0, 255, 128}));
     CHECK_EQ(ColorByte(std::numeric_limits<float>::quiet_NaN()), 0);
     CHECK_EQ(ColorByte(std::numeric_limits<float>::infinity()), 0);
+}
+
+TEST(modern_water_wind_response_is_neutral_finite_and_physical)
+{
+    const auto rules=Defaults();
+    for(const auto &material : {Resolve(rules,Color{20,40,60},"Unmatched.tga"),
+        Resolve(rules,Color{255,255,255},"TWWater01.tga")}) {
+        CHECK(material.turbidity==0 && material.surfaceRoughness==0 && material.rippleDamping==0 && material.windResistance==0);
+    }
+    CHECK(ModernWaterMaterial::WindGain(0)==1 && ModernWaterMaterial::WindGain(1)==0);
+    CHECK_NEAR(ModernWaterMaterial::WindGain(.5f),.25f,.000001f);
+    CHECK_NEAR(ModernWaterMaterial::WindGain(.8f),.04f,.000001f);
+    CHECK(ModernWaterMaterial::WindGain(std::numeric_limits<float>::quiet_NaN())==1);
+    CHECK(ModernWaterMaterial::WindGain(-1)==1 && ModernWaterMaterial::WindGain(2)==0);
+}
+
+TEST(modern_water_resisted_analytic_mesh_keeps_height_and_slopes_consistent)
+{
+    for(float resistance:{0.0f,.5f,.8f,1.0f})for(int i=0;i<100;++i) {
+        const float x=i*1.73f,y=i*-.67f,t=i*.3f,gain=ModernWaterMaterial::WindGain(resistance);
+        const WaterSurfaceModel::Sample offshore={.6f,.0003f,-.0002f};
+        const auto original=WaterSurfaceModel::EvaluateBlended(x,y,t,offshore);
+        auto resisted=original;ModernWaterMaterial::ApplyWindGain(resisted,gain);
+        CHECK_NEAR(resisted.height,WaterSurfaceModel::EvaluateBlendedHeight(x,y,t,offshore)*gain,.00001f);
+        const float epsilon=.01f;
+        auto height=[&](float px,float py){const WaterSurfaceModel::Sample local={offshore.height+(px-x)*offshore.dx+(py-y)*offshore.dy,offshore.dx,offshore.dy};
+            return WaterSurfaceModel::EvaluateBlendedHeight(px,py,t,local)*gain;};
+        CHECK_NEAR(resisted.dx,(height(x+epsilon,y)-height(x-epsilon,y))/(2*epsilon),.0004f);
+        CHECK_NEAR(resisted.dy,(height(x,y+epsilon)-height(x,y-epsilon))/(2*epsilon),.0004f);
+        if(resistance==0)CHECK(resisted.height==original.height && resisted.dx==original.dx && resisted.dy==original.dy);
+        if(resistance==1)CHECK(resisted.height==0 && resisted.dx==0 && resisted.dy==0);
+    }
 }

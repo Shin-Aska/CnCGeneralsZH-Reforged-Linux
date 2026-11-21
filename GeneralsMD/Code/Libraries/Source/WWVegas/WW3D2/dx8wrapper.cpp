@@ -91,6 +91,7 @@
 #include "Platform/RenderPost.h"
 #include "Platform/RenderParticles.h"
 #include "Platform/RenderEffects.h"
+#include "Platform/RenderTeamGlow.h"
 #include "Platform/RenderWaterFoam.h"
 #include "postprocess.h"
 #if !defined(_WIN32)
@@ -6114,6 +6115,13 @@ SurfaceClass * DX8Wrapper::Copy_Surface_To_System_Memory(IDirect3DSurface9 * sou
 }
 
 namespace RenderPost {
+bool DistortionAvailable() {
+#if defined(_WIN32)
+    return Direct3D11_Present_Is_Enabled();
+#else
+    return DistortionAvailable(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
 bool EnvironmentAvailable() {
 #if defined(_WIN32)
 	return Direct3D11_Present_Is_Enabled();
@@ -6300,6 +6308,13 @@ void TakeSceneDepth() {
 }
 
 namespace RenderEffects {
+bool WorldEffectsAvailable() {
+#if defined(_WIN32)
+    return Direct3D11_Present_Is_Enabled();
+#else
+    return WorldEffectsAvailable(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
 void AllowDrawEffects(bool allowed) {
 #if defined(_WIN32)
     Direct3D11_Allow_Draw_Effects(allowed);
@@ -6337,7 +6352,24 @@ unsigned RequestedDrawEffect(float parameters[4]) {
 }
 }
 
+namespace RenderTeamGlow {
+void SetDraw(bool marked) { RenderLighting::SetTeamGlow(marked); }
+bool Available() {
+#if defined(_WIN32)
+    return Direct3D11_Present_Is_Enabled();
+#else
+    return Available(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+}
 namespace RenderWaterFoam {
+bool Available() {
+#if defined(_WIN32)
+    return Direct3D11_Present_Is_Enabled();
+#else
+    return Available(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
 bool Ready() {
 #if !defined(_WIN32)
     return Ready(DX8Wrapper::_Get_D3D_Device());
@@ -6345,4 +6377,26 @@ bool Ready() {
     return Direct3D11_Present_Is_Enabled();
 #endif
 }
+}
+
+// Native capability queries never depend on this frame's optional receiver state.
+#if !defined(_WIN32)
+extern bool PosixPerPixelLightingAvailable(IDirect3DDevice9 *);
+extern bool PosixHemisphericAmbientAvailable(IDirect3DDevice9 *);
+#endif
+bool DX8Wrapper::Supports_Per_Pixel_Lighting(void)
+{
+#if defined(_WIN32)
+    return Direct3D11_Is_Active();
+#else
+    return PosixPerPixelLightingAvailable(_Get_D3D_Device());
+#endif
+}
+bool DX8Wrapper::Supports_Hemispheric_Ambient(void)
+{
+#if defined(_WIN32)
+    return Direct3D11_Is_Active();
+#else
+    return PosixHemisphericAmbientAvailable(_Get_D3D_Device());
+#endif
 }

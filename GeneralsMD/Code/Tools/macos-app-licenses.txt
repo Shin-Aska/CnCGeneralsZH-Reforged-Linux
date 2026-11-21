@@ -53,6 +53,7 @@ spirv-cross-msl       spirv-cross
 miniaudio             miniaudio
 mbedtls               mbedtls
 gamespy               gamespy
+mbedtls               mbedtls
 
 # compiled into another library
 + zlib                # Compression/ZLib, inside libcompression

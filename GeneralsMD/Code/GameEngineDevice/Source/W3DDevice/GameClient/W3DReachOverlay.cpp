@@ -337,8 +337,7 @@ void W3DReachOverlay_Release( void )
 #ifdef _WIN32
 	DX11ReachOverlay_Release();
 #else
-	if( !SdlReachOverlay_Release() )
-		DEBUG_LOG( ( "REACHOVERLAY: native owner retained until queued readers submit\n" ) );
+	SdlReachOverlay_Release(); // refusal retains the native owner until readers can submit
 #endif
 }
 

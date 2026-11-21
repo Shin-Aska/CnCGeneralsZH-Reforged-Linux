@@ -6,6 +6,7 @@
 #include "SdlPostDistortion.h"
 #include "Platform/RenderParticles.h"
 #include "Platform/RenderEffects.h"
+#include "Platform/RenderTeamGlow.h"
 #include "Platform/RenderWaterFoam.h"
 #include "SdlConstants.h"
 #include "ffshader.h"
@@ -50,11 +51,7 @@ const bool PostRegistered = PosixRenderer_Register_Feature_Provider(RendererFeat
 const bool HdrRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::InternalHDR, supports_hdr);
 const bool AoRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::AmbientOcclusion, supports_ao);
 bool supports_environment(IDirect3DDevice9 *device) {
-#if defined(__linux__)
     return supports_depth_capture(device);
-#else
-    (void)device; return false; // map/weather producers are currently Linux-specific
-#endif
 }
 const bool AtmosphereRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::AtmosphereHaze, supports_environment);
 const bool DistortionRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::HeatBlastDistortion,
@@ -460,6 +457,7 @@ void PosixDevice9::Invalidate_Post_Route()
 }
 
 namespace RenderPost {
+bool DistortionAvailable(IDirect3DDevice9 *d) { return supports_environment(d) && supports_hdr(d); }
 bool EnvironmentAvailable(IDirect3DDevice9 *d) {
     return supports_depth_capture(d);
 }
@@ -540,6 +538,13 @@ void TakeSceneDepth(IDirect3DDevice9 *device) { if(device) static_cast<PosixDevi
 bool PosixDevice9::Effect_Main_View(SdlMainViewSnapshot &view)
 {
     if (!Read_Main_View(view, false, SdlSceneCapturePhase::OpaqueScene)) return false;
+    // Cosmetic meshes must match their live camera, while independent scene consumers
+    // retain the captured main camera through temporary camera-space draw setters.
+    const float viewport[] = {float(Viewport.X), float(Viewport.Y), float(Viewport.Width), float(Viewport.Height), Viewport.MinZ, Viewport.MaxZ};
+    float viewProjection[16];
+    multiply(&Transforms[D3DTS_VIEW]._11, &Transforms[D3DTS_PROJECTION]._11, viewProjection);
+    if (std::memcmp(view.Viewport, viewport, sizeof(viewport)) ||
+        std::memcmp(view.ViewProjection, viewProjection, sizeof(viewProjection))) return false;
     const auto direct = Gpu->Back_Buffer_Target();
     const bool main = (view.Target.Colour == direct.Colour && view.Target.Depth == direct.Depth) ||
         (Post_Active() && view.Target.Colour == Post->Scene.Colour && view.Target.Depth == Post->Scene.Depth) ||
@@ -624,6 +629,7 @@ bool PosixDevice9::Build_Main_View_Constants(SdlEnginePixelConstants &constants,
     return true;
 }
 namespace RenderEffects {
+bool WorldEffectsAvailable(IDirect3DDevice9 *device) { return provider_frame(device) != nullptr; }
 void AllowDrawEffects(IDirect3DDevice9 *device, bool allowed) { if(device) static_cast<PosixDevice9 *>(device)->Allow_Model_Effects(allowed); }
 bool DrawEffectsAvailable(IDirect3DDevice9 *device) { return device && static_cast<PosixDevice9 *>(device)->Model_Effects_Available(); }
 bool TakesDrawEffect(IDirect3DDevice9 *device, unsigned effect) { return device && static_cast<PosixDevice9 *>(device)->Takes_Model_Effect(effect); }
@@ -652,6 +658,11 @@ SDL_GPUTexture *PosixDevice9::Classic_Water_Depth()
         !Effect_Main_View(main)) return nullptr;
     return main.Capture.Same_Identity(Post->FoamView.Capture) ? Post->FoamView.SampledDepth : nullptr;
 }
+namespace RenderTeamGlow {
+void SetDraw(IDirect3DDevice9 *device, bool marked) { if (device) static_cast<PosixDevice9 *>(device)->Set_Team_Glow(marked); }
+bool Available(IDirect3DDevice9 *device) { return supports_hdr(device); }
+}
 namespace RenderWaterFoam {
+bool Available(IDirect3DDevice9 *device) { return supports_depth_capture(device); }
 bool Ready(IDirect3DDevice9 *device) { return device && static_cast<PosixDevice9 *>(device)->Prepare_Classic_Water_Foam(); }
 }

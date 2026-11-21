@@ -744,7 +744,7 @@ void ControlBar::populatePurchaseScienceRank( Player *player, const CommandSet *
 // a tooltip and a disabled plate behave like any button's.
 //-------------------------------------------------------------------------------------------------
 void drawFittedLabel( FittedLabel &label, const UnicodeString &text, Int points, const IRegion2D &well, Color color,
-											Bool wrap, Int align )
+											Bool wrap, Int align, Int dropAlpha )
 {
 	if( text.isEmpty() )
 		return;
@@ -772,7 +772,7 @@ void drawFittedLabel( FittedLabel &label, const UnicodeString &text, Int points,
 	Int w, h;
 	label.string->getSize( &w, &h );
 	const Int x = align == FITTED_ALIGN_LEFT ? well.lo.x : ( align == FITTED_ALIGN_RIGHT ? well.hi.x - w : ( well.lo.x + well.hi.x - w ) / 2 );
-	label.string->draw( x, ( well.lo.y + well.hi.y - h ) / 2, color, GameMakeColor( 0, 0, 0, 255 ) );
+	label.string->draw( x, ( well.lo.y + well.hi.y - h ) / 2, color, GameMakeColor( 0, 0, 0, dropAlpha ) );
 }
 
 namespace
@@ -796,8 +796,26 @@ namespace
 
 	/// the window's own text, one FittedLabel a line
 	enum { LABEL_PLATE = 0, LABEL_NODE = TALENT_SCIENCE_COUNT, LABEL_CAPTION = LABEL_NODE + TALENT_ROW_COUNT,
-				 LABEL_WAITING, LABEL_HINT, LABEL_RANK, LABEL_RANK_NUMERAL, LABEL_COUNT };
+				 LABEL_WAITING, LABEL_HINT, LABEL_RANK, LABEL_RANK_NUMERAL, LABEL_SHORT,
+				 LABEL_COUNT = LABEL_SHORT + TALENT_SCIENCE_COUNT };
+	// a plate with a short line: the name and the gist as one block, each a line its font's height tall
+	// (14 and 10 points, Arial's own leading is the gap between them), centred in the face inside the
+	// bevel (about 9 texels at the sides and foot, the waiting stripe 11 at the top); both from the plate's top
+	const Int TALENT_TEXT_INSET_X = 15;
+	const Int TALENT_NAME_BAND[ 2 ] = { 20, 44 };
+	const Int TALENT_SHORT_BAND[ 2 ] = { 44, 61 };
 	FittedLabel theTalentLabels[ LABEL_COUNT ];
+
+	/// the whole window's opacity: 255 but while the opening fade draws it (fadeTalentWindow)
+	Int theTalentAlpha = 255;
+
+	/// a colour at the window's opacity
+	Color faded( Color color )
+	{
+		UnsignedByte r, g, b, a;
+		GameGetColorComponents( color, &r, &g, &b, &a );
+		return GameMakeColor( r, g, b, (UnsignedByte)( a * theTalentAlpha / 255 ) );
+	}
 
 	/// where the window's design rect lands on the screen
 	struct TalentMap
@@ -859,7 +877,7 @@ namespace
 	void drawTalentLabel( Int which, const UnicodeString &text, Int points, const IRegion2D &well, Color color, Bool wrap,
 												Int align = ALIGN_CENTRE )
 	{
-		drawFittedLabel( theTalentLabels[ which ], text, points, well, color, wrap, align );
+		drawFittedLabel( theTalentLabels[ which ], text, points, well, faded( color ), wrap, align, theTalentAlpha );
 	}
 
 	void drawTalentNothing( GameWindow *window, WinInstanceData *instData )
@@ -881,16 +899,17 @@ namespace
 
 		const ControlBarSchemeManager *schemes = TheControlBar ? TheControlBar->getControlBarSchemeManager() : NULL;
 		const Image *const *art = schemes ? schemes->getTalentImages() : NULL;
+		const Color tint = faded( GameMakeColor( 255, 255, 255, 255 ) );
 		if( art )
-			TheDisplay->drawImage( art[ ControlBarScheme::TALENT_WINDOW ], origin.x, origin.y, origin.x + size.x, origin.y + size.y );
+			TheDisplay->drawImage( art[ ControlBarScheme::TALENT_WINDOW ], origin.x, origin.y, origin.x + size.x, origin.y + size.y, tint );
 		else
 		{
 			// the side's 542 wide painting where it was drawn for, the right half a plain panel
 			const IRegion2D left = map.rect( 0, 0, POWERS_DESIGN_W, TALENT_DESIGN_H );
 			if( window->winGetEnabledImage( 0 ) )
-				TheDisplay->drawImage( window->winGetEnabledImage( 0 ), left.lo.x, left.lo.y, left.hi.x, left.hi.y );
+				TheDisplay->drawImage( window->winGetEnabledImage( 0 ), left.lo.x, left.lo.y, left.hi.x, left.hi.y, tint );
 			const IRegion2D right = map.rect( POWERS_DESIGN_W, 0, TALENT_DESIGN_W, TALENT_DESIGN_H );
-			TheDisplay->drawFillRect( right.lo.x, right.lo.y, right.hi.x - right.lo.x, right.hi.y - right.lo.y, GameMakeColor( 20, 22, 26, 235 ) );
+			TheDisplay->drawFillRect( right.lo.x, right.lo.y, right.hi.x - right.lo.x, right.hi.y - right.lo.y, faded( GameMakeColor( 20, 22, 26, 235 ) ) );
 		}
 
 		// the snapshot only: this runs while the logic tick may be adding sciences to that very player
@@ -913,12 +932,12 @@ namespace
 			const Int *y = theTalentRowY[ i / 2 ], *x = theTalentPlateX[ i % 2 ];
 			const IRegion2D r = map.rect( x[ 0 ], y[ 0 ], x[ 1 ], y[ 1 ] );
 			if( art )
-				TheDisplay->drawImage( art[ ControlBarScheme::TALENT_PLATE + state[ i ] ], r.lo.x, r.lo.y, r.hi.x, r.hi.y );
+				TheDisplay->drawImage( art[ ControlBarScheme::TALENT_PLATE + state[ i ] ], r.lo.x, r.lo.y, r.hi.x, r.hi.y, tint );
 			else
 			{
-				TheDisplay->drawFillRect( r.lo.x, r.lo.y, r.hi.x - r.lo.x, r.hi.y - r.lo.y, fillPlate[ state[ i ] ] );
+				TheDisplay->drawFillRect( r.lo.x, r.lo.y, r.hi.x - r.lo.x, r.hi.y - r.lo.y, faded( fillPlate[ state[ i ] ] ) );
 				TheDisplay->drawOpenRect( r.lo.x, r.lo.y, r.hi.x - r.lo.x, r.hi.y - r.lo.y, 1.0f,
-					state[ i ] == TALENT_WAITING ? gold : GameMakeColor( 90, 94, 100, 255 ) );
+					faded( state[ i ] == TALENT_WAITING ? gold : GameMakeColor( 90, 94, 100, 255 ) ) );
 			}
 		}
 
@@ -929,7 +948,7 @@ namespace
 		{
 			const IRegion2D r = map.rect( theTalentSpineX[ 0 ], nodeY, theTalentSpineX[ 1 ],
 				( theTalentRowY[ reached ][ 0 ] + theTalentRowY[ reached ][ 1 ] ) / 2 );
-			TheDisplay->drawImage( art[ ControlBarScheme::TALENT_SPINE ], r.lo.x, r.lo.y, r.hi.x, r.hi.y );
+			TheDisplay->drawImage( art[ ControlBarScheme::TALENT_SPINE ], r.lo.x, r.lo.y, r.hi.x, r.hi.y, tint );
 		}
 		for( Int row = 0; art && row < TALENT_ROW_COUNT; row++ )
 		{
@@ -939,7 +958,7 @@ namespace
 				if( state[ 2 * row + side ] != TALENT_PICKED )
 					continue;
 				const IRegion2D r = map.rect( theTalentArmX[ side ][ 0 ], cy - TALENT_ARM_HALF_H, theTalentArmX[ side ][ 1 ], cy + TALENT_ARM_HALF_H );
-				TheDisplay->drawImage( art[ ControlBarScheme::TALENT_ARM_LEFT + side ], r.lo.x, r.lo.y, r.hi.x, r.hi.y );
+				TheDisplay->drawImage( art[ ControlBarScheme::TALENT_ARM_LEFT + side ], r.lo.x, r.lo.y, r.hi.x, r.hi.y, tint );
 			}
 		}
 
@@ -950,18 +969,31 @@ namespace
 			const Int cy = ( theTalentRowY[ row ][ 0 ] + theTalentRowY[ row ][ 1 ] ) / 2;
 			const IRegion2D r = map.rect( theTalentNodeX[ 0 ], cy - TALENT_NODE_HALF_H, theTalentNodeX[ 1 ], cy + TALENT_NODE_HALF_H );
 			if( art )
-				TheDisplay->drawImage( art[ ControlBarScheme::TALENT_NODE + rowState ], r.lo.x, r.lo.y, r.hi.x, r.hi.y );
+				TheDisplay->drawImage( art[ ControlBarScheme::TALENT_NODE + rowState ], r.lo.x, r.lo.y, r.hi.x, r.hi.y, tint );
 			const Color c = rowState == TALENT_WAITING ? gold : ( view.hasTree && rank >= row + 6 ? white : plateText[ TALENT_LOCKED ] );
 			drawTalentLabel( LABEL_NODE + row, view.numeral[ row ], REAL_TO_INT( 20 * scale + 0.5f ), r, c, FALSE );
 		}
 
-		// the cards' names in their plates' wells
+		// the cards' names in their plates' wells, and under each the gist in a smaller, quieter line
+		static const Color shortText[ 4 ] = { GameMakeColor( 84, 88, 94, 255 ), GameMakeColor( 206, 196, 160, 255 ),
+			GameMakeColor( 180, 198, 222, 255 ), GameMakeColor( 140, 138, 132, 255 ) };
 		for( Int i = 0; i < TALENT_SCIENCE_COUNT; i++ )
 		{
 			const Int *y = theTalentRowY[ i / 2 ], *x = theTalentPlateX[ i % 2 ];
-			const IRegion2D well = map.rect( x[ 0 ] + TALENT_FACE_INSET, y[ 0 ] + TALENT_FACE_INSET - 1,
-				x[ 1 ] - TALENT_FACE_INSET, y[ 1 ] - TALENT_FACE_INSET + 1 );
-			drawTalentLabel( LABEL_PLATE + i, view.name[ i ], REAL_TO_INT( 14 * scale + 0.5f ), well, plateText[ state[ i ] ], TRUE );
+			const Int namePoints = REAL_TO_INT( 14 * scale + 0.5f );
+			if( view.shortLine[ i ].isEmpty() )
+			{
+				const IRegion2D well = map.rect( x[ 0 ] + TALENT_FACE_INSET, y[ 0 ] + TALENT_FACE_INSET - 1,
+					x[ 1 ] - TALENT_FACE_INSET, y[ 1 ] - TALENT_FACE_INSET + 1 );
+				drawTalentLabel( LABEL_PLATE + i, view.name[ i ], namePoints, well, plateText[ state[ i ] ], TRUE );
+				continue;
+			}
+			// one line each, shrunk to the band's width rather than wrapped into the other band
+			const Int left = x[ 0 ] + TALENT_TEXT_INSET_X, right = x[ 1 ] - TALENT_TEXT_INSET_X;
+			drawTalentLabel( LABEL_PLATE + i, view.name[ i ], namePoints,
+				map.rect( left, y[ 0 ] + TALENT_NAME_BAND[ 0 ], right, y[ 0 ] + TALENT_NAME_BAND[ 1 ] ), plateText[ state[ i ] ], FALSE );
+			drawTalentLabel( LABEL_SHORT + i, view.shortLine[ i ], REAL_TO_INT( 10 * scale + 0.5f ),
+				map.rect( left, y[ 0 ] + TALENT_SHORT_BAND[ 0 ], right, y[ 0 ] + TALENT_SHORT_BAND[ 1 ] ), shortText[ state[ i ] ], FALSE );
 		}
 
 		// the caption band: TALENTS on its left, the picks still owed in gold on its right; the hint
@@ -1021,6 +1053,7 @@ void ControlBar::initTalentWindows( GameWindow *root )
 		name.format( "GeneralsExpPoints.wnd:ButtonTalent%d%c", i / 2 + 6, 'A' + i % 2 );
 		button->winSetWindowId( NAMEKEY( name ) );
 		button->winSetDrawFunc( drawTalentNothing );
+		button->setTooltipDelay( 0 );		// the card's whole text at once: Mouse.ini's 800 ms wait read as no tooltip at all
 		m_talentWindows[ i ] = button;
 	}
 }
@@ -1055,8 +1088,22 @@ void ControlBar::populateTalents( Player *player )
 		view.state[ i ] = talentState( player, i );
 		UnicodeString description;
 		view.name[ i ].clear();
+		view.shortLine[ i ].clear();
 		if( talents )
+		{
 			TheScienceStore->getNameAndDescription( ( *talents )[ i ], view.name[ i ], description );
+			// SCIENCE_TurkiyeTalent6A's gist is SCIENCE:TurkiyeTalent6AShort; a label no layer has stays off the plate
+			const AsciiString internal = TheScienceStore->getInternalNameForScience( ( *talents )[ i ] );
+			if( internal.startsWith( "SCIENCE_" ) )
+			{
+				AsciiString label;
+				label.format( "SCIENCE:%sShort", internal.str() + 8 );
+				Bool exists = FALSE;
+				const UnicodeString line = TheGameText->fetch( label, &exists );
+				if( exists )
+					view.shortLine[ i ] = line;
+			}
+		}
 		GameWindow *win = m_talentWindows[ i ];
 		if( win )
 			win->winSetTooltip( description );
@@ -1111,6 +1158,51 @@ Bool ControlBar::purchaseTalent( GameWindow *control )
 	m_talentPendingFrame = TheGameLogic->getFrame();
 	populateTalents( player );
 	markUIDirty();
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** EA's WINFADE holds the window hidden while it fades and draws the window's one image over its
+	* whole rect, which here is the left panel's 542 painting stretched across both panels, with the
+	* tree and every cameo popping in once the fade ends.  The promotion window fades as itself instead:
+	* its own draw at the step's alpha, then the children the hidden flag keeps off (the cameos, the
+	* close button, the rank captions) at the same alpha.  A disabled cameo is greyscale in the real
+	* draw, which ignores alpha, so for the fade's few frames it is the same picture darkened. */
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar::drawFadingPurchaseScience( GameWindow *window, Int alpha )
+{
+	if( window == NULL || m_scienceLayout == NULL || window != m_scienceLayout->getFirstWindow() )
+		return FALSE;
+
+	theTalentAlpha = MAX( 0, MIN( alpha, 255 ) );
+	drawTalentWindow( window, window->winGetInstanceData() );
+	for( GameWindow *child = window->winGetChild(); child; child = child->winGetNext() )
+	{
+		if( child->winIsHidden() )
+			continue;
+		ICoord2D pos, size;
+		child->winGetScreenPosition( &pos.x, &pos.y );
+		child->winGetSize( &size.x, &size.y );
+
+		const Image *image = child->winGetEnabledImage( 0 );
+		if( image && BitTest( child->winGetStatus(), WIN_STATUS_IMAGE ) )
+		{
+			const Bool grey = !child->winGetEnabled() && !BitTest( child->winGetStatus(), WIN_STATUS_ALWAYS_COLOR );
+			const UnsignedByte shade = grey ? 128 : 255;
+			TheDisplay->drawImage( image, pos.x, pos.y, pos.x + size.x, pos.y + size.y, faded( GameMakeColor( shade, shade, shade, 255 ) ) );
+		}
+
+		const TextData *data = BitTest( child->winGetStyle(), GWS_STATIC_TEXT ) ? (const TextData *)child->winGetUserData() : NULL;
+		if( data && data->text && data->text->getTextLength() > 0 )
+		{
+			Int w, h;
+			data->text->getSize( &w, &h );
+			const Int x = data->centered ? pos.x + ( size.x - w ) / 2 : pos.x + data->leftMargin;
+			const Int y = data->centeredVertically ? pos.y + ( size.y - h ) / 2 : pos.y + data->topMargin;
+			data->text->draw( x, y, faded( child->winGetEnabledTextColor() ), faded( child->winGetEnabledTextBorderColor() ) );
+		}
+	}
+	theTalentAlpha = 255;
 	return TRUE;
 }
 
@@ -5586,11 +5678,17 @@ void ControlBar::showIdleButtons( Bool show )
 		NAMEKEY( "ControlBar.wnd:ButtonIdleAircraft" ),
 		NAMEKEY( "ControlBar.wnd:ButtonSelectArmy" ),
 	};
+	// the Classic layout (HUD_LAYOUT_RETAIL) keeps the original game's worker key alone: no select
+	// army or idle infantry, vehicle and aircraft column (issue #232); their hotkeys still work
+	const Bool classic = TheGlobalData->m_hudLayout == HUD_LAYOUT_RETAIL;
 	for( Int i = 0; i < 5; i++ )
 	{
 		GameWindow *win = TheWindowManager->winGetWindowFromId( NULL, ids[ i ] );
-		if( win )
-			win->winHide( !show );
+		// the Red Alert style sidebar has no idle keys (layoutSidebar); restoreClassicWindows brings them back
+		if( win && show && m_sidebarLayout )
+			hideForSidebar( win );
+		else if( win )
+			win->winHide( !show || ( classic && i > 0 ) );
 	}
 }
 
@@ -5624,7 +5722,11 @@ void ControlBar::setControlBarSchemeByPlayer(Player *p)
 		showIdleButtons( TRUE );
 		if (buttonGeneral)
 		{
-			buttonGeneral->winHide(FALSE);
+			// the sidebar has no General button (layoutSidebar); restoreClassicWindows brings it back
+			if( m_sidebarLayout )
+				hideForSidebar( buttonGeneral );
+			else
+				buttonGeneral->winHide(FALSE);
 			buttonGeneral->winEnable(TRUE);
 		}
 	}
@@ -5673,7 +5775,11 @@ void ControlBar::setControlBarSchemeByPlayerTemplate( const PlayerTemplate *pt)
 		showIdleButtons( TRUE );
 		if (buttonGeneral)
 		{
-			buttonGeneral->winHide(FALSE);
+			// the sidebar has no General button (layoutSidebar); restoreClassicWindows brings it back
+			if( m_sidebarLayout )
+				hideForSidebar( buttonGeneral );
+			else
+				buttonGeneral->winHide(FALSE);
 			buttonGeneral->winEnable(TRUE);
 		}
 	}
@@ -6275,10 +6381,6 @@ void ControlBar::drawTransitionHandler( void )
 //		m_transitionHandler->draw();
 }
 
-/// each power button's size before the sidebar's wing fitted it to a cell, put back for the Classic tray
-static ICoord2D s_powerButtonSize[ MAX_SPECIAL_POWER_SHORTCUTS ];
-static Bool s_powerButtonResized[ MAX_SPECIAL_POWER_SHORTCUTS ];
-
 void ControlBar::initSpecialPowershortcutBar( Player *player)
 {
 	LOGIC_CENSUS( CENSUS_CONTROLBAR );
@@ -6336,8 +6438,6 @@ void ControlBar::initSpecialPowershortcutBar( Player *player)
 	// a new layout: the stepped tray's frame is placed by the first arrangement under a scheme with a tray
 	m_trayLaidOutMask = TRAY_NOT_LAID_OUT;
 	m_trayFramePlaced = FALSE;
-	for( Int fresh = 0; fresh < MAX_SPECIAL_POWER_SHORTCUTS; fresh++ )
-		s_powerButtonResized[ fresh ] = FALSE;	// these buttons are new, at the layout's own size
 
 	tempName = layoutName;
 	tempName.concat(":ButtonCommand%d");
@@ -6407,64 +6507,11 @@ static const Image *mirroredPowerTrayPiece( const char *piece, const Image *stan
 	return image != NULL ? image : standIn;
 }
 
-/// a Sidebar_image piece of the powers wing, or the scheme's tray piece standing in for it
-static const Image *powersWingPiece( const char *piece, const Image *const *tray, Int standIn )
+/// the Classic tray's powers to a row: the Classic layout (HUD_LAYOUT_RETAIL) stands them in one column
+/// climbing from the bottom.  Only the picture: the two-key chords still read them three to a group
+static Int powerTrayColumns( void )
 {
-	const Image *image = Sidebar_image( piece );
-	if( image == NULL && tray != NULL )
-		image = tray[ standIn ];
-	return image;
-}
-
-/// `image` tiled down ly..hy at its own height scaled by k
-// ponytail: the last tile is squashed into what is left rather than cut; a UV-cropping drawImage if it shows
-static void drawTiledDown( const Image *image, Int lx, Int ly, Int hx, Int hy, Real k )
-{
-	if( image == NULL || hx <= lx || hy <= ly )
-		return;
-	const Int tile = MAX( 1, REAL_TO_INT_CEIL( image->getImageHeight() * k ) );
-	for( Int y = ly; y < hy; y += tile )
-		TheDisplay->drawImage( image, lx, y, hx, MIN( hy, y + tile ) );
-}
-
-/** One slot of the sidebar's powers wing (TraySlot::wing): the cell, the column's cap and foot, the
-	* outer left edge and its corners, and the joint against the sidebar, from the side's Sidebar_image
-	* pieces, the scheme's tray pieces standing in for any the sheet lacks. */
-static void drawPowersWingSlot( const ControlBar::TraySlot *slot, Int x0, Int y0, Int x1, Int y1 )
-{
-	const Image *const *tray = TheControlBar->getControlBarSchemeManager()->getPowerTray();
-	HudLayoutRects hud;
-	TheControlBar->getHudLayoutRects( &hud );
-	const Real k = hud.scale;
-	const Int l = slot->edgeLeft, t = slot->edgeTop, b = slot->edgeBottom, r = slot->edgeRight;
-
-	const Image *cell = powersWingPiece( "PowersCell", tray, ControlBarScheme::TRAY_CELL );
-	if( cell )
-		TheDisplay->drawImage( cell, x0, y0, x1, y1 );
-	const Image *cap = powersWingPiece( "PowersTop", tray, ControlBarScheme::TRAY_EDGE_TOP );
-	if( cap && t > 0 )
-		TheDisplay->drawImage( cap, x0, y0 - t, x1, y0 );
-	const Image *foot = powersWingPiece( "PowersBottom", tray, ControlBarScheme::TRAY_EDGE_BOTTOM );
-	if( foot && b > 0 )
-		TheDisplay->drawImage( foot, x0, y1, x1, y1 + b );
-	if( l > 0 )
-	{
-		drawTiledDown( powersWingPiece( "PowersEdge", tray, ControlBarScheme::TRAY_EDGE_LEFT ), x0 - l, y0, x0, y1, k );
-		const Image *cornerTop = powersWingPiece( "PowersCornerTop", tray, ControlBarScheme::TRAY_CORNER_TL );
-		if( cornerTop && t > 0 )
-			TheDisplay->drawImage( cornerTop, x0 - l, y0 - t, x0, y0 );
-		const Image *cornerBottom = powersWingPiece( "PowersCornerBottom", tray, ControlBarScheme::TRAY_CORNER_BL );
-		if( cornerBottom && b > 0 )
-			TheDisplay->drawImage( cornerBottom, x0 - l, y1, x0, y1 + b );
-	}
-	// the seam against the sidebar, the column's whole height cap to foot
-	if( r > 0 )
-	{
-		const Image *joint = Sidebar_image( "PowersJoint" );
-		if( joint == NULL )
-			joint = mirroredPowerTrayPiece( "EdgeRight", tray ? tray[ ControlBarScheme::TRAY_EDGE_LEFT ] : NULL );
-		drawTiledDown( joint, x1, y0 - t, x1 + r, y1 + b, k );
-	}
+	return TheGlobalData != NULL && TheGlobalData->m_hudLayout == HUD_LAYOUT_RETAIL ? 1 : SPECIAL_POWER_SHORTCUT_COLS;
 }
 
 static void drawPowerTraySlot( GameWindow *window, WinInstanceData *instData )
@@ -6477,11 +6524,6 @@ static void drawPowerTraySlot( GameWindow *window, WinInstanceData *instData )
 	window->winGetScreenPosition( &x, &y );
 	const Int x0 = x + slot->cell.lo.x, y0 = y + slot->cell.lo.y;
 	const Int x1 = x + slot->cell.hi.x, y1 = y + slot->cell.hi.y;
-	if( slot->wing )
-	{
-		drawPowersWingSlot( slot, x0, y0, x1, y1 );
-		return;
-	}
 
 	const Image *const *tray = TheControlBar->getControlBarSchemeManager()->getPowerTray();
 	if( tray == NULL )
@@ -6539,23 +6581,24 @@ void ControlBar::arrangeSpecialPowerShortcutGrid( void )
 	m_trayLaidOutFor = tray;
 	if( m_sidebarLayout )
 	{
-		arrangePowersWing();
+		// No wing beside the sidebar (the owner's, 2026-11-20): the powers fire from its Upgrades and
+		// powers tab and from their keys.  The tray stays shown, since the keys and the two-key chords
+		// resolve only while it is (resolveSpecialPowerShortcutSlot) and the tab's cells fire its
+		// buttons (getShownPowerShortcut), but it stands past the screen's right edge, where it draws
+		// nothing and takes no click
+		m_specialPowerShortcutParent->winSetPosition( TheDisplay->getWidth() + 16, 0 );
+		m_trayFramePlaced = TRUE;
 		return;
 	}
 
-	// the wing's buttons were sized to its cells; the Classic tray takes them as the layout made them
-	for( Int each = 0; each < MAX_SPECIAL_POWER_SHORTCUTS; each++ )
-	{
-		if( s_powerButtonResized[ each ] && m_specialPowerShortcutButtons[ each ] != NULL )
-			m_specialPowerShortcutButtons[ each ]->winSetSize( s_powerButtonSize[ each ].x, s_powerButtonSize[ each ].y );
-		s_powerButtonResized[ each ] = FALSE;
-	}
 	if( tray == NULL )
 		return;
 
 	ICoord2D origin, cell;
 	Int left, top, foot, bottom;
 	powerTrayMetrics( tray, &origin, &cell, &left, &top, &foot, &bottom );
+	// the Classic layout's single column, in the same tray as the stacked one
+	const Bool column = powerTrayColumns() == 1;
 	// the world's right edge: the HudWidth area's, the screen's at Full.  Short of the screen's edge
 	// the tray is closed there by an edge of its own, and the cells stand that much further in
 	HudLayoutRects hud;
@@ -6577,9 +6620,9 @@ void ControlBar::arrangeSpecialPowerShortcutGrid( void )
 			shown[ count++ ] = slotIndex;
 	}
 
-	const Int cols = SPECIAL_POWER_SHORTCUT_COLS;
+	const Int cols = powerTrayColumns();
 	const Int rows = ( count + cols - 1 ) / cols;
-	Int rowLength[ MAX_SPECIAL_POWER_SHORTCUTS / SPECIAL_POWER_SHORTCUT_COLS + 2 ];
+	Int rowLength[ MAX_SPECIAL_POWER_SHORTCUTS + 1 ];
 	for( Int r = 0; r <= rows; r++ )
 		rowLength[ r ] = r < rows ? MIN( cols, count - r * cols ) : 0;
 
@@ -6592,7 +6635,6 @@ void ControlBar::arrangeSpecialPowerShortcutGrid( void )
 		const Bool innermost = place == rowLength[ row ] - 1;
 
 		TraySlot &slot = m_traySlot[ i ];
-		slot.wing = FALSE;
 		slot.edgeLeft = innermost ? left : 0;
 		slot.edgeTop = covered ? 0 : top;
 		slot.edgeBottom = row == 0 ? foot : 0;
@@ -6613,14 +6655,34 @@ void ControlBar::arrangeSpecialPowerShortcutGrid( void )
 		slot.cell.hi.x = slot.edgeLeft + cell.x;
 		slot.cell.hi.y = slot.edgeTop + cell.y;
 
+		Int bw, bh;
+		button->winGetSize( &bw, &bh );
+		if( column )
+		{
+			// The column's slot window is its button and nothing more, so a click between two buttons
+			// or on the steel round one reaches the map.  The tray's cell and edges are drawn round it
+			// as ever (drawPowerTraySlot), from the cell's place given relative to the button
+			const Int bx = screen.lo.x + slot.edgeLeft + ( cell.x - bw ) / 2;
+			const Int by = screen.lo.y + slot.edgeTop + ( cell.y - bh ) / 2;
+			slot.cell.lo.x = screen.lo.x + slot.edgeLeft - bx;
+			slot.cell.lo.y = screen.lo.y + slot.edgeTop - by;
+			slot.cell.hi.x = slot.cell.lo.x + cell.x;
+			slot.cell.hi.y = slot.cell.lo.y + cell.y;
+			screen.lo.x = bx;
+			screen.lo.y = by;
+			screen.hi.x = bx + bw;
+			screen.hi.y = by + bh;
+		}
+
 		slotWin->winSetPosition( screen.lo.x - origin.x, screen.lo.y - origin.y );
 		slotWin->winSetSize( screen.hi.x - screen.lo.x, screen.hi.y - screen.lo.y );
 		slotWin->winSetUserData( &slot );
 		slotWin->winSetDrawFunc( drawPowerTraySlot );
 
-		Int bw, bh;
-		button->winGetSize( &bw, &bh );
-		button->winSetPosition( slot.edgeLeft + ( cell.x - bw ) / 2, slot.edgeTop + ( cell.y - bh ) / 2 );
+		if( column )
+			button->winSetPosition( 0, 0 );
+		else
+			button->winSetPosition( slot.edgeLeft + ( cell.x - bw ) / 2, slot.edgeTop + ( cell.y - bh ) / 2 );
 	}
 }
 
@@ -6669,115 +6731,13 @@ void ControlBar::powerTrayMetrics( const Image *const *tray, ICoord2D *origin, I
 	*top = edgeTop ? REAL_TO_INT_CEIL( edgeTop->getImageHeight() * k ) : 0;
 	*foot = edgeFoot ? REAL_TO_INT_CEIL( edgeFoot->getImageHeight() * k ) : 0;
 
-	const Int cols = SPECIAL_POWER_SHORTCUT_COLS;
+	const Int cols = powerTrayColumns();
 	const Int rows = ( MAX_SPECIAL_POWER_SHORTCUTS + cols - 1 ) / cols;
-	*bottom = TheDisplay->getHeight() - REAL_TO_INT( ( 1080 - POWER_TRAY_FOOT_Y ) * k );
+	*bottom =TheDisplay->getHeight() - REAL_TO_INT( ( 1080 - POWER_TRAY_FOOT_Y ) * k );
 	HudLayoutRects hud;
 	getHudLayoutRects( &hud );
 	origin->x = hud.play.hi.x - powerTrayClosingEdge( hud, *left ) - cols * cell->x - *left;
 	origin->y = *bottom - *foot - rows * cell->y - *top;
-}
-
-//-------------------------------------------------------------------------------------------------
-/** The sidebar's powers wing (the owner's, 2026-11-15): the general's powers as part of the sidebar,
-	* flush on its left edge with a joint piece on the seam, the top on the radar box's top, 78x64 cells
-	* at 1080 holding a 70x56 button 4 in, the power art's 60x48 shape, one column or, past
-	* POWERS_WING_ONE_COLUMN powers, two, the rows going down.  Slot i is
-	* row i / columns and place i % columns counted out from the sidebar, the order the chords read, so a
-	* short last row is short on the outside.  Each slot window is its cell and the pieces that close it:
-	* the column's cap on the first row, its foot where the column ends, the outer edge on a row's
-	* outermost cell and the joint on the column against the sidebar. */
-//-------------------------------------------------------------------------------------------------
-void ControlBar::arrangePowersWing( void )
-{
-	// a column of seven reaches 520 at 1080, so seven powers stand without an odd cell beside them; past
-	// that two columns of six hold MAX_SPECIAL_POWER_SHORTCUTS
-
-	enum { POWERS_WING_ONE_COLUMN = 7, POWERS_WING_ROWS = 7 };
-	HudLayoutRects hud;
-	getHudLayoutRects( &hud );
-	const Real k = hud.scale;
-	const Int cellW = REAL_TO_INT( 78 * k + 0.5f );
-	const Int cellH = REAL_TO_INT( 64 * k + 0.5f );
-	const Int margin = MAX( 2, REAL_TO_INT( 4 * k + 0.5f ) );
-	const Int piece = MAX( 1, REAL_TO_INT( 8 * k + 0.5f ) );		// joint, edge, cap and foot are 8 at 1080
-	const Int seam = hud.sidebar.lo.x;
-	const Int topY = hud.radar.lo.y;
-
-	ICoord2D origin;
-	origin.x = seam - piece - 2 * cellW - piece;
-	origin.y = topY;
-	if( !m_trayFramePlaced )
-	{
-		m_specialPowerShortcutParent->winSetPosition( origin.x, origin.y );
-		m_specialPowerShortcutParent->winSetSize( seam - origin.x, piece + POWERS_WING_ROWS * cellH + piece );
-		m_trayFramePlaced = TRUE;
-	}
-
-	Int shown[ MAX_SPECIAL_POWER_SHORTCUTS ];
-	Int count = 0;
-	for( Int slotIndex = 0; slotIndex < MAX_SPECIAL_POWER_SHORTCUTS; slotIndex++ )
-		if( m_trayLaidOutMask & ( 1u << slotIndex ) )
-			shown[ count++ ] = slotIndex;
-
-	const Int cols = count > POWERS_WING_ONE_COLUMN ? 2 : 1;
-	for( Int i = 0; i < count; i++ )
-	{
-		GameWindow *slotWin = m_specialPowerShortcutButtonParents[ shown[ i ] ];
-		GameWindow *button = m_specialPowerShortcutButtons[ shown[ i ] ];
-		if( slotWin == NULL || button == NULL )
-			continue;
-		const Int row = i / cols, place = i % cols;
-		const Bool below = i + cols < count;				// the column goes on under this cell
-		const Bool outermost = place == cols - 1 || i + 1 >= count;
-
-		TraySlot &slot = m_traySlot[ i ];
-		slot.wing = TRUE;
-		slot.edgeLeft = outermost ? piece : 0;
-		slot.edgeTop = row == 0 ? piece : 0;
-		slot.edgeBottom = below ? 0 : piece;
-		slot.edgeRight = place == 0 ? piece : 0;
-		slot.stepRight = slot.stepBelow = 0;
-
-		IRegion2D cell;
-		cell.hi.x = seam - piece - place * cellW;
-		cell.lo.x = cell.hi.x - cellW;
-		cell.lo.y = topY + piece + row * cellH;
-		cell.hi.y = cell.lo.y + cellH;
-		IRegion2D screen;
-		screen.lo.x = cell.lo.x - slot.edgeLeft;
-		screen.hi.x = cell.hi.x + slot.edgeRight;
-		screen.lo.y = cell.lo.y - slot.edgeTop;
-		screen.hi.y = cell.hi.y + slot.edgeBottom;
-		slot.cell.lo.x = slot.edgeLeft;
-		slot.cell.lo.y = slot.edgeTop;
-		slot.cell.hi.x = slot.edgeLeft + cellW;
-		slot.cell.hi.y = slot.edgeTop + cellH;
-
-		slotWin->winSetPosition( screen.lo.x - origin.x, screen.lo.y - origin.y );
-		slotWin->winSetSize( screen.hi.x - screen.lo.x, screen.hi.y - screen.lo.y );
-		slotWin->winSetUserData( &slot );
-		slotWin->winSetDrawFunc( drawPowerTraySlot );
-
-		// the button inside its cell at the power art's 60x48, a margin all round; the Classic size kept
-		// for later
-		Int bw, bh;
-		button->winGetSize( &bw, &bh );
-		if( !s_powerButtonResized[ shown[ i ] ] )
-		{
-			s_powerButtonSize[ shown[ i ] ].x = bw;
-			s_powerButtonSize[ shown[ i ] ].y = bh;
-			s_powerButtonResized[ shown[ i ] ] = TRUE;
-		}
-		IRegion2D room = slot.cell;
-		room.lo.x += margin;
-		room.lo.y += margin;
-		room.hi.x -= margin;
-		room.hi.y -= margin;
-		const IRegion2D fit = HudFitAspect( room, HUD_CAMEO_ART_W, HUD_CAMEO_ART_H );
-		button->winSetSize( fit.width(), fit.height() );
-		button->winSetPosition( fit.lo.x, fit.lo.y );
-	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -7260,19 +7220,32 @@ void ControlBar::drawSpecialPowerShortcutMultiplierText()
 		if( command == NULL )
 			continue;
 
-		// the button's text: how many of its superweapons are ready, as the game shipped - a "1" is
-		// superfluous (Lorenzen)
-		UnicodeString text;
-
-		const SpecialPowerTemplate *spTemplate = command->getSpecialPowerTemplate();
-		Int numReady = 0;
-		if( spTemplate )
-			numReady = ThePlayerList->getLocalPlayer()->countReadyShortcutSpecialPowersOfType( spTemplate->getSpecialPowerType() );
-		if( numReady > 1 )
-			text.format( u"%d", numReady );
-
-		GadgetButtonSetText( win, text );
+		setShortcutReadyCount( win, command );
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** How many of the button's superweapons are ready, as the game shipped it: from two up the number
+	* is the button's text, a "1" being superfluous (Lorenzen, EA's comment), and the shortcut flag
+	* has W3DPushButton draw it as the gold badge in the top left corner, the key letter's look, so it
+	* is set here with the number (setControlCommand takes it off a button with no letter).  Nothing
+	* else writes a power button's text: a key letter there was wiped every frame by EA's code too. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::setShortcutReadyCount( GameWindow *win, const CommandButton *command ) const
+{
+	const SpecialPowerTemplate *spTemplate = command ? command->getSpecialPowerTemplate() : NULL;
+	Player *player = ThePlayerList ? ThePlayerList->getLocalPlayer() : NULL;
+	Int numReady = 0;
+	if( spTemplate != NULL && player != NULL )
+		numReady = player->countReadyShortcutSpecialPowersOfType( spTemplate->getSpecialPowerType() );
+
+	UnicodeString text;
+	if( numReady > 1 )
+	{
+		text.format( u"%d", numReady );
+		win->winSetStatus( WIN_STATUS_SHORTCUT_BUTTON );
+	}
+	GadgetButtonSetText( win, text );
 }
 
 void ControlBar::animateSpecialPowerShortcut( Bool isOn )

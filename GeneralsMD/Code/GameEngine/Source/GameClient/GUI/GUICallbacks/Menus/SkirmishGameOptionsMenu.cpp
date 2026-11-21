@@ -57,6 +57,7 @@
 #include "GameClient/GadgetComboBox.h"
 #include "GameClient/GadgetTextEntry.h"
 #include "GameClient/GadgetPushButton.h"
+#include "GameClient/GadgetSlider.h"
 #include "GameClient/GadgetStaticText.h"
 #include "GameClient/MapUtil.h"
 #include "GameClient/Mouse.h"
@@ -127,6 +128,7 @@ static NameKeyType comboBoxGameSpeedID = NAMEKEY_INVALID;
 static NameKeyType comboBoxSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
 static NameKeyType checkBoxUnitLimitID = NAMEKEY_INVALID;
+static NameKeyType checkBoxStartShroudedID = NAMEKEY_INVALID;
 static NameKeyType comboBoxIncomeSharingID = NAMEKEY_INVALID;
 static NameKeyType comboBoxTechRespawnID = NAMEKEY_INVALID;
 static NameKeyType comboBoxSupplyPileLimitID = NAMEKEY_INVALID;
@@ -180,6 +182,7 @@ static GameWindow *textEntryPlayerName = NULL;
 static GameWindow *comboBoxSuperweapons = NULL;
 static GameWindow *comboBoxStartingCash = NULL;
 static GameWindow *checkBoxUnitLimit = NULL;
+static GameWindow *checkBoxStartShrouded = NULL;
 static GameWindow *comboBoxIncomeSharing = NULL;
 static GameWindow *comboBoxTechRespawn = NULL;
 static GameWindow *comboBoxSupplyPileLimit = NULL;
@@ -467,6 +470,7 @@ Bool SkirmishPreferences::write(void)
   setStartingCash( TheSkirmishGameInfo->getStartingCash() );
   setSuperweaponRestriction( TheSkirmishGameInfo->getSuperweaponRestriction() );
   setInt( "UnitLimit", TheSkirmishGameInfo->getUnitLimit() ? 1 : 0 );
+  setInt( "StartShrouded", TheSkirmishGameInfo->getStartShrouded() ? 1 : 0 );
   setInt( "IncomeSharing", TheSkirmishGameInfo->getIncomeSharing() );
   setInt( "TechRespawn", TheSkirmishGameInfo->getTechRespawn() );
   setInt( "SupplyPileLimit", TheSkirmishGameInfo->getSupplyPileLimit() );
@@ -1268,6 +1272,143 @@ static void handleSupplyPileLimitSelection()
     TheSkirmishGameInfo->setSupplyPileLimit( SupplyPileLimitFromComboBox( comboBoxSupplyPileLimit ) );
 }
 
+// The seat table ------------------------------------------------------------------------------
+// The layout has fourteen rows (as many as reach the rules page's foot, lobbyroom_layout.py) and the
+// room seats MAX_SLOTS. The first row is always the local player's; the rows under it show the
+// seats from seatScroll + 1 on, moved by the scroll bar
+// beside them. The seat arrays above stay indexed by seat, as every slot loop and the GUIUtil
+// functions they are handed expect: bindSeatRows points a seat's entries at the row that shows it
+// and leaves every other seat's NULL, the way a seat past a stock layout's rows always was.
+struct SeatRowWindows
+{
+	GameWindow *player, *color, *army, *team, *persona, *handicap;
+	NameKeyType playerID, colorID, armyID, teamID, personaID, handicapID;
+};
+static SeatRowWindows seatRows[MAX_SLOTS];
+static Int seatRowCount = 0;
+static Int seatScroll = 0;
+static GameWindow *seatScrollSlider = NULL;
+static NameKeyType seatScrollUpID = NAMEKEY_INVALID;
+static NameKeyType seatScrollDownID = NAMEKEY_INVALID;
+
+static Int seatScrollMax( void )
+{
+	return seatScrollSlider && seatRowCount > 1 ? MAX_SLOTS - seatRowCount : 0;
+}
+
+/// the seat a row shows; row 0 is the local player's whatever the scroll
+static Int seatOfRow( Int row )
+{
+	return row == 0 ? 0 : seatScroll + row;
+}
+
+static void bindSeatRows( void )
+{
+	Int seatRow[ MAX_SLOTS ];
+	for ( Int seat = 0; seat < MAX_SLOTS; ++seat )
+	{
+		seatRow[ seat ] = -1;
+		comboBoxPlayer[ seat ] = comboBoxColor[ seat ] = comboBoxPlayerTemplate[ seat ] = NULL;
+		comboBoxTeam[ seat ] = comboBoxAIPersona[ seat ] = comboBoxHandicap[ seat ] = NULL;
+		comboBoxPlayerID[ seat ] = comboBoxColorID[ seat ] = comboBoxPlayerTemplateID[ seat ] = NAMEKEY_INVALID;
+		comboBoxTeamID[ seat ] = comboBoxAIPersonaID[ seat ] = comboBoxHandicapID[ seat ] = NAMEKEY_INVALID;
+	}
+	for ( Int row = 0; row < seatRowCount; ++row )
+	{
+		const Int seat = seatOfRow( row );
+		const SeatRowWindows &w = seatRows[ row ];
+		seatRow[ seat ] = row;
+		comboBoxPlayer[ seat ] = w.player;						comboBoxPlayerID[ seat ] = w.playerID;
+		comboBoxColor[ seat ] = w.color;							comboBoxColorID[ seat ] = w.colorID;
+		comboBoxPlayerTemplate[ seat ] = w.army;			comboBoxPlayerTemplateID[ seat ] = w.armyID;
+		comboBoxTeam[ seat ] = w.team;								comboBoxTeamID[ seat ] = w.teamID;
+		comboBoxAIPersona[ seat ] = w.persona;				comboBoxAIPersonaID[ seat ] = w.personaID;
+		comboBoxHandicap[ seat ] = w.handicap;				comboBoxHandicapID[ seat ] = w.handicapID;
+	}
+	SetLobbySeatRows( seatRow );
+}
+
+/// Remember the layout's rows, as InitSkirmishGameGadgets found them under each row's own seat.
+static void captureSeatRows( void )
+{
+	seatRowCount = 0;
+	while ( seatRowCount < MAX_SLOTS && comboBoxColor[ seatRowCount ] )
+	{
+		const Int row = seatRowCount++;
+		SeatRowWindows &w = seatRows[ row ];
+		w.player = comboBoxPlayer[ row ];						w.playerID = comboBoxPlayerID[ row ];
+		w.color = comboBoxColor[ row ];							w.colorID = comboBoxColorID[ row ];
+		w.army = comboBoxPlayerTemplate[ row ];			w.armyID = comboBoxPlayerTemplateID[ row ];
+		w.team = comboBoxTeam[ row ];								w.teamID = comboBoxTeamID[ row ];
+		w.persona = comboBoxAIPersona[ row ];				w.personaID = comboBoxAIPersonaID[ row ];
+		w.handicap = comboBoxHandicap[ row ];				w.handicapID = comboBoxHandicapID[ row ];
+	}
+
+	// The rows run down to the foot of the rules page, so a lower seat's list has no room under it:
+	// each box's list stays inside the seat table, opening upwards where only the room above holds it
+	if ( seatRowCount > 1 )
+	{
+		Int x, tableTop, tableBottom, width, height;
+		seatRows[ 0 ].color->winGetScreenPosition( &x, &tableTop );
+		seatRows[ seatRowCount - 1 ].color->winGetScreenPosition( &x, &tableBottom );
+		seatRows[ seatRowCount - 1 ].color->winGetSize( &width, &height );
+		tableBottom += height;
+		for ( Int row = 0; row < seatRowCount; ++row )
+		{
+			GameWindow *combos[] = { seatRows[ row ].player, seatRows[ row ].color, seatRows[ row ].army,
+				seatRows[ row ].team, seatRows[ row ].persona, seatRows[ row ].handicap };
+			for ( Int c = 0; c < (Int)ARRAY_SIZE( combos ); ++c )
+			{
+				if ( !combos[ c ] )
+					continue;
+				Int top;
+				combos[ c ]->winGetScreenPosition( &x, &top );
+				combos[ c ]->winGetSize( &width, &height );
+				GadgetComboBoxSetDropDownPitch( combos[ c ], 1, tableBottom - ( top + height ), top - tableTop );
+			}
+		}
+	}
+
+	// a layout from before the scroll bar keeps its rows on their own seats
+	seatScroll = 0;
+	seatScrollSlider = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( "SkirmishGameOptionsMenu.wnd:SliderSeatScroll" ) );
+	seatScrollUpID = NAMEKEY( "SkirmishGameOptionsMenu.wnd:ButtonSeatScrollUp" );
+	seatScrollDownID = NAMEKEY( "SkirmishGameOptionsMenu.wnd:ButtonSeatScrollDown" );
+	if ( seatScrollSlider )
+	{
+		// the track's frame is drawn as a list box draws its own; the image draw would leave it out
+		seatScrollSlider->winSetDrawFunc( TheWindowManager->getVerticalSliderDrawFunc() );
+		TheWindowManager->winSendSystemMsg( seatScrollSlider, GSM_SET_MIN_MAX, 0, max( 1, seatScrollMax() ) );
+		GadgetSliderSetPosition( seatScrollSlider, seatScrollMax() );	// the top of the track is the first seat
+	}
+}
+
+static void scrollSeats( Int scroll )
+{
+	scroll = max( 0, min( seatScrollMax(), scroll ) );
+	if ( scroll == seatScroll )
+		return;
+	for ( Int row = 0; row < seatRowCount; ++row )
+	{
+		GameWindow *combos[] = { seatRows[ row ].player, seatRows[ row ].color, seatRows[ row ].army,
+			seatRows[ row ].team, seatRows[ row ].persona, seatRows[ row ].handicap };
+		for ( Int c = 0; c < (Int)ARRAY_SIZE( combos ); ++c )
+			if ( combos[ c ] )
+				GadgetComboBoxHideList( combos[ c ] );
+	}
+	seatScroll = scroll;
+	bindSeatRows();
+	// the colour boxes leave out the colours other seats hold, which now are other seats
+	for ( Int row = 1; row < seatRowCount; ++row )
+	{
+		const Int seat = seatOfRow( row );
+		PopulateColorComboBox( seat, comboBoxColor, TheSkirmishGameInfo,
+			TheSkirmishGameInfo->getConstSlot( seat )->getPlayerTemplate() == PLAYERTEMPLATE_OBSERVER );
+	}
+	GadgetSliderSetPosition( seatScrollSlider, seatScrollMax() - seatScroll );
+	skirmishUpdateSlotList();
+}
+
 
 //-------------------------------------------------------------------------------------------------
 /** Initialize the Gadgets Options Menu */
@@ -1285,6 +1426,7 @@ void InitSkirmishGameGadgets( void )
   comboBoxSuperweaponsID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxSuperweapons" ) );
   comboBoxStartingCashID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxStartingCash" ) );
   checkBoxUnitLimitID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:CheckBoxUnitLimit" ) );
+  checkBoxStartShroudedID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:CheckBoxStartShrouded" ) );
   comboBoxIncomeSharingID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxIncomeSharing" ) );
   comboBoxTechRespawnID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxTechRespawn" ) );
   comboBoxSupplyPileLimitID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxSupplyPileLimit" ) );
@@ -1329,7 +1471,12 @@ void InitSkirmishGameGadgets( void )
   DEBUG_ASSERTCRASH(checkBoxUnitLimit, ("Could not find the checkBoxUnitLimit"));
   if ( checkBoxUnitLimit )
     UpdateUnitLimitCheckBox( checkBoxUnitLimit, TheSkirmishGameInfo, TRUE );
-  comboBoxIncomeSharing = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, comboBoxIncomeSharingID );
+  // the Hidden Map box, the same kind of control; it travels as SH, a ranked Quick Match's black start
+  checkBoxStartShrouded = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, checkBoxStartShroudedID );
+  DEBUG_ASSERTCRASH(checkBoxStartShrouded, ("Could not find the checkBoxStartShrouded"));
+  if ( checkBoxStartShrouded )
+    UpdateStartShroudedCheckBox( checkBoxStartShrouded, TheSkirmishGameInfo, TRUE );
+  comboBoxIncomeSharing =TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, comboBoxIncomeSharingID );
   DEBUG_ASSERTCRASH(comboBoxIncomeSharing, ("Could not find the comboBoxIncomeSharing"));
   if ( comboBoxIncomeSharing )
     PopulateIncomeSharingComboBox( comboBoxIncomeSharing, TheSkirmishGameInfo, TRUE );
@@ -1424,6 +1571,8 @@ void InitSkirmishGameGadgets( void )
 	InitAIPersonaComboBoxes( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
 	InitHandicapComboBoxes( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", comboBoxHandicap, comboBoxHandicapID );
 	InitLobbySeatVisuals( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd" );
+	captureSeatRows();
+	bindSeatRows();
 	SnapLobbyRulesLists( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd" );
 
 	populateSkirmishBattleHonors();
@@ -1532,6 +1681,8 @@ void updateSkirmishGameOptions( void )
     UpdateSuperweaponComboBox( comboBoxSuperweapons, TheSkirmishGameInfo, TRUE );
   if ( checkBoxUnitLimit )
     UpdateUnitLimitCheckBox( checkBoxUnitLimit, TheSkirmishGameInfo, TRUE );
+  if ( checkBoxStartShrouded )
+    UpdateStartShroudedCheckBox( checkBoxStartShrouded, TheSkirmishGameInfo, TRUE );
   if ( comboBoxIncomeSharing )
     UpdateIncomeSharingComboBox( comboBoxIncomeSharing, TheSkirmishGameInfo, TRUE );
   if ( comboBoxTechRespawn )
@@ -1627,6 +1778,7 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
   TheSkirmishGameInfo->setStartingCash( prefs.getStartingCash() );
   TheSkirmishGameInfo->setSuperweaponRestriction( prefs.getSuperweaponRestriction() );
   TheSkirmishGameInfo->setUnitLimit( prefs.getInt( "UnitLimit", 0 ) != 0 );
+  TheSkirmishGameInfo->setStartShrouded( prefs.getInt( "StartShrouded", 0 ) != 0 );
   TheSkirmishGameInfo->setIncomeSharing( prefs.getInt( "IncomeSharing", INCOME_SHARING_OFF ) );
   TheSkirmishGameInfo->setTechRespawn( prefs.getInt( "TechRespawn", 0 ) );
   TheSkirmishGameInfo->setSupplyPileLimit( prefs.getInt( "SupplyPileLimit", 0 ) );
@@ -1782,8 +1934,9 @@ void SkirmishGameOptionsMenuUpdate( WindowLayout * layout, void *userData)
 		stillNeedsToSetOptions = FALSE;
 	}
 
-	// Back deletes the room's game at once, and the screen goes on updating while it animates out
-	if (TheSkirmishGameInfo && FitRandomMapToRoom(TheSkirmishGameInfo))
+	// Back deletes the room's game at once, and the screen goes on updating while it animates out.
+	// A ninth player on a shipped map takes the room to a generated one, which then follows the seats.
+	if (TheSkirmishGameInfo && (GenerateMapForCrowdedRoom(TheSkirmishGameInfo) || FitRandomMapToRoom(TheSkirmishGameInfo)))
 	{
 		skirmishPositionStartSpots();
 		skirmishUpdateSlotList();
@@ -1831,6 +1984,26 @@ WindowMsgHandledType SkirmishGameOptionsMenuInput( GameWindow *window, UnsignedI
 			}  // end switch( key )
 		}  // end char
 		break;
+
+		// a wheel over the seats that nothing under it took scrolls them, from the first row to the bar
+		case GWM_WHEEL_UP:
+		case GWM_WHEEL_DOWN:
+		{
+			if ( !seatScrollSlider || seatScrollMax() == 0 || ( recordPopover && !recordPopover->winIsHidden() ) )
+				break;
+			Int x, y, width, height, firstX, top, lastX, bottom;
+			seatScrollSlider->winGetScreenPosition( &x, &y );
+			seatScrollSlider->winGetSize( &width, &height );
+			seatRows[ 1 ].color->winGetScreenPosition( &firstX, &top );
+			seatRows[ seatRowCount - 1 ].color->winGetScreenPosition( &lastX, &bottom );
+			seatRows[ seatRowCount - 1 ].color->winGetSize( &lastX, &height );
+			bottom += height;
+			const Int mouseX = LOLONGTOSHORT( mData1 ), mouseY = HILONGTOSHORT( mData1 );
+			if ( mouseX > x + width || mouseY < top || mouseY > bottom )
+				break;
+			scrollSeats( seatScroll + ( msg == GWM_WHEEL_UP ? -1 : 1 ) );
+			return MSG_HANDLED;
+		}
 	}  // end switch( msg )
 	return MSG_IGNORED;
 }//WindowMsgHandledType SkirmishGameOptionsMenuInput( GameWindow *window, UnsignedInt msg,
@@ -1937,8 +2110,18 @@ WindowMsgHandledType SkirmishGameOptionsMenuSystem( GameWindow *window, Unsigned
 					TheSkirmishGameInfo->setUnitLimit( GadgetCheckBoxIsChecked( control ) );
 					break;
 				}
+				if ( controlID == checkBoxStartShroudedID )
+				{
+					TheSkirmishGameInfo->setStartShrouded( GadgetCheckBoxIsChecked( control ) );
+					break;
+				}
 				if ( LobbyTabClicked( (NameKeyType)controlID ) )
 					break;
+				if ( controlID == seatScrollUpID || controlID == seatScrollDownID )
+				{
+					scrollSeats( seatScroll + ( controlID == seatScrollUpID ? -1 : 1 ) );
+					break;
+				}
 				if ( controlID == buttonRecordID || controlID == buttonRecordCloseID )
 				{
 					showRecord( controlID == buttonRecordID );
@@ -2069,6 +2252,14 @@ WindowMsgHandledType SkirmishGameOptionsMenuSystem( GameWindow *window, Unsigned
 					}
 				}
 			}					
+			break;
+		}
+		//-------------------------------------------------------------------------------------------------
+		case GSM_SLIDER_TRACK:
+		{
+			// the track's top is its highest value, the first seats
+			if ( (GameWindow *)mData1 == seatScrollSlider )
+				scrollSeats( seatScrollMax() - (Int)mData2 );
 			break;
 		}
 		//-------------------------------------------------------------------------------------------------

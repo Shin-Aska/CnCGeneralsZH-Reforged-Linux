@@ -2,7 +2,6 @@
 #include "SdlPostShader.h"
 #include "sdl3shadercompile.h"
 #include "sdl3target.h"
-#include "SdlGpuStorage.h"
 #include "dx11runtime.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -15,11 +14,6 @@
 #include <new>
 
 namespace {
-bool fault(const char *point)
-{
-    const char *requested = std::getenv("ZH_TEST_SDL_DISTORTION_FAILURE");
-    return requested && !std::strcmp(requested, point);
-}
 unsigned format_slot(unsigned format)
 {
     if (format == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM) return 0;
@@ -55,9 +49,19 @@ void heat_varyings(std::string &source)
 bool Sdl_Post_Heat_Vertex_Source(std::string &source)
 {
     source=PostShader_Heat_Splat_Vertex_Source();
-    replace(source,"Buffer<float4> Splats : register(t0)","StructuredBuffer<float4> Splats : register(t0, space0)");
-    replace(source,"Splats.Load(splat * 4)","Splats[splat * 4]");
-    for(unsigned i=1;i<4;++i)replace(source,"Splats.Load(splat * 4 + "+std::to_string(i)+")","Splats[splat * 4 + "+std::to_string(i)+"]");
+    replace(source,"Buffer<float4> Splats : register(t0);",R"HLSL(
+struct HeatRecord {
+ [[vk::location(0)]] float4 Shape : TEXCOORD0;
+ [[vk::location(1)]] float4 Heat : TEXCOORD1;
+ [[vk::location(2)]] float4 Planes : TEXCOORD2;
+ [[vk::location(3)]] float4 Across : TEXCOORD3;
+};
+)HLSL");
+    replace(source,"main(uint index : SV_VertexID)","main(uint index : SV_VertexID, HeatRecord record)");
+    replace(source,"Splats.Load(splat * 4)","record.Shape");
+    replace(source,"Splats.Load(splat * 4 + 1)","record.Heat");
+    replace(source,"Splats.Load(splat * 4 + 2)","record.Planes");
+    replace(source,"Splats.Load(splat * 4 + 3)","record.Across");
     heat_varyings(source);return true;
 }
 bool Sdl_Post_Distortion_Pixel_Source(PostShaderProgram program, std::string &source)
@@ -83,8 +87,9 @@ struct SdlPostDistortion::Impl
     SDL_GPUShader *HeatVertex = nullptr, *HeatPixel = nullptr, *ClearPixel = nullptr;
     SDL_GPUGraphicsPipeline *HeatPipeline = nullptr, *ClearPipeline = nullptr;
     unsigned HeatSamplers = 0, HeatUniforms = 0;
-    std::unique_ptr<SdlGpuStorage> Storage;
-    SdlGpuStorage::Buffer HeatBuffer;
+    SDL_GPUBuffer *HeatBuffer = nullptr;
+    TestFailure Failure = TestFailure::None;
+    bool fault(TestFailure point) const { return Failure == point; }
     SDL_GPUTexture *HeatField = nullptr, *HeatCopy = nullptr;
     unsigned HeatWidth = 0, HeatHeight = 0, HeatFormat = 0, HeatCount = 0;
     std::vector<float> HeatRecords;
@@ -113,7 +118,7 @@ struct SdlPostDistortion::Impl
     }
     bool program(Program &program, PostShaderProgram id, unsigned format)
     {
-        if (fault("program")) return fail("injected program preparation failure");
+        if (fault(TestFailure::Program)) return fail("injected program preparation failure");
         std::string source, error; std::vector<unsigned char> spirv;
         if (!Vertex) {
             if (!Sdl_Post_Vertex_Source(source) || !SDL3_Compile_HLSL_To_SPIRV(source, true, spirv, error)
@@ -141,7 +146,7 @@ struct SdlPostDistortion::Impl
         }
         auto &pipeline = program.Pipelines[format_slot(format)];
         if (!pipeline) {
-            if (fault("pipeline")) return fail("injected pipeline preparation failure");
+            if (fault(TestFailure::Pipeline)) return fail("injected pipeline preparation failure");
             SDL_GPUColorTargetDescription colour = {}; colour.format = SDL_GPUTextureFormat(format);
             if (id == POST_SHADER_WARP || id == POST_SHADER_HEAT_HAZE) {
                 colour.blend_state.enable_color_write_mask = true;
@@ -164,7 +169,7 @@ struct SdlPostDistortion::Impl
     {
         const unsigned format = SdlGpuFrame::Target_Colour_Format(output);
         if (Snapshot && Width == output.Width && Height == output.Height && Format == format) return true;
-        if (fault("target")) return fail("injected snapshot allocation failure");
+        if (fault(TestFailure::Target)) return fail("injected snapshot allocation failure");
         SDL_GPUTextureCreateInfo info = {};
         info.type = SDL_GPU_TEXTURETYPE_2D; info.format = SDL_GPUTextureFormat(format);
         info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
@@ -180,16 +185,12 @@ struct SdlPostDistortion::Impl
     {
         const unsigned format=SdlGpuFrame::Target_Colour_Format(scene);
         if(!program(Copy,POST_SHADER_COPY,format) || !program(HeatComposite,POST_SHADER_HEAT_HAZE,format))return false;
-        std::string source,error;std::vector<unsigned char> spirv;SDL3_StorageLayout layout;
+        std::string source,error;std::vector<unsigned char> spirv;
         if(!HeatVertex) {
             if(!Sdl_Post_Heat_Vertex_Source(source)
-                || !SDL3_Compile_HLSL_To_SPIRV(source,SDL3_ShaderStage::Vertex,spirv,error)
-                || !(HeatVertex=SDL3_Create_Storage_Graphics_Shader(Device,spirv,SDL3_ShaderStage::Vertex,layout,error)))return fail("heat vertex: "+error);
+                || !SDL3_Compile_HLSL_To_SPIRV(source,true,spirv,error)
+                || !(HeatVertex=SDL3_Create_Shader(Device,spirv,true,error)))return fail("heat vertex: "+error);
             ++Creations;
-            bool stride=false;
-            for(const auto &binding:layout.Bindings)if(binding.Kind==SDL3_StorageKind::ReadOnlyBuffer && binding.Binding==0)stride=binding.ElementStride==16;
-            if(layout.ReadOnlyBuffers!=1 || layout.SampledTextures || layout.UniformBuffers || !stride)
-                return fail("heat vertex requires one readonly float4 storage buffer with stride16");
         }
         if(!HeatPixel) {
             if(!Sdl_Post_Distortion_Pixel_Source(POST_SHADER_HEAT_SPLAT,source)
@@ -214,25 +215,27 @@ struct SdlPostDistortion::Impl
         }
         if(!HeatPipeline) {
             info.vertex_shader=HeatVertex;info.fragment_shader=HeatPixel;
+            SDL_GPUVertexBufferDescription buffer={};buffer.slot=0;buffer.pitch=DIRECT3D11_HEAT_SPLAT_FLOATS*sizeof(float);
+            buffer.input_rate=SDL_GPU_VERTEXINPUTRATE_INSTANCE;
+            SDL_GPUVertexAttribute attributes[4]={};
+            for(unsigned i=0;i<4;++i){attributes[i].location=i;attributes[i].buffer_slot=0;
+                attributes[i].format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;attributes[i].offset=i*16;}
+            info.vertex_input_state.vertex_buffer_descriptions=&buffer;info.vertex_input_state.num_vertex_buffers=1;
+            info.vertex_input_state.vertex_attributes=attributes;info.vertex_input_state.num_vertex_attributes=4;
             colour.blend_state.enable_blend=true;
             colour.blend_state.src_color_blendfactor=colour.blend_state.dst_color_blendfactor=SDL_GPU_BLENDFACTOR_ONE;
             colour.blend_state.src_alpha_blendfactor=colour.blend_state.dst_alpha_blendfactor=SDL_GPU_BLENDFACTOR_ONE;
             colour.blend_state.color_blend_op=colour.blend_state.alpha_blend_op=SDL_GPU_BLENDOP_ADD;
             HeatPipeline=SDL_CreateGPUGraphicsPipeline(Device,&info);if(!HeatPipeline)return fail(SDL_GetError());++Creations;
         }
-        if(!Storage) {
-            auto *owner=Owner;
-            Storage.reset(new SdlGpuStorage(Device,[owner] {return !owner->Has_Pending_Work() || owner->Flush();},
-                [owner](SDL_GPUBuffer *buffer) {owner->Release_After_Batch(nullptr,buffer);}));
-        }
-        if(!Storage->Native(HeatBuffer)) {
-            if(fault("storage"))return fail("injected heat storage allocation failure");
-            if(!Storage->Create(DIRECT3D11_HEAT_SPLAT_LIMIT*DIRECT3D11_HEAT_SPLAT_FLOATS*sizeof(float),
-                SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,HeatBuffer,error))return fail(error);
-            ++Creations;
+        if(!HeatBuffer) {
+            if(fault(TestFailure::Buffer))return fail("injected heat instance allocation failure");
+            SDL_GPUBufferCreateInfo buffer={};buffer.usage=SDL_GPU_BUFFERUSAGE_VERTEX;
+            buffer.size=DIRECT3D11_HEAT_SPLAT_LIMIT*DIRECT3D11_HEAT_SPLAT_FLOATS*sizeof(float);
+            HeatBuffer=SDL_CreateGPUBuffer(Device,&buffer);if(!HeatBuffer)return fail(SDL_GetError());++Creations;
         }
         if(HeatField && HeatCopy && HeatWidth==scene.Width && HeatHeight==scene.Height && HeatFormat==format)return true;
-        if(fault("target"))return fail("injected heat image allocation failure");
+        if(fault(TestFailure::Target))return fail("injected heat image allocation failure");
         SDL_GPUTextureCreateInfo image={};image.type=SDL_GPU_TEXTURETYPE_2D;
         image.format=SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
         image.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER|SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
@@ -240,7 +243,7 @@ struct SdlPostDistortion::Impl
         SDL_GPUTexture *field=SDL_CreateGPUTexture(Device,&image);
         if(!field)return fail(SDL_GetError());
         image.width=scene.Width;image.height=scene.Height;image.format=SDL_GPUTextureFormat(format);
-        SDL_GPUTexture *copy=fault("target-after-one") ? nullptr : SDL_CreateGPUTexture(Device,&image);
+        SDL_GPUTexture *copy=fault(TestFailure::TargetAfterOne) ? nullptr : SDL_CreateGPUTexture(Device,&image);
         if(!copy){SDL_ReleaseGPUTexture(Device,field);return fail("heat colour snapshot allocation failed");}
         if(HeatField)Owner->Release_After_Batch(HeatField,nullptr);
         if(HeatCopy)Owner->Release_After_Batch(HeatCopy,nullptr);
@@ -369,8 +372,12 @@ bool SdlPostDistortion::Apply_Heat(SdlGpuFrame &frame, const SdlTarget &scene, c
         || beforePost.DepthFormat!=SDL_GPU_TEXTUREFORMAT_R32_FLOAT || beforePost.ActualSamples!=1)
         return s.fail("heat requires independent single-sample full-size R32 depth");
     if(s.HeatDone && s.HeatApplied.Same_Identity(s.HeatMain))return s.fail("heat already recorded for this scene");
-    std::string error;SdlStorageUpdate update={0,unsigned(s.HeatRecords.size()*sizeof(float)),s.HeatRecords.data()};
-    if(!s.Storage->Write(s.HeatBuffer,&update,1,error))return s.fail("heat upload: "+error);
+    // All queued readers of this persistent instance buffer must submit before its
+    // next upload. The ordinary frame staging path copies before subsequent draws.
+    if(frame.Has_Pending_Work() && !frame.Flush())return s.fail("heat instance readers could not submit");
+    uint32_t offset=0;const unsigned bytes=unsigned(s.HeatRecords.size()*sizeof(float));
+    auto *upload=frame.Upload_Space(bytes,offset);if(!upload)return s.fail("heat instance staging failed");
+    std::memcpy(upload,s.HeatRecords.data(),bytes);frame.Queue_Buffer_Upload(s.HeatBuffer,offset,bytes);
     const unsigned halfWidth=(scene.Width+1)/2,halfHeight=(scene.Height+1)/2;
     const SdlTarget field={s.HeatField,nullptr,halfWidth,halfHeight,0,SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT};
     const SdlTarget copy={s.HeatCopy,nullptr,scene.Width,scene.Height,0,s.HeatFormat};
@@ -380,8 +387,8 @@ bool SdlPostDistortion::Apply_Heat(SdlGpuFrame &frame, const SdlTarget &scene, c
         result.Viewport[2]=float(target.Width);result.Viewport[3]=float(target.Height);result.Viewport[5]=1;
         result.Scissor[2]=int(target.Width);result.Scissor[3]=int(target.Height);return result;
     };
-    SdlRecordedDraw clear=draw(s.ClearPipeline,field,3),splats=draw(s.HeatPipeline,field,s.HeatCount*6);
-    splats.VertexStorageCount=1;splats.VertexStorageBuffers[0]=s.Storage->Native(s.HeatBuffer);
+    SdlRecordedDraw clear=draw(s.ClearPipeline,field,3),splats=draw(s.HeatPipeline,field,6);
+    splats.VertexBuffer=s.HeatBuffer;splats.InstanceCount=s.HeatCount;
     splats.SamplerCount=s.HeatSamplers;
     splats.Textures[0]=splats.Textures[1]=beforePost.SampledDepth;splats.Samplers[0]=splats.Samplers[1]=s.Sampler;
     SdlRecordedDraw snapshot=draw(s.Copy.Pipelines[format_slot(s.HeatFormat)],copy,3);
@@ -396,7 +403,7 @@ bool SdlPostDistortion::Apply_Heat(SdlGpuFrame &frame, const SdlTarget &scene, c
     SdlNativeDrawPacket packets[]={{field,clear,nullptr,0},{field,splats,s.HeatUniforms?&uniform:nullptr,s.HeatUniforms?1u:0u},
         {copy,snapshot,s.Copy.Uniforms?&uniform:nullptr,s.Copy.Uniforms?1u:0u},
         {destination,composite,s.HeatComposite.Uniforms?&uniform:nullptr,s.HeatComposite.Uniforms?1u:0u}};
-    if(fault("record") || !frame.Record_Native_Draw_Batch(packets,4))return s.fail("atomic native heat packets refused");
+    if(s.fault(TestFailure::Record) || !frame.Record_Native_Draw_Batch(packets,4))return s.fail("atomic native heat packets refused");
     s.HeatApplied=s.HeatMain;s.HeatDone=true;s.LastError.clear();return true;
 }
 void SdlPostDistortion::Abandon()
@@ -413,7 +420,7 @@ bool SdlPostDistortion::Release(SdlGpuFrame &frame)
     if (!s.Owner) return true;
     if (s.Owner != &frame || (frame.Has_Pending_Work() && !frame.Flush()))
         return s.fail("release requires owning frame and submitted/discarded readers");
-    std::string error;if(s.Storage && !s.Storage->Close(error))return s.fail(error);
+    if(s.HeatBuffer)SDL_ReleaseGPUBuffer(s.Device,s.HeatBuffer);s.HeatBuffer=nullptr;
     for (auto *program : {&s.Copy, &s.Warp, &s.HeatComposite}) {
         for (auto *pipeline : program->Pipelines) if (pipeline) SDL_ReleaseGPUGraphicsPipeline(s.Device, pipeline);
         if (program->Shader) SDL_ReleaseGPUShader(s.Device, program->Shader);
@@ -428,7 +435,7 @@ bool SdlPostDistortion::Release(SdlGpuFrame &frame)
     if(s.HeatField)SDL_ReleaseGPUTexture(s.Device,s.HeatField);
     if(s.HeatCopy)SDL_ReleaseGPUTexture(s.Device,s.HeatCopy);
     s.HeatPipeline=s.ClearPipeline=nullptr;s.HeatVertex=s.HeatPixel=s.ClearPixel=nullptr;
-    s.HeatField=s.HeatCopy=nullptr;s.HeatWidth=s.HeatHeight=s.HeatFormat=0;s.Storage.reset();s.HeatBuffer={};
+    s.HeatField=s.HeatCopy=nullptr;s.HeatWidth=s.HeatHeight=s.HeatFormat=0;
     s.Vertex = nullptr; s.Sampler = nullptr; s.Snapshot = nullptr;
     s.Owner = nullptr; s.Device = nullptr; s.Width = s.Height = s.Format = 0;
     Abandon(); return true;
@@ -446,7 +453,9 @@ SdlPostDistortionResources SdlPostDistortion::Resources() const
     result.Textures+=(s.HeatField!=nullptr)+(s.HeatCopy!=nullptr);
     result.Shaders+=(s.HeatVertex!=nullptr)+(s.HeatPixel!=nullptr)+(s.ClearPixel!=nullptr);
     result.Pipelines+=(s.HeatPipeline!=nullptr)+(s.ClearPipeline!=nullptr);
-    result.Buffers=s.Storage && s.Storage->Native(s.HeatBuffer) ? 1u : 0u;
+    result.Buffers=s.HeatBuffer ? 1u : 0u;
     result.BufferBytes=result.Buffers ? DIRECT3D11_HEAT_SPLAT_LIMIT*DIRECT3D11_HEAT_SPLAT_FLOATS*sizeof(float) : 0;
     return result;
 }
+
+void SdlPostDistortion::Set_Failure_For_Test(TestFailure failure) { State->Failure=failure; }

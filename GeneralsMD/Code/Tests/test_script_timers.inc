@@ -312,8 +312,8 @@ TEST(script_countdown_timer_snapshot_preserves_phase_and_loads_older_saves)
 		}
 	}
 	GameSpeed_set(125);
-	// v6 appends only the subframe byte to the v5 snapshot. A v5 save deterministically starts
-	// with phase zero; an invalid v6 phase is rejected rather than stopping every timer forever.
+	// v7 appends only the subframe byte to the v6 snapshot. A v6 save deterministically starts
+	// with phase zero; an invalid v7 phase is rejected rather than stopping every timer forever.
 	FILE *file = fopen(path, "rb");
 	CHECK(file != NULL);
 	if (!file) return;
@@ -323,10 +323,10 @@ TEST(script_countdown_timer_snapshot_preserves_phase_and_loads_older_saves)
 	std::vector<UnsignedByte> bytes(size);
 	CHECK_EQ(fread(bytes.data(), 1, bytes.size(), file), bytes.size());
 	fclose(file);
-	CHECK(bytes.size() > 2 && bytes.front() == 6);
+	CHECK(bytes.size() > 2 && bytes.front() == 7);
 	for (Int legacy = 0; legacy < 2; ++legacy)
 	{
-		bytes.front() = legacy ? 5 : 6;
+		bytes.front() = legacy ? 6 : 7;
 		bytes.back() = 100 * LOGICFRAMES_PER_RETAIL_FRAME;
 		file = fopen(path, "wb");
 		CHECK(file != NULL);

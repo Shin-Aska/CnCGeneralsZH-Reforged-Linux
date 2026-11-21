@@ -157,6 +157,7 @@ OPTION_BOOL_ACCESSORS( m_selectionOutlines )
 OPTION_BOOL_ACCESSORS( m_showNetBox )
 OPTION_INT_ACCESSORS( m_minimapSize )
 OPTION_BOOL_ACCESSORS( m_showEmptyBuildingPips )
+OPTION_BOOL_ACCESSORS( m_hitFlash )
 OPTION_BOOL_ACCESSORS( m_useShadowVolumesForSkins )
 OPTION_BOOL_ACCESSORS( m_shadowsForProjectiles )
 OPTION_BOOL_ACCESSORS( m_shadowsForProps )
@@ -169,6 +170,7 @@ OPTION_BOOL_ACCESSORS( m_explosionDebrisTrails )
 OPTION_BOOL_ACCESSORS( m_mapLight )
 OPTION_BOOL_ACCESSORS( m_teamGlow )
 OPTION_BOOL_ACCESSORS( m_waterFoam )
+OPTION_BOOL_ACCESSORS( m_underwaterClarity )
 OPTION_BOOL_ACCESSORS( m_groundFoliage )
 OPTION_BOOL_ACCESSORS( m_groundMarks )
 OPTION_BOOL_ACCESSORS( m_firelight )
@@ -181,6 +183,7 @@ OPTION_BOOL_ACCESSORS( m_structureCollapse )
 OPTION_BOOL_ACCESSORS( m_smoothMotion )
 OPTION_BOOL_ACCESSORS( m_internalHdr )
 OPTION_BOOL_ACCESSORS( m_heatHaze )
+OPTION_BOOL_ACCESSORS( m_fullDetailAtDistance )
 OPTION_INT_ACCESSORS( m_shadowQuality )
 OPTION_INT_ACCESSORS( m_graphicsQuality )
 
@@ -566,6 +569,13 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_ENUM, APPLY_LIVE, 0, WATER_REFLECTION_DETAIL_COUNT - 1,
 		get_m_waterReflectionDetail, set_m_waterReflectionDetail },
 
+	// Shallow shelves and ruins show through the sea where the map's authored opacity hid them;
+	// broad flat basins and deep water keep it (the SDL Modern water only, off under Classic graphics,
+	// never on rivers).  An opt-in independent of the wave controls.
+	{ "UnderwaterClarity", OPT_WND( "CheckUnderwaterClarity" ), "GUI:UnderwaterClarity",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_underwaterClarity, set_m_underwaterClarity },
+
 	// Client appearance only; hazard area, lifetime and damage remain unchanged.
 	{ "CloudStyle", OPT_WND( "ComboBoxCloudStyle" ), "GUI:CloudStyle",
 		OPTION_ENUM, APPLY_LIVE, 0, CLOUD_STYLE_COUNT - 1,
@@ -614,7 +624,9 @@ const OptionDef TheOptionCatalog[] =
 		get_m_healthBarColors, set_m_healthBarColors },
 
 	// Where the in-game interface sits: 0 Classic, the bar along the bottom, 1 the Red Alert style
-	// sidebar down the right with a command strip under the world (docs/plans/HUD-SIDEBAR-LAYOUT.md).
+	// sidebar down the right with a command strip under the world (docs/plans/HUD-SIDEBAR-LAYOUT.md),
+	// 2 the same bar with the fork's pieces left off (HUD_LAYOUT_RETAIL, shown as Classic; 0 is shown
+	// as Reforged).
 	// Read as the bar is laid out, so Accept builds the shell and the bar again, in a match too.
 	// Every menu is fitted; MenuLayout, HudScale and the old InterfaceStyle are gone for good.
 	{ "HudLayout",								OPT_WND( "ComboBoxHudLayout" ), "GUI:HudLayout",
@@ -686,6 +698,14 @@ const OptionDef TheOptionCatalog[] =
 	{ "EmptyBuildingPips",				OPT_WND( "CheckEmptyBuildingPips" ), "GUI:EmptyBuildingPips",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_showEmptyBuildingPips, set_m_showEmptyBuildingPips },
+
+	// A unit or building that takes damage lights up red for a blink, through the selection flash's
+	// envelope (Drawable::updateDrawable watches the body's last damage frame).  Off by default, as
+	// every row the fork adds.  Client only: logic never reads it, so two players in one match can
+	// differ.  Not a graphics look, so Classic Graphics leaves it alone and it has no quality row.
+	{ "HitFlash",									OPT_WND( "CheckHitFlash" ), "GUI:HitFlash",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_hitFlash, set_m_hitFlash },
 
 	// Which language the words are in.  English is the string table the game shipped with, and every
 	// other entry is a translation laid over it, so a line the translation lacks stays English.  The
@@ -855,6 +875,15 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_heatHaze, set_m_heatHaze },
 
+	// The rebuilt models switch to lighter levels of detail as they grow small on the screen
+	// (chooseLODByScreenSize in W3DScene.cpp, every frame); on, every model draws its full level at any
+	// distance.  Retail models have one level and Classic graphics mounts no other, so neither changes.
+	// No sim reads it.  On Options > Display, in the Models group beside Detailed Models: every column of
+	// Graphics and Effects is full.
+	{ "FullDetailAtDistance",			OPT_WND( "CheckFullDetailAtDistance" ), "GUI:FullDetailAtDistance",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_fullDetailAtDistance, set_m_fullDetailAtDistance },
+
 	// The size of the sun's depth map.  The shadow pass asks for it every frame and the backend makes
 	// the map again when the size changes, so a new level shows on the next frame.  On Options >
 	// Effects.  Classic graphics and -d3d9 draw no map at all.
@@ -955,6 +984,10 @@ const GraphicsQualityRow TheGraphicsQualityTable[] =
 	{ "ComboBoxBloom",					0.1f,  {    0,    1,    2,    2,    2,    2,    2,    2,    2,    2,    2 } },
 	{ "SliderAnisotropy",				0.1f,  {    2,    4,    8,   16,   16,   16,   16,   16,   16,   16,   16 } },
 	{ "CheckParticleShadows",		0.15f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
+	// 1.81 against 1.98 ms GPU in two pairs on the sweep's fight from a far camera (2026-11-21,
+	// experiments/proofs/2026-11-21/lod-bridges/cost.ps1); the lighter levels are what a slow card's far
+	// camera is saved by, so it waits for Ultra
+	{ "CheckFullDetailAtDistance", 0.15f, {   0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    1 } },
 	{ "LowResSlider",						0.2f,  {    1,    2,    2,    2,    2,    2,    2,    2,    2,    2,    2 } },
 	{ "CheckPropShadows",				0.2f,  {    0,    0,    0,    0,    0,    0,    1,    1,    1,    1,    1 } },
 	{ "CheckWaterSplashes",			0.2f,  {    0,    0,    0,    0,    0,    0,    0,    0,    1,    1,    1 } },
@@ -1016,7 +1049,8 @@ Bool isModernWaterOption( const OptionDef& def )
 		|| strcmp( def.iniKey, "WaterWaveFiltering" ) == 0
 		|| strcmp( def.iniKey, "WaterFftResolution" ) == 0
 		|| strcmp( def.iniKey, "WaterRefractionQuality" ) == 0
-		|| strcmp( def.iniKey, "WaterReflectionDetail" ) == 0;
+		|| strcmp( def.iniKey, "WaterReflectionDetail" ) == 0
+		|| strcmp( def.iniKey, "UnderwaterClarity" ) == 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -1061,7 +1095,12 @@ static Int parseOptionValue( const OptionDef& def, const AsciiString& stored )
 		if( resolution == 64 ) return 0;
 		return resolution < 0 ? 0 : resolution > def.hi ? def.hi : (Int)resolution;
 	}
-	return clampOptionValue( def, atoi( stored.str() ) );
+	// a layout gone from the list (the plain Reforged one was 3 for an afternoon) is the default bar,
+	// not whichever layout happens to be last
+	const Int number = atoi( stored.str() );
+	if( strcmp( def.iniKey, "HudLayout" ) == 0 && ( number < def.lo || number > def.hi ) )
+		return def.lo;
+	return clampOptionValue( def, number );
 }
 
 //-----------------------------------------------------------------------------
