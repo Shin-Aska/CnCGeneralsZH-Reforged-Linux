@@ -158,6 +158,31 @@ attempts and unchanged-fixture evidence alongside final affected reruns.
 
 ## Local feature validation
 
+### SDL GPU upload cleanup on Vulkan (2026-11-22)
+
+The Linux 4.2.1 AppImage and the fork both retained GPU upload memory after panning in USA 2.
+In `SdlGpuFrame::Submit_Flush`, the fork now calls `SDL_WaitForGPUFences` after a fence signals
+completion and before releasing it. This lets SDL retire completed command buffers and reuse
+their upload memory while pending work continues asynchronously.
+[Fork fix `428e6a376`](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commit/428e6a376b3cf43c474bbfb1bdc848be23e1aa07) ·
+[Upstream flush path at `aa37ddbaa`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/aa37ddbaaf696f1389b69788c9a9c4c6229fd0f7/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrame.cpp#L851-L856)
+
+On an RTX 4060 at 1920 × 1080 with all 14 HD archives, each run loaded the manual USA 2 save,
+panned twice at the saved zoom, then returned to the original view for three minutes. The table
+shows game-process PSS growth from immediately before panning to the end of the wait. The
+pre-fix runs used GPU pacing during loading only. The fixed runs were asynchronous from launch.
+
+| Route | Growth before fix | Growth with fix | Final PSS with fix |
+|---|---:|---:|---:|
+| Northwest circuit | 1,965 MiB | 91 MiB | 5.66 GiB |
+| Broad map sweep | 1,875 MiB | 102 MiB | 5.68 GiB |
+
+At 1440 × 810, paired median clean-water frame time improved by 0.093 ms on the carrier and
+0.024 ms on the coast compared with the pre-fix fork. Across eight clean-versus-ordinary Modern
+water pairs on the fixed build, the largest added cost was 0.021 ms at p50 and 0.329 ms at p95.
+The SDL GPU frame, water GPU path and water-grid checks passed. Local measurements are in
+`build-linux/benchmarks/main-gpu-upload-cleanup-9ab3b716a/REPORT.md`.
+
 ### Toxic-water materials and production-water preview (2026-11-16)
 
 Fork commit [`6e49914d`](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commit/6e49914d62aeb85f84a89abfeb286bbdabc79b54)
@@ -381,6 +406,8 @@ These timings use the earlier builds and settings documented in the benchmark re
 
 ## Ideas for later pull requests
 
+- **Reclaim completed SDL GPU uploads.** Candidate for a standalone renderer PR.
+  [USA 2 memory results and water benchmarks](#sdl-gpu-upload-cleanup-on-vulkan-2026-11-22)
 - **Volumetric toxin effects.** Measure the delta over the shared volume in a crowded toxin fight.
   Use the SDL GPU timer (`ZH_GPU_TIMING` with `ZH_GPU_TIMING_SYNC=1`) and a repeatable battle
   (`-scenario`, files in `Data/Scenarios/`). The devlog's 2026-11-05 benchmark session has a crowded-cloud
