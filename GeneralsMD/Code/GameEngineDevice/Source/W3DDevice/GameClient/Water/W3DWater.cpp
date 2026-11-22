@@ -6811,8 +6811,54 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				result.z += result.u1;
 				return result;
 			};
+#if defined(__linux__)
+			// With prepared clean FFT, an unconstrained interior vertex needs only
+			// neutral CPU metadata. Unknown obstacle cells and complete shared
+			// samples retain the regular evaluator and its canonical surface.
+			const Bool directClean = cpuFftPrepared && m_modernClean && m_modernOneMediumWind
+				&& !m_modernMediumDepth.depth.empty() && modernWaterMediumApplies(points[0].Z, river);
+			const unsigned openDiffuse = WaterSurfaceModel::EncodeObstacleAttenuation(diffuse, 1.0f);
+			auto directCleanVertex = [&](const WaterProjectedMesh::Vertex &p, VertexFormatXYZNDUV2 &vertex) {
+				if (p.boundary >= 0 || p.collar >= 0 || p.transition >= 0)
+					return false;
+				const Real x = Real(p.world.x), y = Real(p.world.y), z = points[0].Z;
+				const auto obstacles = m_modernObstacleIndex.Query(x, y);
+				if (!obstacles.indexed || obstacles.count != 0)
+					return false;
+				if (m_modernProjectedCacheEnabled &&
+					m_modernProjectedSamples.Find(WaterProjectedMesh::SampleKey(x, y, z)))
+					return false;
+				if (modernHullDamping(x, y, z) != 1.0f || fftSeam.Weight({x, y}, 1.0f) != 1.0f)
+					return false;
+				vertex.x = x;
+				vertex.y = y;
+				// Match p.z + sample.height, including the signed-zero result.
+				vertex.z = z + 0.0f;
+				vertex.nx = vertex.ny = vertex.nz = 1.0f;
+				vertex.u1 = 0.0f;
+				vertex.v1 = y / 150.0f;
+				vertex.u2 = 1.0f;
+				vertex.v2 = z;
+				vertex.diffuse = openDiffuse;
+				return true;
+			};
+#endif
 					for (size_t n = 0; n < drawMesh.vertices.size(); ++n) {
 						const WaterProjectedMesh::Vertex &p = drawMesh.vertices[n];
+#if defined(__linux__)
+						if (directClean && directCleanVertex(p, grid[n])) {
+							++m_modernProjectedEvaluations;
+							if (m_modernProfileEnabled) {
+								// Preserve the evaluator's request/sparse-sample phase.
+								// Static-cache hit/miss counters describe only work performed.
+								if (((m_modernProfile.attempts++ + m_modernProfile.frames) & 63) == 0)
+									++m_modernProfile.samples;
+								++m_modernProfile.misses;
+								++m_modernProfile.cpuHeightsElided;
+							}
+							continue;
+						}
+#endif
 						if (p.boundary < 0) {
 							grid[n] = p.collar >= 0 ? correctedVertex(p.world,
 								drawMesh.collars[p.collar]) : makeBaseVertex({Real(p.world.x), Real(p.world.y), points[0].Z}, FALSE,
