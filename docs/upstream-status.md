@@ -169,13 +169,35 @@ their upload memory while pending work continues asynchronously.
 
 On an RTX 4060 at 1920 × 1080 with all 14 HD archives, each run loaded the manual USA 2 save,
 panned twice at the saved zoom, then returned to the original view for three minutes. The table
-shows game-process PSS growth from immediately before panning to the end of the wait. The
-pre-fix runs used GPU pacing during loading only. The fixed runs were asynchronous from launch.
+shows growth in the game's proportional set size (PSS) from before panning to the end of the
+wait. The pre-fix runs used GPU pacing during loading only. The fixed runs were asynchronous from launch.
 
 | Route | Growth before fix | Growth with fix | Final PSS with fix |
 |---|---:|---:|---:|
 | Northwest circuit | 1,965 MiB | 91 MiB | 5.66 GiB |
 | Broad map sweep | 1,875 MiB | 102 MiB | 5.68 GiB |
+
+A separate northwest comparison used identical loading and camera input on both builds. The
+one-line fix cut game PSS growth from 1,965 MiB to 83 MiB (96%). The original 12–13 GB
+reading in KDE covered the whole desktop.
+
+The fixed game completed 25 broad circuits at the saved zoom in 15 min 15 s. Game PSS rose
+from 5.591 to 5.807 GiB (+221.38 MiB). A parked camera added 38.97 MiB over the same
+number of intervals. Both runs protected one convoy truck after the fifth interval to keep
+the mission active.
+
+In a separate allocation trace, Vulkan descriptor pools and sets accounted for about 64.1 MiB
+of growth from pass 5 to pass 25. The two water mesh caches accounted for about 0.4 MiB.
+In a second traced session, SDL held 513 descriptor pools from intervals 5 through 25 with
+the camera parked. Panning raised the count to 1,029 in five circuits. It held there for three more circuits, and
+all 897 sampled descriptor allocations were freed at GPU shutdown. The fence fix resolves
+the multi-GiB upload retention reproduced in USA 2. The descriptor pools serve later draws
+at the same load, so the fork keeps SDL's existing cache policy.
+[SDL descriptor cache reuse](../GeneralsMD/Code/Libraries/Source/SDL3/src/gpu/vulkan/SDL_gpu_vulkan.c#L5112-L5158)
+
+Local evidence is under `build-linux/benchmarks/usa2-memory-9ab3b716a/pan-investigation/`.
+`SCROLLING.md` records the matched fence comparison, `repeated-main-broad-extended-01/REPORT.md`
+records all 25 returns, and `heap-sources/REPORT.md` records the allocation and shutdown traces.
 
 At 1440 × 810, paired median clean-water frame time improved by 0.093 ms on the carrier and
 0.024 ms on the coast compared with the pre-fix fork. Across eight clean-versus-ordinary Modern
