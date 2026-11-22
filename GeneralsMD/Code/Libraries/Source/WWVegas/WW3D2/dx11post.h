@@ -135,6 +135,23 @@ void DX11Post_Set_Haze_Shroud(ID3D11ShaderResourceView * view, const float rect[
 void DX11Post_Set_Atmosphere(const float horizon[3], const float tint[3], float start, float scale,
 	float strength, float ground, float map_width, float map_height, ID3D11ShaderResourceView * sky);
 
+// What the terrain draws past the playable map, for the Atmosphere's fade out there: border, how far the
+// heightmap's own border strip runs past the playable edge, and reach, how much further the land drawn
+// round the heightmap runs.  The ground out there goes into the horizon's colour over reach from the
+// heightmap's edge.  Reach zero, the default, is no land past the map: the ring past the playable edge
+// closes to the horizon at once.  Kept until changed.
+void DX11Post_Set_Atmosphere_Edge(float border, float reach);
+
+// A blast warping the picture around it: the frame drawn toward a point and then pushed out by a
+// ring that travels away from it.  Not an effect in the chain and not a switch: whatever chain is
+// set, one more pass goes on its end for every frame that has a warp in it, and a frame with none
+// costs a branch.  With no chain at all there is no scene texture to bend and nothing happens.
+//
+// Everything is in screen terms, because the game has already done the projecting.  The centre is
+// in texture coordinates, nought to one across the frame and down it, and may lie off the screen.
+// The radii are fractions of the frame's height, so a circle stays round on a wide screen.  Pull
+// is how far, as a fraction of Radius, the picture is drawn in at its strongest; RingStrength is how
+// far the ring pushes it out at its crest, a fraction of Radius as well.
 // The game sets the frame's warps every frame, and a count of zero clears them.  A count past the
 // limit keeps the first four.
 void DX11Post_Set_Warps(const DX11PostWarp * warps, unsigned count);

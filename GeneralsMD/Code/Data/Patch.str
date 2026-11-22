@@ -1503,11 +1503,11 @@ GUI:GameSpeed
 END
 
 TOOLTIP:GameSpeed
-"How fast the skirmish runs. 1.0x is the original game and the speed of LAN, ranked and Play vs AI matches, 1.5x the speed of online rooms. Only the pace changes."
+"How fast the skirmish runs. 1.0x is the original game and the speed of LAN matches, 1.5x the speed of online rooms. Ranked and Play vs AI play the speed picked before the match. Only the pace changes."
 END
 
 TOOLTIP:RoomGameSpeed
-"How fast the match runs, picked by the host. 1.0x is the original game and where a LAN room starts, 1.5x where an online room starts. Only the pace changes; ranked matches always play 1.0x."
+"Match speed, picked by the host"
 END
 
 GUI:GameSpeedMissions
@@ -4407,8 +4407,152 @@ GUI:RandomMapAnyTemplate
 "Surprise me"
 END
 
-TOOLTIP:RandomMapsOnlyCrowded
-"No shipped map has room for more than eight players, so a game this big plays on a generated map"
+TOOLTIP:MapListCrowded
+"With more than eight players only the maps with a start position for every player are listed; the Random tab builds one for any number"
+END
+
+GUI:LobbyPresetsButton
+"PRESETS"
+END
+
+GUI:LobbyPresets
+"Presets"
+END
+
+TOOLTIP:LobbyPresets
+"Fill every seat with computers and teams"
+END
+
+GUI:SkirmishPresetGroup
+"%d players"
+END
+
+GUI:SkirmishPresetCustomGroup
+"Your own"
+END
+
+GUI:SkirmishPresetCustom
+"Custom %d: %d players"
+END
+
+GUI:SkirmishPresetCustomGenerated
+"generated map"
+END
+
+GUI:SkirmishPresetCustomEmpty
+"Custom %d: empty, click to save this room"
+END
+
+GUI:SkirmishPresetLoad
+"LOAD"
+END
+
+GUI:SkirmishPresetSave
+"SAVE"
+END
+
+GUI:SkirmishPresetClear
+"CLEAR"
+END
+
+GUI:SkirmishPreset7v1
+"7 v 1: you against 7 Hard AIs"
+END
+
+GUI:SkirmishPreset4v4
+"4 v 4, Medium AIs"
+END
+
+GUI:SkirmishPresetFFA8
+"8-player free-for-all, mixed AIs"
+END
+
+GUI:SkirmishPreset2x4
+"2 v 2 v 2 v 2, Medium AIs"
+END
+
+GUI:SkirmishPreset11v1
+"11 v 1: you against 11 Hard AIs"
+END
+
+GUI:SkirmishPreset3x4
+"3 teams of 4, Medium AIs"
+END
+
+GUI:SkirmishPreset15v1
+"15 v 1: you against 15 Hard AIs"
+END
+
+GUI:SkirmishPreset8v8
+"8 v 8, Hard AIs"
+END
+
+GUI:SkirmishPresetFFA16
+"16-player free-for-all, mixed AIs"
+END
+
+GUI:SkirmishPreset4x4
+"4 teams of 4, Medium AIs"
+END
+
+GUI:SkirmishPreset23v1
+"23 v 1: you against 23 Hard AIs"
+END
+
+GUI:SkirmishPreset12v12
+"12 v 12, Hard AIs"
+END
+
+GUI:SkirmishPresetFFA24
+"24-player free-for-all, mixed AIs"
+END
+
+GUI:SkirmishPreset3x8
+"3 teams of 8, Medium AIs"
+END
+
+GUI:SkirmishPreset31v1
+"31 v 1: you against 31 Hard AIs"
+END
+
+GUI:SkirmishPreset16v16
+"16 v 16: you and 15 Hard allies against 16 Hard AIs"
+END
+
+GUI:SkirmishPresetFFA32
+"32-player free-for-all, mixed AIs"
+END
+
+GUI:SkirmishPreset4Teams
+"4 teams of 8, Medium AIs"
+END
+
+GUI:SkirmishPreset8Teams
+"8 teams of 4, mixed AIs"
+END
+
+GUI:SkirmishPreset16v16Brutal
+"16 v 16, all Brutal"
+END
+
+GUI:SkirmishPreset4v28
+"4 v 28: you and 3 Medium allies against 28 Easy AIs"
+END
+
+GUI:SkirmishPresetLastStand
+"Last stand: you and 1 ally against 30 Hard AIs"
+END
+
+GUI:SkirmishPreset3Way
+"Three-way war: 11 v 11 v 10, Medium AIs"
+END
+
+GUI:SkirmishPresetFFA12
+"12-player free-for-all, mixed AIs"
+END
+
+GUI:SkirmishPreset6v6
+"6 v 6, Hard AIs"
 END
 
 GUI:RandomMapSize
@@ -4677,11 +4821,7 @@ GUI:OnlineLoginName
 "Email or Nickname"
 END
 
-// the online login screen under -online: its title, buttons, help text and status line
-GUI:OnlineLoginTitle
-"ZERO HOUR REFORGED ONLINE"
-END
-
+// the online login screen under -online: its buttons and status line
 GUI:OnlineSignIn
 "SIGN IN"
 END
@@ -4695,27 +4835,15 @@ GUI:OnlineKeepSignedIn
 END
 
 TOOLTIP:OnlineKeepSignedIn
-"Stays signed in on this computer. Your password is never stored"
+"Your password is never stored"
 END
 
 TOOLTIP:OnlineNeedsLauncher
-"Online play starts from the launcher: open Online there and press Play online"
-END
-
-GUI:OnlineLoginHelp
-"Sign in with your zerohour.gg account: your email or your nickname, and your password."
-END
-
-GUI:OnlineLoginHelpRegister
-"No account yet? Create Account opens the sign-up page in your browser."
-END
-
-GUI:OnlineLoginHelpReset
-"Forgot your password? Forgot Password opens the reset page in your browser."
+"Start online play from the launcher"
 END
 
 GUI:OnlineLoginSavedToken
-"Your saved sign-in will be used. No password needed."
+"Saved sign-in"
 END
 
 GUI:OnlineSigningIn
@@ -4820,11 +4948,6 @@ END
 
 GUI:OnlineLoginFilesNone
 "The server could not check your game files. Restart the game and sign in again; if it happens again, reinstall the game from the launcher."
-END
-
-// the online hub's info box when the server sent no message of the day
-GUI:OnlineHubWelcome
-"Welcome to Zero Hour Reforged online."
 END
 
 // EA's lobby and staging-room player tooltips without "Region:", which -online never knows
@@ -4961,12 +5084,8 @@ GUI:OnlineSkinsWaiting
 "Asking zerohour.gg..."
 END
 
-GUI:OnlineSkinsHint
-"Pick one look per unit and press Save. Greyed-out skins unlock with a code redeemed at zerohour.gg."
-END
-
 GUI:OnlineSkinsNone
-"Your account owns no skins yet. Redeem a code at zerohour.gg, then open this screen again."
+"Your account owns no skins yet. Each card says how to get its skin; open this screen again once you have one."
 END
 
 GUI:OnlineSkinsSaved
@@ -4989,25 +5108,9 @@ GUI:OnlineSkinsRefused
 "zerohour.gg refused that pick, so your skins stay as they were. Open this screen again to see what your account holds."
 END
 
-// Play vs AI on the online hub: the button, the speed and AI rating beside it, and why a match did not start
+// Play vs AI on the online hub: the button, and why a match did not start
 GUI:OnlineVsAIButton
 "PLAY VS AI"
-END
-
-GUI:OnlineAISpeed
-"1.0x speed"
-END
-
-GUI:OnlineAIRating
-"1.0x speed, AI rating %.2f"
-END
-
-GUI:OnlineAIRated
-"1.0x speed, AI rating %.2f -> %.2f"
-END
-
-GUI:OnlineAIUnrated
-"1.0x speed, not rated: %ls"
 END
 
 GUI:OnlineAIGames
@@ -5048,6 +5151,83 @@ END
 
 SKIN:Splinter
 "SPLINTER CAMO"
+END
+
+SKIN:Iron
+"IRON"
+END
+
+SKIN:Bronze
+"BRONZE"
+END
+
+SKIN:Silver
+"SILVER"
+END
+
+SKIN:Gold
+"GOLD"
+END
+
+SKIN:Emerald
+"EMERALD"
+END
+
+SKIN:Reforged
+"REFORGED"
+END
+
+SKIN:BugHunter
+"BUG HUNTER"
+END
+
+// the Skins page's button on a look the account lacks, which opens zerohour.gg
+SKIN:EarnedCode
+"REDEEM A CODE"
+END
+
+SKIN:EarnedIron
+"IRON SUPPORTER"
+END
+
+SKIN:EarnedBronze
+"BRONZE SUPPORTER"
+END
+
+SKIN:EarnedSilver
+"SILVER SUPPORTER"
+END
+
+SKIN:EarnedGold
+"GOLD SUPPORTER"
+END
+
+SKIN:EarnedEmerald
+"EMERALD SUPPORTER"
+END
+
+SKIN:EarnedReforged
+"REFORGED SUPPORTER"
+END
+
+SKIN:EarnedBugHunter
+"BUG HUNTER BADGE"
+END
+
+SKIN:SpecialThanks
+"SPECIAL THANKS"
+END
+
+SKIN:EarnedSpecialThanks
+"SPECIAL THANKS"
+END
+
+SKIN:UnitUsaDozer
+"USA Dozer"
+END
+
+SKIN:UnitChinaDozer
+"China Dozer"
 END
 
 GUI:OnlineLadderRank
@@ -5132,14 +5312,6 @@ END
 
 GUI:OnlineUnrated_cancelled
 "Not rated: the match was called off."
-END
-
-GUI:OnlineSendingResultsTitle
-"Sending Results"
-END
-
-GUI:OnlineSendingResults
-"The match result and replay are being sent. Please wait, and do not close the game."
 END
 
 // The general's ranks past EA's five, named the way the first five are (EA's 6 to 8 were joke names
@@ -6105,16 +6277,8 @@ GUI:OnlineLoginInQuickMatch
 "In Quick Match"
 END
 
-GUI:OnlineLoginLauncher
-"The launcher picks the server, the nearest by ping unless you choose another there."
-END
-
 GUI:OnlineLoginHeading
 "Sign in"
-END
-
-GUI:OnlineLoginKeepHint
-"Your password is never stored"
 END
 
 GUI:OnlineLoginFailed
@@ -6125,25 +6289,17 @@ GUI:OnlineLoginBadBody
 "Wrong email, nickname or password. Check them and try again."
 END
 
-GUI:OnlineLoginBrowser
-"Both open zerohour.gg in your browser."
-END
-
 // hub
 GUI:OnlineHubVsAITitle
 "Play vs AI"
 END
 
 GUI:OnlineHubVsAILead
-"Unranked · against the computer"
+"Unranked"
 END
 
 GUI:OnlineHubRecord
 "W–L"
-END
-
-GUI:OnlineHubVsAIExplain
-"Random official 1v1 map. The computer plays at your AI rating; a win raises it, a loss lowers it."
 END
 
 GUI:OnlineHubPlay
@@ -6158,10 +6314,6 @@ GUI:OnlineHubInQueue
 "In queue"
 END
 
-GUI:OnlineHubQuickMatchExplain
-"One opponent near your ladder rating, on a map generated for the match. The result moves you on the ladder."
-END
-
 GUI:OnlineHubFindMatch
 "FIND MATCH"
 END
@@ -6171,11 +6323,7 @@ GUI:OnlineHubCustomTitle
 END
 
 GUI:OnlineHubCustomLead
-"Unranked · 2 to 8 players"
-END
-
-GUI:OnlineHubCustomExplain
-"Host a room with your own rules or join one. Chat with whoever is on %ls."
+"Unranked · 2-8"
 END
 
 GUI:OnlineHubBrowse
@@ -6204,10 +6352,6 @@ END
 
 GUI:OnlineHubFrom
 "From %ls"
-END
-
-GUI:OnlineHubMotd3
-"The ladder and every match are on zerohour.gg."
 END
 
 GUI:OnlineHubMyCard
@@ -6280,10 +6424,6 @@ GUI:OnlineCardArmyUsaAir
 END
 
 // ladder
-GUI:OnlineLadderSub
-"Every server, one ladder"
-END
-
 GUI:OnlineLadderPage
 "Ranks %d–%d"
 END
@@ -6354,10 +6494,6 @@ GUI:OnlineLobbyRoomCount
 "%ls %d"
 END
 
-GUI:OnlineLobbySay
-"Say something to %ls"
-END
-
 GUI:OnlineLobbyJoin
 "JOIN"
 END
@@ -6369,10 +6505,6 @@ END
 // Quick Match page
 GUI:QMRandomArmy
 "Random army"
-END
-
-GUI:QMRandomHint
-"One of the twelve, drawn when the match starts"
 END
 
 GUI:QMNoGeneral
@@ -6395,28 +6527,17 @@ GUI:QMSearching
 "Searching for an opponent"
 END
 
-GUI:QMWindow
-"Window"
-END
-
+// the search's chance window as a format: "%%" is the percent sign
 GUI:QMWindowValue
-"Opponents you would beat %d to %d times in 100"
+"Win chance %d-%d%%"
 END
 
 GUI:QMWidens
-"Widens to %d to %d in %d:%02d"
-END
-
-GUI:QMWidenCap
-"Stops widening at %d to %d"
+"Widens in %d:%02d"
 END
 
 GUI:QMYourPicks
 "Your picks"
-END
-
-GUI:QMPicksHint
-"Stop the search to change them."
 END
 
 GUI:QMStop
@@ -6441,6 +6562,26 @@ END
 
 GUI:QMStartsBanner
 "MATCH STARTS IN %d"
+END
+
+GUI:QMSpeedBanner
+"PLAY AT %s?"
+END
+
+GUI:QMSpeedAsk
+"%s wants to play at %s. Accept?\n\nDeclining in %d s"
+END
+
+GUI:QMSpeedWaiting
+"Waiting for %s to accept %s"
+END
+
+GUI:QMSpeedAccepted
+"Accepted, playing at %s"
+END
+
+GUI:QMSpeedDeclined
+"Declined, playing at %s"
 END
 
 // room
@@ -6479,7 +6620,7 @@ GUI:OnlineScoreSubRanked
 END
 
 GUI:OnlineScoreSubAI
-"Play vs AI · %ls · %ls · not on the ladder"
+"Play vs AI · %ls · %ls"
 END
 
 GUI:OnlineScoreSending
@@ -6487,11 +6628,11 @@ GUI:OnlineScoreSending
 END
 
 GUI:OnlineScoreConfirmed
-"Result confirmed by both players. Replay stored on zerohour.gg."
+"Result confirmed"
 END
 
 GUI:OnlineScoreAISaved
-"Saved to your account. The next computer plays at %ls."
+"Next AI: %ls"
 END
 
 GUI:OnlineScoreAIHeld
@@ -6506,69 +6647,13 @@ GUI:OnlineScorePlayAgain
 "PLAY AGAIN"
 END
 
-GUI:OnlineScoreHow
-"How the AI rating moves"
-END
-
-GUI:OnlineScoreHow1
-"A win against the computer raises your AI rating and a loss lowers it. The next computer plays at the new number. Your ladder rating moves only in Quick Match."
-END
-
 // skins
-GUI:OnlineSkinsSub
-"One look per unit"
-END
-
-GUI:OnlineSkinsUsaTank
-"USA tank"
-END
-
-GUI:OnlineSkinsChinaTank
-"China tank"
-END
-
-GUI:OnlineSkinsGlaTank
-"GLA tank"
-END
-
-GUI:OnlineSkinsWorn
-"Worn"
-END
-
 GUI:OnlineSkinsOwned
 "Owned"
 END
 
-GUI:OnlineSkinsLocked
-"Not owned"
-END
-
-GUI:OnlineSkinsUnsaved
-"Picked, not saved"
-END
-
-GUI:OnlineSkinsLockedHint
-"Redeem a code at zerohour.gg"
-END
-
-GUI:OnlineSkinsGet
-"Getting skins"
-END
-
-GUI:OnlineSkinsGet1
-"A skin belongs to your zerohour.gg account. Redeem a code on the account page, then open this page again."
-END
-
 GUI:OnlineSkinsOpenSite
 "OPEN ZEROHOUR.GG"
-END
-
-GUI:OnlineSkinsWho
-"Who sees them"
-END
-
-GUI:OnlineSkinsWho1
-"Everyone in your Quick Match and custom games. LAN and skirmish games never show a skin."
 END
 
 GUI:OnlineSkinsPending
@@ -6577,6 +6662,39 @@ END
 
 GUI:OnlineSkinsPending1
 "1 change not saved yet"
+END
+
+// the Skins page: list sides, the collected count, the filter, the platform's words and button
+GUI:OnlineSkinsSideUsa
+"USA"
+END
+
+GUI:OnlineSkinsSideChina
+"China"
+END
+
+GUI:OnlineSkinsSideGla
+"GLA"
+END
+
+GUI:OnlineSkinsAll
+"All"
+END
+
+GUI:OnlineSkinsFilterLocked
+"Locked"
+END
+
+GUI:OnlineSkinsWear
+"WEAR"
+END
+
+GUI:OnlineSkinsWornButton
+"WORN"
+END
+
+GUI:OnlineSkinsPickedButton
+"PICKED"
 END
 
 // the load screen's next tip (it counts GUI:LoadTip<n> until one is missing)
@@ -6593,16 +6711,8 @@ GUI:QMQueueHere
 "%d others are searching on %ls"
 END
 
-GUI:QMGeneratedLine
-"Every match is played on a map made for it alone, so neither of you has seen it before."
-END
-
 GUI:QMNewMap
 "New map"
-END
-
-GUI:QMMapGenerated
-"Made for this match alone. Neither of you has played it."
 END
 
 GUI:QMCheckingMap
@@ -6614,7 +6724,7 @@ GUI:QMRefused
 END
 
 GUI:OnlineLobbyEmpty
-"No open games on %ls. Host one."
+"No open games"
 END
 
 GUI:OnlineLobbyJoining
@@ -6680,19 +6790,6 @@ END
 
 GUI:OnlineScoreNoAnswer
 "The server has not answered yet. The result will show on zerohour.gg."
-END
-
-// the hub card paragraphs where the whole text does not fit (UIStyle::fitKey, "<label>_Short")
-GUI:OnlineHubVsAIExplain_Short
-"Official 1v1 map. A win raises your AI rating, a loss lowers it."
-END
-
-GUI:OnlineHubQuickMatchExplain_Short
-"One opponent near your rating on a generated map. Counts for the ladder."
-END
-
-GUI:OnlineHubCustomExplain_Short
-"Host or join a room. Chat with whoever is on %ls."
 END
 
 GUI:GroupTrayTraining
@@ -7343,10 +7440,6 @@ GUI:OnlineRejoin
 "Rejoin"
 END
 
-GUI:OnlineRejoinExplain
-"The others play on. Your army is where you left it."
-END
-
 GUI:OnlineRejoinWaiting
 "Asking the server..."
 END
@@ -7373,4 +7466,159 @@ END
 
 GUI:RejoinWaitingForLog
 "Waiting for the match log"
+END
+GUI:DirectStrike
+"DIRECT STRIKE"
+END
+
+GUI:DirectStrikeLower
+"Direct Strike"
+END
+
+TOOLTIP:DirectStrike
+"Buy units onto your plot. Every 30 seconds one player of each team sends a copy of his plot down the lane, and the first team to break the other's fortress wins. Up to 3 against 3, on a new island every match."
+END
+
+GUI:DirectStrikeMap
+"Random island"
+END
+
+GUI:DirectStrikeTeam
+"TEAM %d"
+END
+
+GUI:GameModeTitle
+"Create Game"
+END
+
+GUI:GameModeBody
+"Which mode is this game for?"
+END
+
+GUI:GameModeClassic
+"CLASSIC"
+END
+
+GUI:GameModeDirectStrike
+"DIRECT STRIKE"
+END
+
+GUI:DirectStrikeIslandNote
+"A new island every match"
+END
+
+GUI:DirectStrikeTeamSize
+"%d v %d"
+END
+
+GUI:DirectStrikeStart
+"START"
+END
+
+GUI:DirectStrikeReady
+"READY"
+END
+
+GUI:DirectStrikeEasy
+"Easy"
+END
+
+GUI:DirectStrikeMedium
+"Medium"
+END
+
+GUI:DirectStrikeHard
+"Hard"
+END
+
+GUI:DirectStrikeBrutal
+"Brutal"
+END
+
+GUI:Munkee
+""
+END
+
+OBJECT:LaneWarFortress
+"Fortress"
+END
+
+OBJECT:LaneWarWatchTower
+"Watch Tower"
+END
+
+GUI:LaneTier
+"Tier %d"
+END
+
+GUI:LaneUpgrades
+"Upgrades"
+END
+
+GUI:LaneIncome
+"Income %d/%d"
+END
+
+GUI:LaneAbilities
+"Abilities"
+END
+
+GUI:LaneMenu
+"Menu"
+END
+
+GUI:LaneDiplomacy
+"Diplomacy"
+END
+
+GUI:LaneEndTeamWins
+"Team %d wins"
+END
+
+GUI:LaneEndDraw
+"Draw"
+END
+
+GUI:LaneEndLeft
+"Team %d left the game"
+END
+
+GUI:LaneMatchClock
+"Match time"
+END
+
+GUI:LaneEndWaves
+"Waves"
+END
+
+GUI:LaneEndUnits
+"Units"
+END
+
+GUI:LaneEndEarned
+"Earned"
+END
+
+GUI:LaneEndSpent
+"Spent"
+END
+
+GUI:LaneEndKills
+"Kills"
+END
+
+GUI:LaneEndDamage
+"Damage"
+END
+
+GUI:LaneEndMiddle
+"Middle held"
+END
+
+GUI:LaneEndRematch
+"Rematch"
+END
+
+GUI:LaneEndReplay
+"Watch replay"
 END

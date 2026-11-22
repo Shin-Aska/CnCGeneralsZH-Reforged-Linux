@@ -62,6 +62,7 @@
 #include "GameClient/UIStyle.h"
 #include "GameNetwork/GameSpyOverlay.h"
 #include "GameNetwork/Online/OnlineQueues.h"
+#include "GameNetwork/GUIUtil.h"
 #include "Lib/WideCharFns.h"
 #include "GameClient/GameWindowTransitions.h"
 
@@ -261,6 +262,21 @@ void SetLobbyAttemptHostJoin(Bool start)
 		LobbySetJoiningGame( 0 );		// the join came back, or the password box was cancelled
 }
 
+/* The Host button's two answers (AskGameMode): the host popup for a Classic room or a Direct Strike one,
+	 whose staging room stands on a lane map from the start (OnlineHostDirectStrike). */
+static void hostRoom( Bool directStrike )
+{
+	if (!TheGameSpyInfo || s_tryingToHostOrJoin)
+		return;	// the lobby went, or a join started, while the question was up
+	OnlineHostDirectStrike = directStrike;
+	SetLobbyAttemptHostJoin( TRUE );
+	TheLobbyQueuedUTMs.clear();
+	groupRoomToJoin = TheGameSpyInfo->getCurrentGroupRoom();
+	GameSpyOpenOverlay(GSOVERLAY_GAMEOPTIONS);
+}
+static void hostClassic( void ) { hostRoom( FALSE ); }
+static void hostDirectStrike( void ) { hostRoom( TRUE ); }
+
 /* -online scripting in the lobby, once per process each: -onlinesay says its line once somebody else is in
 	 the room to read it, -onlinehost asks for a staging room the way the host popup's createGame does (no
 	 password, no observers, unrated, no ladder) three seconds after that line so the answer still reaches
@@ -295,10 +311,21 @@ static void onlineLobbyScript( void )
 			 is made under the popup's own rules.  Building the request here once hid that the popup made
 			 every online room a stats room, with every option locked for its host. */
 		GameWindow *popupName = NULL, *popupCreate = NULL, *popup = NULL;
-		if (buttonHost)
+		// "ask" presses Host and leaves its mode question up, for a picture of it
+		if (buttonHost && TheGlobalData->m_onlineMap.compareNoCase( "ask" ) == 0)
 		{
 			TheWindowManager->winSendSystemMsg( parent, GBM_SELECTED, (WindowMsgData)buttonHost, buttonHostID );
-			popup = TheWindowManager->winGetWindowFromId( NULL, NAMEKEY( "PopupHostGame.wnd:ParentHostPopUp" ) );
+			DEBUG_LOG(("ONLINE HOST asked\n"));
+			return;
+		}
+		if (buttonHost)
+		{
+			// the Host button's mode question, answered as -onlinemap asks: "directstrike" is that mode
+			if (TheGlobalData->m_onlineMap.compareNoCase( "directstrike" ) == 0)
+				hostDirectStrike();
+			else
+				hostClassic();
+			popup =TheWindowManager->winGetWindowFromId( NULL, NAMEKEY( "PopupHostGame.wnd:ParentHostPopUp" ) );
 			popupName = TheWindowManager->winGetWindowFromId( popup, NAMEKEY( "PopupHostGame.wnd:TextEntryGameName" ) );
 			popupCreate = TheWindowManager->winGetWindowFromId( popup, NAMEKEY( "PopupHostGame.wnd:ButtonCreateGame" ) );
 		}
@@ -724,7 +751,7 @@ void PopulateLobbyPlayerListbox(void)
 
 //-------------------------------------------------------------------------------------------------
 // The page in the online pages' frame (ONLINE-UI-REDESIGN.md, "Custom games"): the header, the two
-// boxes' headings, the chat rooms as tabs over the chat, the chat entry's hint
+// boxes' headings, the chat rooms as tabs over the chat
 //-------------------------------------------------------------------------------------------------
 enum LobbyText
 {
@@ -732,7 +759,6 @@ enum LobbyText
 	TEXT_GAMES_COUNT,		///< "12 open"
 	TEXT_PLAYERS,				///< "In General"
 	TEXT_PLAYERS_COUNT,
-	TEXT_SAY,						///< the chat entry's hint while it is empty
 	TEXT_COUNT
 };
 enum { MAX_ROOM_TABS = 8 };
@@ -746,7 +772,6 @@ static Int s_roomTabsShown = 0;
 static GameWinDrawFunc s_gadgetParentDraw = NULL;
 static GameWinDrawFunc s_panelGamesDraw = NULL;
 static GameWinDrawFunc s_panelPlayersDraw = NULL;
-static GameWinDrawFunc s_chatEntryDraw = NULL;
 
 /// a chat room's name; the online server's one room (OnlinePeer.cpp's "Lobby") is the design's General
 static UnicodeString roomName( const GameSpyGroupRoom &room )
@@ -930,28 +955,6 @@ static void drawPanelPlayers( GameWindow *window, WinInstanceData *instData )
 	drawBoxHeading( window, s_text[ TEXT_PLAYERS ], s_text[ TEXT_PLAYERS_COUNT ] );
 }
 
-/// the chat entry, and while it is empty "Say something to General" MUTED where its text starts
-static void drawChatEntry( GameWindow *window, WinInstanceData *instData )
-{
-	if (s_chatEntryDraw)
-		s_chatEntryDraw( window, instData );
-	DisplayString *hint = s_text[ TEXT_SAY ];
-	if (!hint || !GadgetTextEntryGetText( window ).isEmpty())
-		return;
-	const GameSpyGroupRoom *room = currentRoom();
-	if (!room)
-		return;
-	UnicodeString words;
-	words.format( TheGameText->fetch( "GUI:OnlineLobbySay" ), roomName( *room ).str() );
-	hint->setText( words );
-	Int x, y, width, height, w, h;
-	window->winGetScreenPosition( &x, &y );
-	window->winGetSize( &width, &height );
-	hint->getSize( &w, &h );
-	// W3DTextEntry starts its text seven pixels in; the hint stands a little after the caret
-	hint->draw( x + 7 + UIStyle::tallPx( 8.0f ), y + ( height - h ) / 2, UIStyle::MUTED, UIStyle::SHADOW );
-}
-
 /// puts draw over a window's own; a second init on the same layout keeps the first capture, or the
 /// hook would call itself
 static void hookDraw( GameWindow *window, GameWinDrawFunc &saved, GameWinDrawFunc draw )
@@ -1000,7 +1003,6 @@ static void initLobbyLook( void )
 	hookDraw( lobbyWindow( "GadgetParent" ), s_gadgetParentDraw, drawGadgetParent );
 	hookDraw( lobbyWindow( "PanelGames" ), s_panelGamesDraw, drawPanelGames );
 	hookDraw( lobbyWindow( "PanelPlayers" ), s_panelPlayersDraw, drawPanelPlayers );
-	hookDraw( textEntryChat, s_chatEntryDraw, drawChatEntry );
 
 	// the player list: a line a row, the page's columns, the page's rows
 	if (listboxLobbyPlayers)
@@ -1012,8 +1014,7 @@ static void initLobbyLook( void )
 
 	freeLobbyText();
 	GameFont *body = UIStyle::readableFont( UIStyle::TEXT_BODY );
-	GameFont *const faces[ TEXT_COUNT ] = { UIStyle::sectionFont(), body, UIStyle::sectionFont(), body,
-		textEntryChat ? textEntryChat->winGetFont() : body };
+	GameFont *const faces[ TEXT_COUNT ] = { UIStyle::sectionFont(), body, UIStyle::sectionFont(), body };
 	for (Int each = 0; each < TEXT_COUNT; ++each)
 	{
 		s_text[ each ] = TheDisplayStringManager->newDisplayString();
@@ -2020,10 +2021,8 @@ WindowMsgHandledType WOLLobbyMenuSystem( GameWindow *window, UnsignedInt msg,
 					if (s_tryingToHostOrJoin)
 						break;
 
-					SetLobbyAttemptHostJoin( TRUE );
-					TheLobbyQueuedUTMs.clear();
-					groupRoomToJoin = TheGameSpyInfo->getCurrentGroupRoom();
-					GameSpyOpenOverlay(GSOVERLAY_GAMEOPTIONS);
+					// which mode the room is for; the answer opens the host popup (hostClassic, hostDirectStrike)
+					AskGameMode( hostClassic, hostDirectStrike );
 				}
 				else if ( controlID == buttonJoinID )
 				{

@@ -1285,6 +1285,11 @@ void RTS3DScene::Flush(RenderInfoClass & rinfo)
 	if (!TheGlobalData->m_classicGraphics && m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE)
 		RenderPost::OpaqueScene(TheGlobalData->m_ambientOcclusion != FALSE);
 
+	// the void past the land drawn round the map, under everything sorted
+	if (TheTerrainRenderObject && m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE
+			&& !modernFullMirror && !ShaderClass::Is_Backface_Culling_Inverted())
+		TheTerrainRenderObject->drawSkirtBackdrop();
+
 	WW3D::Render_And_Clear_Static_Sort_Lists(rinfo);	//draws things like water
 
 	if (m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE)

@@ -49,7 +49,6 @@
 #include "GameNetwork/Online/OnlineQueues.h"
 
 static Bool s_onlineOpened = FALSE;		///< -onlineuser opened the online screens once, at the first showShell
-
 #include <rts/profile.h>
 
 // PUBLIC DATA ////////////////////////////////////////////////////////////////////////////////////

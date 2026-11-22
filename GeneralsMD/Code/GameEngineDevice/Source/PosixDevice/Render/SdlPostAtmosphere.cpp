@@ -239,7 +239,7 @@ bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,co
     if(!worldFromClip || !finite(worldFromClip,16) || !finite(ground.Colour,3) || !finite(ground.TowardSun,3)
         || !std::isfinite(ground.Top) || !std::isfinite(ground.Thickness) || !std::isfinite(ground.Reach)
         || !std::isfinite(ground.WaterHeight) || !std::isfinite(ground.Warmth)
-        || !finite(atmosphere.Horizon,3) || !finite(atmosphere.Tint,3) || !finite(atmosphere.MapSize,2)
+        || !finite(atmosphere.Horizon,3) || !finite(atmosphere.Tint,3) || !finite(atmosphere.MapSize,4)
         || !std::isfinite(atmosphere.Start) || !std::isfinite(atmosphere.Scale) || !std::isfinite(atmosphere.Ground)
         || (atmosphere.Strength>0 && (atmosphere.Scale<=0 || atmosphere.MapSize[0]<=0 || atmosphere.MapSize[1]<=0)))
         return s.fail("invalid copied atmosphere/haze/camera settings");

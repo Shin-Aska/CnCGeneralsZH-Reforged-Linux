@@ -778,6 +778,14 @@ static Bool generatedMapDisplayName( const MapCache& cache, const AsciiString& f
 	if (!isGeneratedMapPath( fname ))
 		return FALSE;
 
+	// a Direct Strike map is never picked, so its name says only what it is
+	UnsignedInt laneLine, laneEdge;
+	if (LaneGridColours( fname, &laneLine, &laneEdge ))
+	{
+		displayName = TheGameText->fetch( "GUI:DirectStrikeMap" );
+		return TRUE;
+	}
+
 	UnicodeString random = TheGameText->fetch( "GUI:Random" );
 	AsciiString templatePath;
 	if (generatedMapTemplate( fname, templatePath ))
@@ -990,7 +998,8 @@ Bool WouldMapTransfer( const AsciiString& mapName )
 //-------------------------------------------------------------------------------------------------
 /** Load the listbox with all the map files available to play */
 //-------------------------------------------------------------------------------------------------
-Int populateMapListboxNoReset( GameWindow *listbox, Bool useSystemMaps, Bool isMultiplayer, AsciiString mapToSelect )
+Int populateMapListboxNoReset( GameWindow *listbox, Bool useSystemMaps, Bool isMultiplayer, AsciiString mapToSelect,
+															 Int minPlayers )
 {
 	if(!TheMapCache)
 		return -1;
@@ -1092,8 +1101,18 @@ typedef MapDisplayToFileNameList::iterator MapDisplayToFileNameListIter;
 				continue;
 			}
 
+			// a lane map is a Direct Strike room's own, made fresh for each match by that room
+			// (SetDirectStrikeMap); no map list offers one
+			UnsignedInt laneLine, laneEdge;
+			if( LaneGridColours( asciiMapName, &laneLine, &laneEdge ) )
+			{
+				++tempit;
+				continue;
+			}
+
 			DEBUG_ASSERTCRASH(it != TheMapCache->end(), ("Map %s not found in map cache.", *tempit));
-			if (it->first.startsWithNoCase(mapDir.str()) && isMultiplayer == it->second.m_isMultiplayer && !it->second.m_displayName.isEmpty())
+			if (it->first.startsWithNoCase(mapDir.str()) && isMultiplayer == it->second.m_isMultiplayer && !it->second.m_displayName.isEmpty()
+				&& (Int)it->second.m_numPlayers >= minPlayers)
 			{
 				/// @todo: mapDisplayName = TheGameText->fetch(it->second.m_displayName.str());
 				mapDisplayName = it->second.m_displayName;
@@ -1185,18 +1204,19 @@ typedef MapDisplayToFileNameList::iterator MapDisplayToFileNameListIter;
 //-------------------------------------------------------------------------------------------------
 /** Load the listbox with all the map files available to play */
 //-------------------------------------------------------------------------------------------------
-Int populateMapListbox( GameWindow *listbox, Bool useSystemMaps, Bool isMultiplayer, AsciiString mapToSelect )
+Int populateMapListbox( GameWindow *listbox, Bool useSystemMaps, Bool isMultiplayer, AsciiString mapToSelect,
+												Int minPlayers )
 {
 	if(!TheMapCache)
 		return -1;
 
 	if (!listbox)
 		return -1;
-	
+
 	// reset the listbox content
 	GadgetListBoxReset( listbox );
 
-	return populateMapListboxNoReset( listbox, useSystemMaps, isMultiplayer, mapToSelect );
+	return populateMapListboxNoReset( listbox, useSystemMaps, isMultiplayer, mapToSelect, minPlayers );
 }
 	
 

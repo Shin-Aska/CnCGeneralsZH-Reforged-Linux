@@ -84,6 +84,7 @@
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/DisplayStringManager.h"
 #include "Common/QuickmatchPreferences.h"
+#include "GameNetwork/GUIUtil.h"
 #include "GameNetwork/GeneralsOnline/OnlineBridge.h"
 #include "GameNetwork/WOLBrowser/WebBrowser.h"
 
@@ -111,7 +112,15 @@ static GameWindow *buttonBack = NULL;
 static GameWindow *buttonQuickMatch = NULL;
 static GameWindow *buttonLobby = NULL;
 static GameWindow *buttonPlayAI = NULL;
+static GameWindow *comboBoxAISpeed = NULL;		///< the speed ai.start asks for
 static GameWindow *listboxInfo = NULL;
+
+/// the speed Play vs AI asks for, kept as Quick Match keeps its own
+static Int aiGameSpeed( void )
+{
+	QuickMatchPreferences pref;
+	return OnlineMatchSpeed( pref.getInt( "AIGameSpeed", RETAIL_GAME_SPEED_PERCENT ) );
+}
 
 /// the hub's own window by its name in the master, and its id
 static GameWindow *hubWindow( const char *name, NameKeyType *id = NULL )
@@ -199,15 +208,10 @@ static void fillMOTD(void)
 		return;
 	GadgetListBoxReset(listboxInfo);
 	AsciiString aMotd = TheGameSpyInfo->getMOTD();
-	AsciiString trimmedMotd = aMotd;
-	trimmedMotd.trim();
-	// -online: the server's MOTD alone, without EA's "Welcome to Generals Zero Hour Online." over it;
-	// a line of our own when the server sent none
+	// -online: the server's MOTD alone, without EA's "Welcome to Generals Zero Hour Online." over it
 	UnicodeString headingStr;
 	if (!OnlineIsEnabled())
 		headingStr = TheGameText->fetch("MOTD:NumPlayersHeading");
-	else if (trimmedMotd.isEmpty())
-		headingStr = TheGameText->fetch("GUI:OnlineHubWelcome");
 
 	Bool first = TRUE;
 	UnicodeString line;
@@ -240,9 +244,6 @@ static void fillMOTD(void)
 		}
 		addMOTDLine( UnicodeString(MultiByteToWideCharSingleLine(aLine.str()).c_str()), c );
 	}
-
-	if (OnlineIsEnabled())
-		addMOTDLine( TheGameText->fetch("GUI:OnlineHubMotd3"), UIStyle::MUTED );
 
 	// the scroll bar only for a message longer than its card
 	const ListboxData *list = (const ListboxData *)listboxInfo->winGetUserData();
@@ -303,9 +304,9 @@ static Bool signedIn( void )
 	return TheGameSpyInfo && TheGameSpyInfo->getLocalProfileID() != 0 && !TheGameSpyInfo->isDisconnectedAfterGameStart( NULL );
 }
 
-/* The match: slot 0 the player in that army, slot 1 the computer at the server's rating, on the rung
+/* The match: slot 0 the player in that army, slot 1 the computer at the bot's Elo (OnlineGetAIMatch), on the rung
 	 nearest it as -airating seats it, its army, both colours and both start spots drawn from the seed.  The
-	 ranked speed, retail's pace as a Quick Match plays, and the native tick rate.  Built here rather than through -autoskirmish's door so no
+	 speed ai.ready echoed (the player's pick, retail's pace from an older server), and the native tick rate.  Built here rather than through -autoskirmish's door so no
 	 switch of that door reaches a match the server rates.  FALSE, with nothing started, when the map is not
 	 in this game. */
 static Bool startAIMatch( const OnlineAIMatch &ai )
@@ -348,7 +349,7 @@ static Bool startAIMatch( const OnlineAIMatch &ai )
 	TheSkirmishGameInfo->setSlot( 1, computer );
 	TheSkirmishGameInfo->setLocalIP( TheSkirmishGameInfo->getSlot( 0 )->getIP() );
 	TheSkirmishGameInfo->setMap( md->m_fileName );
-	TheSkirmishGameInfo->setGameSpeedPercent( RETAIL_GAME_SPEED_PERCENT );
+	TheSkirmishGameInfo->setGameSpeedPercent( ai.speed );
 	TheSkirmishGameInfo->setSeed( ai.seed );
 	TheWritableGlobalData->m_mapName = TheSkirmishGameInfo->getMap();
 	TheSkirmishGameInfo->startGame( 0 );
@@ -359,9 +360,9 @@ static Bool startAIMatch( const OnlineAIMatch &ai )
 	msg->appendIntegerArgument( DIFFICULTY_NORMAL );
 	msg->appendIntegerArgument( 0 );
 	msg->appendIntegerArgument( LOGICFRAMES_PER_SECOND );			// the native tick, whatever -fps says
-	msg->appendIntegerArgument( RETAIL_GAME_SPEED_PERCENT );
-	DEBUG_LOG(("ONLINE AI START match=%s map=%s seed=%d aiRating=%.2f rung=%d army=%d\n", ai.match.str(),
-		md->m_fileName.str(), ai.seed, ai.aiRating, (Int)rung, s_aiArmy));
+	msg->appendIntegerArgument( ai.speed );
+	DEBUG_LOG(("ONLINE AI START match=%s map=%s seed=%d aiRating=%.2f rung=%d army=%d speed=%d\n", ai.match.str(),
+		md->m_fileName.str(), ai.seed, ai.aiRating, (Int)rung, s_aiArmy, ai.speed));
 	return TRUE;
 }
 
@@ -371,7 +372,7 @@ void WOLPlayVsAI( void )
 		return;
 	s_aiArmy = quickMatchArmy();
 	const PlayerTemplate *army = s_aiArmy >= 0 ? ThePlayerTemplateStore->getNthPlayerTemplate( s_aiArmy ) : NULL;
-	OnlineRequestAIMatch( army ? army->getName() : AsciiString( "Random" ) );
+	OnlineRequestAIMatch( army ? army->getName() : AsciiString( "Random" ), aiGameSpeed() );
 	s_aiAsked = TRUE;
 }
 
@@ -445,23 +446,22 @@ static void pressPlay( void )
 // UIStyle::px, the scale the master's boxes were fitted at; the lettering shrinks with them at 4:3
 // (hubPoints), as the master's own does, so a card's words fit the card the master fitted.
 //-------------------------------------------------------------------------------------------------
-enum { CARD_FACTS = 3, RECENT_ROWS = 5 };
+enum { CARD_FACTS = 3, RECENT_ROWS = 6 };
 static const Real FACT_WIDTH = 190.0f;
 static const Real WIDE_FACT_WIDTH = 250.0f;		///< Custom games' one fact, whose label is long in Turkish
-static const Real EXPLAIN_TOP = 238.0f;			///< a card's paragraph, from the card's top
-static const Real EXPLAIN_GAP = 6.0f;				///< between the paragraph's last line and the card's button
+static const Real LEAD_TOP = 56.0f;					///< the lead, or the status line in its place, from the card's top
+static const Real FACTS_TOP = 106.0f;				///< the facts and the figure's label under it
 
 struct HubCard
 {
 	GameWindow *window;
 	Bool portraitColumn;				///< Play vs AI and Quick Match keep the rank portrait's column
 	const Image *portrait;			///< NULL for an unranked player, who shows none
-	Color explainColor;
-	DisplayString *title, *lead, *label, *figure, *tier, *explain;
+	DisplayString *title, *lead, *label, *figure, *tier, *status;
 	DisplayString *factLabel[ CARD_FACTS ], *factValue[ CARD_FACTS ];
 	Int facts;
 	Real factWidth;							///< the facts' column at 1080
-	Int explainRoom;						///< pixels from the paragraph's top to the button under it
+	Int statusRoom;							///< pixels from the lead's top to the facts
 };
 enum { CARD_AI, CARD_QUICK_MATCH, CARD_CUSTOM, CARD_COUNT };
 static HubCard s_cards[ CARD_COUNT ];
@@ -500,7 +500,7 @@ static Int s_rejoinSecond = -1;					///< the elapsed seconds the line last showe
 static UnicodeString s_rejoinHead;				///< mode and map, before the elapsed time
 static DisplayString *s_rejoinTitle = NULL;
 static DisplayString *s_rejoinLine = NULL;		///< mode, map, how long it has run
-static DisplayString *s_rejoinNote = NULL;		///< what the others do, a wait or a refusal
+static DisplayString *s_rejoinNote = NULL;		///< a wait or a refusal, empty otherwise
 static Color s_rejoinNoteColor = 0;
 static DisplayString *s_rejoinChip[ REJOIN_ROWS ];
 static DisplayString *s_rejoinNick[ REJOIN_ROWS ];
@@ -553,27 +553,18 @@ static GameFont *headingFont( void )
 }
 static GameFont *chipFont( void )			{ return UIStyle::readableFont( hubPoints( UIStyle::TEXT_SMALL ), TRUE ); }
 
-static void makeCard( HubCard &card, const char *window, const char *button, const char *title, const char *lead,
+static void makeCard( HubCard &card, const char *window, const char *title, const char *lead,
 	const char *label, Bool portraitColumn, Real factWidth, Int facts, const char *const factKeys[] )
 {
 	card.window = hubWindow( window );
 	card.portraitColumn = portraitColumn;
 	card.portrait = NULL;
-	card.explainColor = UIStyle::MUTED;
 	card.factWidth = factWidth;
 	Int w = 0, h = 0;
 	if (card.window)
 		card.window->winGetSize( &w, &h );
-	// the paragraph has the card from its top to the button the master put under it
-	card.explainRoom = h - UIStyle::px( EXPLAIN_TOP );
-	GameWindow *action = hubWindow( button );
-	if (card.window && action)
-	{
-		Int cardX, cardY, buttonX, buttonY;
-		card.window->winGetScreenPosition( &cardX, &cardY );
-		action->winGetScreenPosition( &buttonX, &buttonY );
-		card.explainRoom = buttonY - cardY - UIStyle::px( EXPLAIN_TOP + EXPLAIN_GAP );
-	}
+	// a status line takes the lead's place and its rule, down to the facts
+	card.statusRoom = UIStyle::px( FACTS_TOP - LEAD_TOP - 6.0f );
 	GameFont *body = bodyFont();
 	const Int inner = w - UIStyle::px( 48.0f );
 	card.title = hubString( headingFont() );
@@ -587,8 +578,8 @@ static void makeCard( HubCard &card, const char *window, const char *button, con
 	card.label->setText( label ? UIStyle::fitKey( label, body, figureWidth ) : UnicodeString::TheEmptyString );
 	card.figure = hubString( UIStyle::titleFont( hubPoints( UIStyle::TEXT_DISPLAY ) ) );
 	card.tier = hubString( body );
-	card.explain = hubString( body );
-	card.explain->setWordWrap( inner );
+	card.status = hubString( body );
+	card.status->setWordWrap( inner );
 	card.facts = facts;
 	for (Int i = 0; i < facts; ++i)
 	{
@@ -602,8 +593,13 @@ static void drawModeCard( const HubCard &card, Int x, Int y, Int w )
 {
 	const Int left = x + UIStyle::px( 24.0f );
 	UIStyle::heading( card.title, left, y + UIStyle::px( 22.0f ) );
-	card.lead->draw( left, y + UIStyle::px( 56.0f ), UIStyle::MUTED, UIStyle::SHADOW );
-	TheDisplay->drawFillRect( left, y + UIStyle::px( 92.0f ), w - UIStyle::px( 48.0f ), 1, UIStyle::GRID );
+	if (card.status->getTextLength() == 0)
+	{
+		card.lead->draw( left, y + UIStyle::px( LEAD_TOP ), UIStyle::MUTED, UIStyle::SHADOW );
+		TheDisplay->drawFillRect( left, y + UIStyle::px( 92.0f ), w - UIStyle::px( 48.0f ), 1, UIStyle::GRID );
+	}
+	else
+		card.status->draw( left, y + UIStyle::px( LEAD_TOP ), UIStyle::INK, UIStyle::SHADOW );
 
 	Int figureX = left;
 	if (card.portraitColumn)
@@ -620,10 +616,8 @@ static void drawModeCard( const HubCard &card, Int x, Int y, Int w )
 
 	const Int factsX = x + w - UIStyle::px( 24.0f + card.factWidth );
 	for (Int i = 0; i < card.facts; ++i)
-		UIStyle::fact( card.factLabel[ i ], card.factValue[ i ], factsX, y + UIStyle::px( 106.0f + 36.0f * i ),
+		UIStyle::fact( card.factLabel[ i ], card.factValue[ i ], factsX, y + UIStyle::px( FACTS_TOP + 36.0f * i ),
 			UIStyle::px( card.factWidth ), UIStyle::px( 36.0f ) );
-
-	card.explain->draw( left, y + UIStyle::px( EXPLAIN_TOP ), card.explainColor, UIStyle::SHADOW );
 }
 
 /// a cell's words centred on the row, from x, or ending at x when right
@@ -743,16 +737,13 @@ static void makeCards( void )
 	static const char *const qmFacts[] = { "GUI:OnlinePlaceLabel", "GUI:OnlineHubRecord", "GUI:OnlineHubInQueue" };
 	// the client knows players online and open games, not who sits in a room or plays: one fact
 	static const char *const customFacts[] = { "GUI:OnlineLoginOnlineNow" };
-	makeCard( s_cards[ CARD_AI ], "CardPlayVsAI", "ButtonPlayVsAI", "GUI:OnlineHubVsAITitle", "GUI:OnlineHubVsAILead",
+	makeCard( s_cards[ CARD_AI ], "CardPlayVsAI", "GUI:OnlineHubVsAITitle", "GUI:OnlineHubVsAILead",
 		"GUI:OnlineAIRatingLabel", TRUE, FACT_WIDTH, 3, aiFacts );
-	makeCard( s_cards[ CARD_QUICK_MATCH ], "CardQuickMatch", "ButtonQuickMatch", "GUI:OnlineQuickMatchLabel",
+	makeCard( s_cards[ CARD_QUICK_MATCH ], "CardQuickMatch", "GUI:OnlineQuickMatchLabel",
 		"GUI:OnlineHubQuickMatchLead", "GUI:OnlineLadderRatingLabel", TRUE, FACT_WIDTH, 3, qmFacts );
-	makeCard( s_cards[ CARD_CUSTOM ], "CardCustom", "ButtonCustomMatch", "GUI:OnlineHubCustomTitle", "GUI:OnlineHubCustomLead",
+	makeCard( s_cards[ CARD_CUSTOM ], "CardCustom", "GUI:OnlineHubCustomTitle", "GUI:OnlineHubCustomLead",
 		"GUI:OnlineOpenGamesLabel", FALSE, WIDE_FACT_WIDTH, 1, customFacts );
-	// the speed every Play vs AI match plays at, startAIMatch's
-	UnicodeString speed;
-	speed.format( u"%d.%dx", RETAIL_GAME_SPEED_PERCENT / 100, RETAIL_GAME_SPEED_PERCENT % 100 / 10 );
-	s_cards[ CARD_AI ].factValue[ 2 ]->setText( speed );
+	// the Speed fact's value is the master's ComboBoxGameSpeed, over its place
 
 	s_cardRecent = hubWindow( "CardRecent" );
 	s_cardMOTD = hubWindow( "CardMOTD" );
@@ -815,19 +806,15 @@ static void makeCards( void )
 	s_recentStale = TRUE;
 }
 
-/// key's "<key>_Short" form, or empty when the strings have none
-static UnicodeString shortFormOf( const char *key )
-{
-	AsciiString shortKey;
-	shortKey.format( "%s_Short", key );
-	return UIStyle::hasText( shortKey.str() ) ? TheGameText->fetch( shortKey ) : UnicodeString::TheEmptyString;
-}
-
-/** A card's paragraph in the room over its button: the text, else its short form, in the body face;
-	* then in each smaller size down to the layout's own body size, the size the master's fit gives (at
+/** A card's status line (a refusal, the Quick Match lock) in the lead's place, empty for none: in the body
+	* face, then in each smaller size down to the layout's own body size, the size the master's fit gives (at
 	* 1280x720 and at 4:3 the readable floor grows the body face past what the room holds). */
-static void fitParagraph( HubCard &card, const UnicodeString &text, const UnicodeString &shortForm )
+static void setCardStatus( HubCard &card, const UnicodeString &text )
 {
+	card.status->setFont( bodyFont() );
+	card.status->setText( text );
+	if (text.isEmpty())
+		return;
 	std::vector<GameFont *> faces( 1, bodyFont() );
 	for (Int points = hubPoints( UIStyle::TEXT_BODY ); ; ++points)
 	{
@@ -838,18 +825,11 @@ static void fitParagraph( HubCard &card, const UnicodeString &text, const Unicod
 	}
 	for (size_t i = 0; i < faces.size(); ++i)
 	{
-		card.explain->setFont( faces[ i ] );
-		const UnicodeString *forms[] = { &text, &shortForm };
-		for (size_t f = 0; f < sizeof( forms ) / sizeof( forms[ 0 ] ); ++f)
-		{
-			if (forms[ f ]->isEmpty())
-				continue;
-			card.explain->setText( *forms[ f ] );
-			Int width, height;
-			card.explain->getSize( &width, &height );
-			if (height <= card.explainRoom)
-				return;
-		}
+		card.status->setFont( faces[ i ] );
+		Int width, height;
+		card.status->getSize( &width, &height );
+		if (height <= card.statusRoom)
+			return;
 	}
 }
 
@@ -878,18 +858,14 @@ static void refreshCards( void )
 	UnicodeString text;
 
 	HubCard &ai = s_cards[ CARD_AI ];
-	const UIStyle::RatingTier aiTier = UIStyle::ratingTier( info.aiRating, info.hasAIRating ? info.aiGames : -1 );
+	const UIStyle::RatingTier aiTier = UIStyle::aiRatingTier( info.aiRating, info.hasAIRating ? info.aiGames : -1 );
 	ai.portrait = UIStyle::tierImage( aiTier, side );
-	ai.figure->setText( info.hasAIRating ? UIStyle::ratingText( info.aiRating ) : none );
+	ai.figure->setText( info.hasAIRating ? UIStyle::eloText( info.aiRating ) : none );
 	ai.tier->setText( OnlineTierName( UIStyle::tierKey( aiTier ) ) );
 	ai.factValue[ 0 ]->setText( info.hasAIRating ? UIStyle::grouped( info.aiGames ) : none );
 	ai.factValue[ 1 ]->setText( info.hasAIRating && info.aiGames > 0
 		? UIStyle::percentText( UIStyle::percent( info.aiWins, info.aiGames ) ) : none );
-	ai.explainColor = s_aiRefusal.isEmpty() ? UIStyle::MUTED : UIStyle::INK;
-	if (s_aiRefusal.isEmpty())
-		fitParagraph( ai, TheGameText->fetch( "GUI:OnlineHubVsAIExplain" ), shortFormOf( "GUI:OnlineHubVsAIExplain" ) );
-	else
-		fitParagraph( ai, s_aiRefusal, UnicodeString::TheEmptyString );
+	setCardStatus( ai, s_aiRefusal );
 
 	HubCard &qm = s_cards[ CARD_QUICK_MATCH ];
 	const UIStyle::RatingTier tier = UIStyle::playerTier( info );
@@ -910,27 +886,18 @@ static void refreshCards( void )
 		text = none;
 	qm.factValue[ 1 ]->setText( text );
 	qm.factValue[ 2 ]->setText( counts[ 2 ] >= 0 ? UIStyle::grouped( counts[ 2 ] ) : none );
-	// a player who left a ranked match waits out the server's lock: how long, over Find match, greyed meanwhile
+	// a player who left a ranked match waits out the server's lock: how long, in the lead's place, Find
+	// match greyed meanwhile
 	static const Int SECONDS_PER_MINUTE = 60;
-	qm.explainColor = lock > 0 ? UIStyle::INK : UIStyle::MUTED;
+	text.clear();
 	if (lock > 0)
-	{
 		text.format( TheGameText->fetch( "GUI:OnlineHubQuickMatchLocked" ), lock / SECONDS_PER_MINUTE, lock % SECONDS_PER_MINUTE );
-		fitParagraph( qm, text, UnicodeString::TheEmptyString );
-	}
-	else
-		fitParagraph( qm, TheGameText->fetch( "GUI:OnlineHubQuickMatchExplain" ), shortFormOf( "GUI:OnlineHubQuickMatchExplain" ) );
+	setCardStatus( qm, text );
 
 	HubCard &custom = s_cards[ CARD_CUSTOM ];
 	custom.figure->setText( counts[ 1 ] >= 0 ? UIStyle::grouped( counts[ 1 ] ) : none );
 	custom.factValue[ 0 ]->setText( counts[ 0 ] >= 0 ? UIStyle::grouped( counts[ 0 ] ) : none );
-	const UnicodeString server = LobbyServerLabel();
-	text.format( TheGameText->fetch( "GUI:OnlineHubCustomExplain" ), server.str() );
-	const UnicodeString shortPattern = shortFormOf( "GUI:OnlineHubCustomExplain" );
-	UnicodeString shortText;
-	if (!shortPattern.isEmpty())
-		shortText.format( shortPattern.str(), server.str() );
-	fitParagraph( custom, text, shortText );
+	setCardStatus( custom, UnicodeString::TheEmptyString );
 }
 
 /// how long ago, in the coarsest unit that says it
@@ -979,7 +946,7 @@ static void refreshRecent( void )
 		cell[ CELL_CHIP ]->setText( TheGameText->fetch( row.won ? "GUI:OnlineWinLabel" : "GUI:OnlineLossLabel" ) );
 		cell[ CELL_MODE ]->setText( UIStyle::fitKey( row.ai ? "GUI:OnlineHubMatchAI" : "GUI:OnlineQuickMatchLabel", body,
 			s_cellWidth[ CELL_MODE ] - pad ) );
-		cell[ CELL_RATING ]->setText( UIStyle::ratingText( row.opponentRating ) );
+		cell[ CELL_RATING ]->setText( row.ai ? UIStyle::eloText( row.opponentRating ) : UIStyle::ratingText( row.opponentRating ) );
 		Int ratingWidth, h;
 		cell[ CELL_RATING ]->getSize( &ratingWidth, &h );
 		UnicodeString opponent;
@@ -1085,7 +1052,7 @@ static void refreshRejoin( void )
 				body, room - sideWidth ) );
 		}
 		if (!s_rejoinAsked)
-			setRejoinNote( TheGameText->fetch( "GUI:OnlineRejoinExplain" ), UIStyle::MUTED );
+			setRejoinNote( UnicodeString::TheEmptyString, UIStyle::MUTED );
 	}
 	if (offered && offer.elapsedSeconds != s_rejoinSecond)
 	{
@@ -1288,6 +1255,13 @@ void WOLWelcomeMenuInit( WindowLayout *layout, void *userData )
 	{
 		buttonPlayAI->winSetEnabledTextColors( UIStyle::ACTIVE, UIStyle::SHADOW );
 		buttonPlayAI->winHide( !OnlineIsEnabled() );
+	}
+	// Play vs AI's speed in the value's place of its card's Speed fact
+	comboBoxAISpeed = hubWindow( "ComboBoxGameSpeed" );
+	if (comboBoxAISpeed)
+	{
+		PopulatePlayerGameSpeedComboBox( comboBoxAISpeed, aiGameSpeed() );
+		comboBoxAISpeed->winHide( !OnlineIsEnabled() );
 	}
 	if (buttonSignOut)
 		buttonSignOut->winHide( !OnlineIsEnabled() );
@@ -1627,6 +1601,18 @@ WindowMsgHandledType WOLWelcomeMenuSystem( GameWindow *window, UnsignedInt msg,
 
 				return MSG_HANDLED;
 			}//case GWM_INPUT_FOCUS:
+
+		case GCM_SELECTED:
+			{
+				// Play vs AI's speed, kept for the next Play and the score screen's Play again
+				if ((GameWindow *)mData1 == comboBoxAISpeed)
+				{
+					QuickMatchPreferences pref;
+					pref.setInt( "AIGameSpeed", PlayerGameSpeedFromComboBox( comboBoxAISpeed, RETAIL_GAME_SPEED_PERCENT ) );
+					pref.write();
+				}
+				break;
+			}
 
 		case GBM_SELECTED:
 			{

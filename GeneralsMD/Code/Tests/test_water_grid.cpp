@@ -6229,6 +6229,28 @@ public:
         TheWritableGlobalData->m_waterReflectionDetail=1;
         WaterPerformanceSettings::Applied()=saved;
     }
+    void checkSyntheticSkirtPolicy() {
+        WaterPolygonForDraw authored;authored.river=FALSE;authored.riverStart=0;authored.owner=1;
+        authored.points={{0,0,7},{100,0,7},{100,100,7},{0,100,7}};
+        m_waterPolygonsForDraw={authored};m_skirtSeasFirst=1;
+        refreshModernWaterOpticalPolygons();
+        CHECK(m_modernOpticalPolygonsValid && m_modernOpticalPolygons.size()==1);
+        const auto original=m_modernOpticalPolygons;
+        m_modernWaveSourceReady=TRUE;m_modernMediumReady=TRUE;
+        WaterPolygonForDraw synthetic=authored;synthetic.owner=2;
+        for(auto &point:synthetic.points)point.z=80;
+        // Far more generated strips than the optical bound: authored water must
+        // keep its source level, bounded optical context and detail-policy count.
+        for(size_t i=0;i<WaterOpticalContext::MaxPoints/4+1;++i)
+            m_waterPolygonsForDraw.push_back(synthetic);
+        CHECK_EQ(authoredWaterPolygonCount(),1u);
+        CHECK(m_waterPolygonsForDraw.size()>1); // appended geometry remains available to draw
+        refreshModernWaterOpticalPolygons();
+        CHECK(m_modernOpticalPolygonsValid);
+        CHECK(WaterOpticalContext::SamePolygons(original,m_modernOpticalPolygons));
+        CHECK(m_modernWaveSourceReady && m_modernMediumReady); // no spurious static-cache invalidation
+        m_waterPolygonsForDraw.resize(1);m_skirtSeasFirst=1;
+    }
     const std::vector<WaterOpticalContext::Polygon> &opticalPolygonsForDraw() {
         refreshModernWaterOpticalPolygons();
         return m_modernOpticalPolygons;
@@ -6296,6 +6318,16 @@ public:
 }
 
 #if defined(__linux__)
+TEST(water_synthetic_skirts_preserve_authored_optical_and_detail_policy)
+{
+    boot();
+    WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
+    TheWaterTransparency=newInstance(WaterTransparencySetting);
+    {LiveWaterStyleProbe water;water.checkSyntheticSkirtPolicy();}
+    ((WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer())->deleteInstance();
+    TheWaterTransparency=saved;
+}
+
 TEST(water_polygon_draw_snapshot_survives_live_height_geometry_and_lifetime_changes)
 {
     boot();

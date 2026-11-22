@@ -163,6 +163,8 @@ public:
 	UnsignedInt weatherSurfaceRevision(void) const { return m_weatherSurfaceRevision; }
 	Bool isRenderingReflection(void) const { return m_renderingMirror; }
 	Real getWaterHeight(Real x, Real y);	///<return water height at given point - for use by WB.
+	/// The level of the sea drawn past the heightmap's edge (addSkirtSeas) at a point, INVALID_WATER_HEIGHT where none is.
+	Real getSkirtSeaLevel(Real x, Real y) const;
 
 	void replaceSkyboxTexture(const AsciiString& oldTexName, const AsciiString& newTextName);
 	TextureClass *getSkyTexture(void) const { return m_settings[m_tod].skyTexture; }	///< the time of day's sky, as WaterSet names it
@@ -355,6 +357,19 @@ protected:
 	};
 	std::vector<WaterPolygonForDraw> m_waterPolygonsForDraw;
 	void takeWaterPolygonsForDraw(void);
+	void addSkirtSeas(void);	///< the sea on past the heightmap's edge, over the land drawn there
+	/// One strip past the heightmap's edge: a polygon side's stretch over edge samples under its water.
+	struct SkirtSeaRun { Int edge; Int start, end, startZ, endZ, winding; uintptr_t owner; };
+	std::vector<SkirtSeaRun> m_skirtSeaRuns;	///< this pass's, which the corners are filled from
+	void addSkirtSeaRuns(const ICoord3D &a, const ICoord3D &b, Int edge, Int winding, uintptr_t owner, uintptr_t *added);
+	void addSkirtSeaCorners(uintptr_t *added);
+	void addSkirtSeaQuad(const ICoord3D quad[4], Int winding, uintptr_t owner, uintptr_t *added);
+	// Synthetic horizon water must not consume authored optical/detail budgets.
+	size_t authoredWaterPolygonCount() const {
+		return m_skirtSeasFirst<m_waterPolygonsForDraw.size()?m_skirtSeasFirst:m_waterPolygonsForDraw.size();
+	}
+	size_t m_skirtSeasFirst=0;	///< where addSkirtSeas's strips start in m_waterPolygonsForDraw
+	double m_skirtSeasSum=0.0;	///< what they were last, so the skirt is built again under a sea that moved
 	void takeMotionReadsForRender(void);
 	void synchronizeWaterReflection(void);
 #endif

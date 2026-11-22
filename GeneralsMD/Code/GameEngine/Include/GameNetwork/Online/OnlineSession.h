@@ -116,7 +116,7 @@ struct OnlineCard
 	Bool hasRating, notOnline, hasStats;
 	std::string tier;
 	Bool hasAIRating;			///< aiRating and aiGames arrived (auth.ok, ai.rated)
-	double aiRating;				///< the rating against the AI, a scale of its own; two decimals
+	double aiRating;				///< the Bot ELO, aiElo or an older server's aiRating mapped onto Elo
 	long long aiGames, aiWins;
 	UnsignedInt serial;		///< the session's cardSerial when this card last changed
 
@@ -281,6 +281,7 @@ struct OnlineSession
 	std::string aiRefusal;	///< the ai.refused reason not yet taken
 	std::string aiMatch;		///< the match taken from ai.ready, until its ai.result goes
 	long long aiReadyMs;		///< when that ai.ready arrived, in steady-clock milliseconds
+	Int aiSpeed;						///< the speed that match plays, ai.ready's echo; its ai.result says it again
 	long long aiTickMs;			///< when the last ai.tick went
 	std::string aiWonMatch;	///< the match whose ai.result said win: only its replay goes up
 	std::string aiSentMatch;	///< the match of the last ai.result sent, kept after aiMatch clears: OnlineGetLastAIMatchId

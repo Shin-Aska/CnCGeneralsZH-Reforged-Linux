@@ -117,6 +117,10 @@ public:
 	virtual void drawImage( const Image *image, Int startX, Int startY, 
 													Int endX, Int endY, Color color = 0xFFFFFFFF, DrawImageMode mode=DRAW_IMAGE_ALPHA);
 
+	/// the part of an image a wedge from its centre covers, as a fan of triangles with matching UVs
+	virtual void drawImageWedge( const Image *image, Int startX, Int startY, Int endX, Int endY,
+															 Real fromDegrees, Real sweepDegrees, Color color = 0xFFFFFFFF );
+
 	/// draw a video buffer fit within the screen coordinates
 	virtual void drawVideoBuffer( VideoBuffer *buffer, Int startX, Int startY,
 													Int endX, Int endY );
@@ -137,6 +141,9 @@ public:
 
 	virtual Bool supportsPerPixelLighting(void) const;
 	virtual Bool supportsHemisphericAmbient(void) const;
+
+	virtual void drawModelPreview( const AsciiString &templateName, Int skin, Color house, Int x, Int y, Int w, Int h, Real turns, Bool dim, Bool still = FALSE, const char *state = NULL );	///< W3DModelPreview.cpp
+	virtual void freeModelPreviews( void );
 
 	virtual void toggleLetterBox(void);	///<enabled letter-boxed display
 	virtual void enableLetterBox(Bool enable);	///<forces letter-boxed display on/off

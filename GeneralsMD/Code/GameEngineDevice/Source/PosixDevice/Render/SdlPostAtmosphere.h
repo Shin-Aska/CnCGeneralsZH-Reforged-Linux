@@ -28,7 +28,7 @@ struct SdlPostGroundHazeSettings
 struct SdlPostAtmosphereSettings
 {
     float Horizon[3] = {}, Tint[3] = {1,1,1};
-    float Start = 0, Scale = 1, Strength = 0, Ground = 0, MapSize[2] = {};
+    float Start = 0, Scale = 1, Strength = 0, Ground = 0, MapSize[4] = {}; // playable XY, heightmap border, terrain skirt reach (zero keeps legacy closure)
 };
 struct SdlPostAtmosphereResources
 {

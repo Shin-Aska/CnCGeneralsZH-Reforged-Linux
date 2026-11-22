@@ -18,7 +18,7 @@ struct GroundHazeSettings {
     bool BeforeWater = false; // weather over opaque ground; actual water composites over it
 };
 struct AtmosphereSettings {
-    float Horizon[3] = {}, Tint[3] = {1,1,1}, Start = 0, Scale = 1, Strength = 0, Ground = 0, MapSize[2] = {};
+    float Horizon[3] = {}, Tint[3] = {1,1,1}, Start = 0, Scale = 1, Strength = 0, Ground = 0, MapSize[4] = {}; // playable XY, heightmap border, terrain skirt reach (zero keeps legacy closure)
 };
 struct Warp {
     float CentreX = 0, CentreY = 0, Radius = 0, Pull = 0;

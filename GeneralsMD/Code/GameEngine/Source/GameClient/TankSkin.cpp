@@ -24,6 +24,8 @@ namespace
 		AsciiString unit;									///< one skin a unit in a loadout
 		AsciiString unitLabel;						///< the unit's name in the string table, for the Skins screen
 		AsciiString label;								///< the skin's own name there
+		AsciiString earned;								///< how an account comes to own it, the line under a locked card
+		Bool rare;												///< the one of a kind, drawn in gold on the Skins screen
 		std::vector<AsciiString> models;		///< the models it dresses, damaged states included
 		std::vector<AsciiString> sheets;		///< pairs: the model's sheet, the one drawn in its place
 	};
@@ -33,6 +35,8 @@ namespace
 		{ "Unit",			INI::parseAsciiString,							NULL, offsetof( SkinDef, unit ) },
 		{ "UnitLabel",	INI::parseAsciiString,						NULL, offsetof( SkinDef, unitLabel ) },
 		{ "Label",		INI::parseAsciiString,							NULL, offsetof( SkinDef, label ) },
+		{ "Earned",		INI::parseAsciiString,							NULL, offsetof( SkinDef, earned ) },
+		{ "Rare",			INI::parseBool,											NULL, offsetof( SkinDef, rare ) },
 		{ "Model",		INI::parseAsciiStringVectorAppend,	NULL, offsetof( SkinDef, models ) },
 		{ "Texture",	INI::parseAsciiStringVectorAppend,	NULL, offsetof( SkinDef, sheets ) },
 		{ NULL,				NULL,																NULL, 0 }
@@ -73,6 +77,7 @@ void INI::parseSkinDefinition( INI *ini )
 
 	SkinDef skin;
 	skin.id = id;
+	skin.rare = FALSE;
 	ini->initFromINI( &skin, theSkinFieldParse );
 	if( skin.unit.isEmpty() || skin.models.empty() || skin.sheets.empty() || ( skin.sheets.size() & 1 ) )
 		throw INI_INVALID_DATA;
@@ -100,6 +105,33 @@ Bool TankSkin_describe( Int id, AsciiString &unit, AsciiString &unitLabel, Ascii
 	unitLabel = skin->unitLabel;
 	label = skin->label;
 	return TRUE;
+}
+
+AsciiString TankSkin_earnedBy( Int id )
+{
+	const SkinDef *skin = findSkin( id );
+	return skin ? skin->earned : AsciiString::TheEmptyString;
+}
+
+Bool TankSkin_isRare( Int id )
+{
+	const SkinDef *skin = findSkin( id );
+	return skin ? skin->rare : FALSE;
+}
+
+const char *TankSkin_houseColorPart( const char *sheet )
+{
+	if( sheet == NULL )
+		return NULL;
+	if( strncasecmp( sheet, "ZHC", 3 ) == 0 )
+		return sheet;
+	if( strncasecmp( sheet, "Skin", 4 ) != 0 )
+		return NULL;
+	// the first "_ZHC" past the prefix, which may hold underscores of its own (Skin_Thx_ZHCA_x)
+	for( const char *rest = strchr( sheet, '_' ); rest; rest = strchr( rest + 1, '_' ) )
+		if( strncasecmp( rest + 1, "ZHC", 3 ) == 0 )
+			return rest + 1;
+	return NULL;
 }
 
 Int TankSkin_forModel( SkinLoadout loadout, const char *modelName )

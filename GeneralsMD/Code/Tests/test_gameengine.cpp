@@ -2842,7 +2842,8 @@ TEST(skirmish_ai_earnings_by_rung_percent)
 	/* a computer: the derrick's 1000 is 1500, a truckload of 75 banks 112, the odd half dropped */
 	CHECK_EQ( EarnedAmount( 1000, 150 ), 1500u );
 	CHECK_EQ( EarnedAmount( 75, 150 ), 112u );
-	/* a rating of 1000 earns about 4300 percent; a million times that would wrap 32 bits */
+	/* the furthest rating, AI_RATING_LIMIT's 32000, earns about 1660 percent (1000 on the scale before Elo
+		 earned 4300); a million times 4300 would wrap 32 bits */
 	CHECK_EQ( EarnedAmount( 1000000, 4300 ), 43000000u );
 }
 
@@ -9074,6 +9075,19 @@ TEST(online_ratings_tiers_and_rank_portraits)
 	CHECK_EQ( UIStyle::ratingTier( 5.0f, 5 ), UIStyle::TIER_SERGEANT );
 	CHECK_EQ( UIStyle::ratingTier( -3.0f, 10 ), UIStyle::TIER_PRIVATE );
 	CHECK_NEAR( UIStyle::tierStart( UIStyle::TIER_CAPTAIN ), 15.0f, 0.0001f );
+	// the AI rating is an Elo, whole, on the same tiers: Easy's 800 private, Medium's 1300 captain,
+	// Hard's 1800 general, and the ladder's own tiers untouched by it
+	CHECK( UIStyle::eloText( 1213.33f ) == UnicodeString( u"1213" ) );
+	CHECK( UIStyle::eloText( 12.5f, TRUE ) == UnicodeString( u"+13" ) );
+	CHECK( UIStyle::eloText( -0.4f, TRUE ) == UnicodeString( u"0" ) );
+	CHECK( UIStyle::eloText( -12.0f, TRUE ) == UnicodeString( u"-12" ) );
+	CHECK_EQ( UIStyle::aiRatingTier( 800.0f, 5 ), UIStyle::TIER_PRIVATE );
+	CHECK_EQ( UIStyle::aiRatingTier( 1300.0f, 5 ), UIStyle::TIER_CAPTAIN );
+	CHECK_EQ( UIStyle::aiRatingTier( 1299.0f, 5 ), UIStyle::TIER_LIEUTENANT );
+	CHECK_EQ( UIStyle::aiRatingTier( 1800.0f, 5 ), UIStyle::TIER_GENERAL );
+	CHECK_EQ( UIStyle::aiRatingTier( 2200.0f, 4 ), UIStyle::TIER_UNRANKED );
+	CHECK_NEAR( UIStyle::aiTierStart( UIStyle::TIER_CAPTAIN ), 1300.0f, 0.0001f );
+	CHECK_NEAR( UIStyle::aiTierStart( UIStyle::TIER_GENERAL ), 1800.0f, 0.0001f );
 	CHECK_STR( UIStyle::tierKey( UIStyle::TIER_LIEUTENANT ), "lieutenant" );
 	CHECK_STR( UIStyle::tierKey( UIStyle::TIER_UNRANKED ), "unranked" );
 
@@ -10147,6 +10161,21 @@ TEST(an_overlong_chat_line_keeps_its_length_instead_of_wrapping_to_a_short_one)
 
 	packet->deleteInstance();
 	ref->deleteInstance();
+}
+
+/* A LAN room's chat entry takes 128 characters and a chat packet 100, so the host saw a guest's long
+	 line cut at the hundredth.  RequestChat now sends it in pieces, each cut at a space. */
+TEST(a_long_lan_chat_line_goes_out_in_pieces_cut_at_spaces)
+{
+	std::u16string line;
+	while( (Int)line.size() < 120 )
+		line += u"word ";
+	CHECK_EQ( LANChatPiece( line.c_str(), 40 ), 40 );
+	const Int first = LANChatPiece( line.c_str(), (Int)line.size() );
+	CHECK( first <= g_lanMaxChatLength && first > g_lanMaxChatLength - 5 );
+	CHECK( line[ first ] == u' ' );
+	const std::u16string solid( 130, u'x' );
+	CHECK_EQ( LANChatPiece( solid.c_str(), (Int)solid.size() ), g_lanMaxChatLength );
 }
 
 /* addCommand's own guard against a null reference sat below the line that followed it, so the one
@@ -12364,6 +12393,13 @@ struct RMGParse
 	std::vector<Coord3D> m_objectPositions;
 	std::vector<Real> m_objectAngles;
 	std::vector<Int> m_objectFlags;				///< the road flags, for the objects that carry them
+	std::vector<AsciiString> m_objectScriptNames;	///< each object's objectName, empty for most
+	std::vector<AsciiString> m_objectOwners;	///< and its originalOwner
+	std::vector<AsciiString> m_waypointLabels;	///< and its waypointPathLabel1, empty off a path
+	std::vector<Int> m_waypointIDs;				///< and its waypointID, 0 for anything not a waypoint
+	std::vector<AsciiString> m_areaNames;		///< the lane map's named areas
+	std::vector< std::vector<Coord3D> > m_areaPolygons;
+	std::vector< std::pair<Int, Int> > m_waypointLinks;	///< WaypointsList, from and to
 
 	RMGParse() :
 		m_width(0), m_height(0), m_border(0), m_boundaryX(0), m_boundaryY(0), m_dataSize(0),
@@ -12528,9 +12564,9 @@ static Bool RMGParseWaterAreas( DataChunkInput &file, DataChunkInfo *info, void 
 		file.readAsciiString();							// layer
 		file.readInt();									// trigger id
 
-		// the lakes are water; the skirmish base areas round every start are not
+		// the lakes are water; the skirmish base areas round every start and the lane map's areas are not
 		const Bool water = file.readByte() == 1;
-		CHECK( water || name.startsWith( "InnerPerimeter" ) || name.startsWith( "OuterPerimeter" ) );
+		CHECK( water || name.startsWith( "InnerPerimeter" ) || name.startsWith( "OuterPerimeter" ) || name.startsWith( "LaneWar_" ) );
 		file.readByte();								// not a river
 		file.readInt();									// river start
 
@@ -12554,6 +12590,11 @@ static Bool RMGParseWaterAreas( DataChunkInput &file, DataChunkInfo *info, void 
 		{
 			theRMGParse.m_numWaterAreas++;
 			theRMGParse.m_waterPolygons.push_back( polygon );
+		}
+		else if( name.startsWith( "LaneWar_" ) )
+		{
+			theRMGParse.m_areaNames.push_back( name );
+			theRMGParse.m_areaPolygons.push_back( polygon );
 		}
 	}
 	return TRUE;
@@ -12601,6 +12642,10 @@ static Bool RMGParseObject( DataChunkInput &file, DataChunkInfo *info, void * )
 	theRMGParse.m_objectPositions.push_back( loc );
 	theRMGParse.m_objectAngles.push_back( angle );
 	theRMGParse.m_objectFlags.push_back( flags );
+	theRMGParse.m_objectScriptNames.push_back( d.getAsciiString( NAMEKEY( "objectName" ) ) );
+	theRMGParse.m_objectOwners.push_back( d.getAsciiString( NAMEKEY( "originalOwner" ) ) );
+	theRMGParse.m_waypointLabels.push_back( d.getAsciiString( NAMEKEY( "waypointPathLabel1" ) ) );
+	theRMGParse.m_waypointIDs.push_back( d.getType( NAMEKEY( "waypointID" ) ) == Dict::DICT_INT ? d.getInt( NAMEKEY( "waypointID" ) ) : 0 );
 
 	// the start waypoints; the approach paths' waypoints carry a path label and are not starts
 	if( d.getType( NAMEKEY( "waypointID" ) ) == Dict::DICT_INT && d.getType( NAMEKEY( "waypointPathLabel1" ) ) != Dict::DICT_ASCIISTRING )
@@ -12612,6 +12657,18 @@ static Bool RMGParseObject( DataChunkInput &file, DataChunkInfo *info, void * )
 	{
 		theRMGParse.m_pathWaypointNames.push_back( d.getAsciiString( NAMEKEY( "waypointName" ) ) );
 		theRMGParse.m_pathWaypointPositions.push_back( loc );
+	}
+	return TRUE;
+}
+
+static Bool RMGParseWaypointLinks( DataChunkInput &file, DataChunkInfo *info, void * )
+{
+	const Int count = file.readInt();
+	for( Int i = 0; i < count; i++ )
+	{
+		const Int from = file.readInt();
+		const Int to = file.readInt();
+		theRMGParse.m_waypointLinks.push_back( std::make_pair( from, to ) );
 	}
 	return TRUE;
 }
@@ -12637,6 +12694,7 @@ static void parseGeneratedMap( std::vector<char>& bytes )
 	input.registerParser( AsciiString( "SidesList" ), AsciiString::TheEmptyString, RMGParseSides );
 	input.registerParser( AsciiString( "ObjectsList" ), AsciiString::TheEmptyString, RMGParseObjects );
 	input.registerParser( AsciiString( "PolygonTriggers" ), AsciiString::TheEmptyString, RMGParseWaterAreas );
+	input.registerParser( AsciiString( "WaypointsList" ), AsciiString::TheEmptyString, RMGParseWaypointLinks );
 	input.registerParser( AsciiString( "GlobalLighting" ), AsciiString::TheEmptyString, RMGParseLighting );
 
 	CHECK( input.parse( NULL ) == TRUE );
@@ -12713,6 +12771,870 @@ TEST(a_seed_generates_the_same_map_bytes_every_single_time)
 	settings.m_seed = 12346;
 	RandomMapGenerator::generate( settings, other );
 	CHECK( other.size() != first.size() || memcmp( &other[0], &first[0], first.size() ) != 0 );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The Lane War map: one ground for every seed and seat count, the seed choosing only its look.
+	Every name the director looks up is in the file, the fortresses and towers belong to their own
+	end's starts, a wave copy fits on its pad and walks clear of its own fortress, and the ground is
+	open and soft: no cliff on dry ground, gentle slopes at every edge of play, one walk reaching
+	the lane and every plot, the sea on all four sides and nothing but trees and stones off play. */
+//-------------------------------------------------------------------------------------------------
+static Int RMGLaneObject( const char *name )
+{
+	for( Int i = 0; i < (Int)theRMGParse.m_objectScriptNames.size(); i++ )
+		if( theRMGParse.m_objectScriptNames[i] == name )
+			return i;
+	return -1;
+}
+
+/// The cells walked from (startX, startY), map cells, eight ways as the pathfinder steps.
+static void RMGLaneFlood( Int startX, Int startY, std::vector<char>& reached )
+{
+	const Int W = theRMGParse.m_width, H = theRMGParse.m_height, border = theRMGParse.m_border;
+	reached.assign( W * H, 0 );
+	auto open = [&]( Int x, Int y ) -> Bool
+	{
+		if( x < border || y < border || x >= border + theRMGParse.m_boundaryX || y >= border + theRMGParse.m_boundaryY )
+			return FALSE;
+		const Int a = theRMGParse.m_heights[y * W + x], b = theRMGParse.m_heights[y * W + x + 1];
+		const Int c = theRMGParse.m_heights[( y + 1 ) * W + x], d = theRMGParse.m_heights[( y + 1 ) * W + x + 1];
+		const Int lo = std::min( std::min( a, b ), std::min( c, d ) ), hi = std::max( std::max( a, b ), std::max( c, d ) );
+		return hi - lo < 16;
+	};
+	if( !open( startX, startY ) )
+		return;
+	std::vector<Int> queue( 1, startY * W + startX );
+	reached[startY * W + startX] = 1;
+	for( size_t head = 0; head < queue.size(); head++ )
+	{
+		const Int x = queue[head] % W, y = queue[head] / W;
+		for( Int dy = -1; dy <= 1; dy++ )
+			for( Int dx = -1; dx <= 1; dx++ )
+				if( ( dx || dy ) && !reached[( y + dy ) * W + x + dx] && open( x + dx, y + dy ) )
+				{
+					reached[( y + dy ) * W + x + dx] = 1;
+					queue.push_back( ( y + dy ) * W + x + dx );
+				}
+	}
+}
+
+/// The largest height span of any cell in the playable boundary, and of those within some cells of a rectangle of play.
+struct RMGLaneSlopes
+{
+	Int anywhere, nearPlay;
+};
+
+static RMGLaneSlopes RMGLaneSpans( const std::vector<Int>& rects, Int within )
+{
+	const Int W = theRMGParse.m_width, border = theRMGParse.m_border;
+	RMGLaneSlopes slopes = { 0, 0 };
+	for( Int y = 0; y < theRMGParse.m_boundaryY; y++ )
+	{
+		for( Int x = 0; x < theRMGParse.m_boundaryX; x++ )
+		{
+			const Int at = ( y + border ) * W + x + border;
+			const Int a = theRMGParse.m_heights[at], b = theRMGParse.m_heights[at + 1];
+			const Int c = theRMGParse.m_heights[at + W], d = theRMGParse.m_heights[at + W + 1];
+			const Int span = std::max( std::max( a, b ), std::max( c, d ) ) - std::min( std::min( a, b ), std::min( c, d ) );
+			slopes.anywhere = std::max( slopes.anywhere, span );
+			for( size_t r = 0; r + 3 < rects.size(); r += 4 )
+				if( x + 1 >= rects[r] - within && x <= rects[r + 2] + within && y + 1 >= rects[r + 1] - within && y <= rects[r + 3] + within )
+					slopes.nearPlay = std::max( slopes.nearPlay, span );
+		}
+	}
+	return slopes;
+}
+
+/// Every object neither a waypoint nor named for the director is a tree or a stone.
+static Bool RMGLaneOnlyNature( void )
+{
+	for( Int i = 0; i < (Int)theRMGParse.m_objectNames.size(); i++ )
+	{
+		if( theRMGParse.m_waypointIDs[i] != 0 || !theRMGParse.m_objectScriptNames[i].isEmpty() )
+			continue;
+		if( !theRMGParse.m_objectNames[i].startsWith( "Tree" ) && !theRMGParse.m_objectNames[i].startsWith( "Rock" ) )
+			return FALSE;
+	}
+	return TRUE;
+}
+
+/// Every tree and stone stands on dry ground, all four corners of its cell over the water's 50.
+static Bool RMGLanePropsDry( void )
+{
+	const Int W = theRMGParse.m_width, border = theRMGParse.m_border;
+	for( Int i = 0; i < (Int)theRMGParse.m_objectNames.size(); i++ )
+	{
+		if( theRMGParse.m_waypointIDs[i] != 0 || !theRMGParse.m_objectScriptNames[i].isEmpty() )
+			continue;
+		const Int at = ( (Int)( theRMGParse.m_objectPositions[i].y / MAP_XY_FACTOR ) + border ) * W
+			+ (Int)( theRMGParse.m_objectPositions[i].x / MAP_XY_FACTOR ) + border;
+		const Int a = theRMGParse.m_heights[at], b = theRMGParse.m_heights[at + 1];
+		const Int c = theRMGParse.m_heights[at + W], d = theRMGParse.m_heights[at + W + 1];
+		if( std::min( std::min( a, b ), std::min( c, d ) ) <= 50 )
+			return FALSE;
+	}
+	return TRUE;
+}
+
+/// The sea round the island and its coast, in playable vertices.
+struct RMGLaneIsland
+{
+	Real fewestSea;			///< over the four sides, the mean count of wet vertices within 24 of the edge
+	Int inlandWater;		///< wet vertices no walk through the wet reaches from the map's edge
+	Int coastSwing[2];		///< over the lane's length, how far the first dry row from the top and from the bottom wanders
+	Int seaMargin;			///< the fewest vertices between any dry one and the playable edge
+	std::vector<Int> outline;	///< the first dry row from the top and from the bottom at every x over the lane
+};
+
+static RMGLaneIsland RMGLaneCoast( Int laneX0, Int laneX1 )
+{
+	const Int W = theRMGParse.m_width, H = theRMGParse.m_height, border = theRMGParse.m_border;
+	const Int BX = theRMGParse.m_boundaryX, BY = theRMGParse.m_boundaryY;
+	auto wet = [&]( Int x, Int y ) { return theRMGParse.m_heights[y * W + x] < 50; };
+	RMGLaneIsland island;
+
+	Real sea[4] = { 0, 0, 0, 0 };
+	for( Int y = 0; y <= BY; y++ )
+		for( Int x = 0; x <= BX; x++ )
+		{
+			if( !wet( x + border, y + border ) )
+				continue;
+			const Int toEdge[4] = { x, BX - x, y, BY - y };
+			for( Int side = 0; side < 4; side++ )
+				if( toEdge[side] < 24 )
+					sea[side] += 1.0f / (Real)( side < 2 ? BY : BX );
+		}
+	island.fewestSea = std::min( std::min( sea[0], sea[1] ), std::min( sea[2], sea[3] ) );
+	island.seaMargin = std::min( BX, BY );
+	for( Int y = 0; y <= BY; y++ )
+		for( Int x = 0; x <= BX; x++ )
+			if( !wet( x + border, y + border ) )
+				island.seaMargin = std::min( island.seaMargin, std::min( std::min( x, BX - x ), std::min( y, BY - y ) ) );
+	island.outline.clear();
+
+	std::vector<char> seen( W * H, 0 );
+	std::vector<Int> queue;
+	for( Int y = 0; y < H; y++ )
+		for( Int x = 0; x < W; x++ )
+			if( ( x == 0 || y == 0 || x == W - 1 || y == H - 1 ) && wet( x, y ) )
+			{
+				seen[y * W + x] = 1;
+				queue.push_back( y * W + x );
+			}
+	for( size_t head = 0; head < queue.size(); head++ )
+	{
+		const Int x = queue[head] % W, y = queue[head] / W;
+		const Int nx[4] = { x - 1, x + 1, x, x }, ny[4] = { y, y, y - 1, y + 1 };
+		for( Int k = 0; k < 4; k++ )
+			if( nx[k] >= 0 && ny[k] >= 0 && nx[k] < W && ny[k] < H && !seen[ny[k] * W + nx[k]] && wet( nx[k], ny[k] ) )
+			{
+				seen[ny[k] * W + nx[k]] = 1;
+				queue.push_back( ny[k] * W + nx[k] );
+			}
+	}
+	island.inlandWater = 0;
+	for( Int i = 0; i < W * H; i++ )
+		island.inlandWater += wet( i % W, i / W ) && !seen[i];
+
+	for( Int side = 0; side < 2; side++ )
+	{
+		Int nearest = BY, furthest = 0;
+		for( Int x = laneX0; x <= laneX1; x++ )
+		{
+			Int depth = 0;
+			while( depth < BY && wet( x + border, border + ( side == 0 ? depth : BY - depth ) ) )
+				depth++;
+			island.outline.push_back( depth );
+			nearest = std::min( nearest, depth );
+			furthest = std::max( furthest, depth );
+		}
+		island.coastSwing[side] = furthest - nearest;
+	}
+	return island;
+}
+
+TEST(the_lane_map_names_what_the_director_needs_on_open_soft_ground)
+{
+	CHECK( bootOnce() );
+
+	RandomMapSettings settings;
+	settings.m_style = RandomMapGenerator::styleNamed( "lane" );
+	CHECK( settings.m_style != 0 );
+	settings.m_seed = 3;
+	settings.m_numPlayers = 2;
+	RandomMapSettings clamped = settings;
+	RandomMapGenerator::clampSettings( clamped );
+	CHECK_EQ( clamped.m_numPlayers, 6 );
+	CHECK_EQ( clamped.m_playableCells, 642 );
+	CHECK_EQ( clamped.m_seed, 3 );
+
+	/* The layout of the night of 2026-11-20, in playable cells on a 16:9 field of 642 by 361: a lane
+		360 by 45 from x 141 to 501 and y 158 to 203, its middle (321, 180.5) the map's, the fortresses
+		0.7 and the towers 0.37 of the half-length off the middle, all on the middle line, plots 32 along
+		by 24 across in a column 14 cells past each end, 95 cells of green, beach and sea behind them. */
+	const Int laneX0 = 141, laneX1 = 501, laneY0 = 158, laneY1 = 203;
+	const Real middleX = 3210.0f, middleY = 1805.0f;
+
+	// the same bytes every time, and for any seat count
+	std::vector<char> bytes, again;
+	RandomMapGenerator::generate( settings, bytes );
+	settings.m_numPlayers = 6;
+	RandomMapGenerator::generate( settings, again );
+	CHECK( bytes.size() > 0 && bytes.size() == again.size() && memcmp( &bytes[0], &again[0], bytes.size() ) == 0 );
+
+	parseGeneratedMap( bytes );
+	const Int W = theRMGParse.m_width, border = theRMGParse.m_border;
+	CHECK_EQ( W, 682 );
+	CHECK_EQ( theRMGParse.m_height, 401 );
+	CHECK_EQ( theRMGParse.m_boundaryX, 642 );
+	CHECK_EQ( theRMGParse.m_boundaryY, 361 );
+	CHECK_NEAR( 2.0f * middleX, theRMGParse.m_boundaryX * MAP_XY_FACTOR, 0.01f );
+	CHECK_NEAR( 2.0f * middleY, theRMGParse.m_boundaryY * MAP_XY_FACTOR, 0.01f );
+	std::vector<Int> playRects;			// x0, y0, x1, y1 in playable cells: the lane, the plots
+	const Int laneRect[4] = { laneX0, laneY0, laneX1, laneY1 };
+	playRects.assign( laneRect, laneRect + 4 );
+
+	// six starts, one a plot, each inside its own area; the ends take turns, seat 1 on the lane's axis
+	static const char *const theAreas[] = { "LaneWar_BuildA1", "LaneWar_BuildB1", "LaneWar_BuildA2", "LaneWar_BuildB2",
+		"LaneWar_BuildA3", "LaneWar_BuildB3", "LaneWar_MiddleArea" };
+	CHECK_EQ( (Int)theRMGParse.m_areaNames.size(), 7 );
+	std::vector<Int> startCells;
+	for( Int start = 0; start < 6; start++ )
+	{
+		AsciiString wanted;
+		wanted.format( "Player_%d_Start", start + 1 );
+		Int found = -1;
+		for( Int i = 0; i < (Int)theRMGParse.m_waypointNames.size(); i++ )
+			if( theRMGParse.m_waypointNames[i] == wanted )
+				found = i;
+		CHECK( found >= 0 );
+		if( found < 0 )
+			return;
+		const Coord3D& at = theRMGParse.m_waypointPositions[found];
+		startCells.push_back( ( (Int)( at.y / MAP_XY_FACTOR ) + border ) * W + (Int)( at.x / MAP_XY_FACTOR ) + border );
+
+		Int area = -1;
+		for( Int i = 0; i < (Int)theRMGParse.m_areaNames.size(); i++ )
+			if( theRMGParse.m_areaNames[i] == theAreas[start] )
+				area = i;
+		CHECK( area >= 0 );
+		if( area < 0 )
+			return;
+		const std::vector<Coord3D>& polygon = theRMGParse.m_areaPolygons[area];
+		CHECK_EQ( (Int)polygon.size(), 4 );
+		CHECK( at.x > polygon[0].x && at.x < polygon[2].x && at.y > polygon[0].y && at.y < polygon[2].y );
+		CHECK_EQ( (Int)( polygon[2].x - polygon[0].x ), 320 );		// turned: 32 cells along the lane, 24 across, 16 rows by 12 columns
+		CHECK_EQ( (Int)( polygon[2].y - polygon[0].y ), 240 );
+		CHECK( ( at.x < middleX ) == ( start % 2 == 0 ) );
+		CHECK( at.x < laneX0 * MAP_XY_FACTOR || at.x > laneX1 * MAP_XY_FACTOR );
+		if( start < 2 )
+			CHECK( at.y > laneY0 * MAP_XY_FACTOR && at.y < laneY1 * MAP_XY_FACTOR );
+		const Int plotRect[4] = { (Int)( polygon[0].x / MAP_XY_FACTOR ), (Int)( polygon[0].y / MAP_XY_FACTOR ),
+			(Int)( polygon[2].x / MAP_XY_FACTOR ), (Int)( polygon[2].y / MAP_XY_FACTOR ) };
+		playRects.insert( playRects.end(), plotRect, plotRect + 4 );
+
+		// no air zone behind it any more: every unit, jets included, stands on the plot
+		AsciiString airName;
+		airName.format( "LaneWar_Air%c%d", 'A' + start % 2, start / 2 + 1 );
+		for( Int i = 0; i < (Int)theRMGParse.m_areaNames.size(); i++ )
+			CHECK( theRMGParse.m_areaNames[i] != airName );
+	}
+	CHECK( theRMGParse.m_areaNames[6] == theAreas[6] );
+
+	// the spawn anchors on the middle line and a linked path each way
+	Int spawns = 0, laneA = 0, laneB = 0;
+	Coord3D spawnAt[2];
+	for( Int i = 0; i < (Int)theRMGParse.m_waypointNames.size(); i++ )
+		for( Int team = 0; team < 2; team++ )
+			if( theRMGParse.m_waypointNames[i] == ( team == 0 ? "LaneWar_SpawnA" : "LaneWar_SpawnB" ) )
+			{
+				spawnAt[team] = theRMGParse.m_waypointPositions[i];
+				spawns++;
+			}
+	for( Int i = 0; i < (Int)theRMGParse.m_waypointLabels.size(); i++ )
+	{
+		laneA += theRMGParse.m_waypointLabels[i] == "LaneWar_LaneA";
+		laneB += theRMGParse.m_waypointLabels[i] == "LaneWar_LaneB";
+	}
+	CHECK_EQ( spawns, 2 );
+	if( spawns != 2 )
+		return;
+	CHECK_NEAR( spawnAt[0].x, middleX - 1520.0f, 0.5f );
+	CHECK_NEAR( spawnAt[1].x, middleX + 1520.0f, 0.5f );
+	CHECK_NEAR( spawnAt[0].y, middleY, 0.5f );
+	CHECK_NEAR( spawnAt[1].y, middleY, 0.5f );
+	CHECK_EQ( laneA, 17 );
+	CHECK_EQ( laneB, 17 );
+	CHECK_EQ( (Int)theRMGParse.m_waypointLinks.size(), 32 );
+
+	// the structures, named and owned by their end's starts: a fortress and one tower a team, no middle
+	static const char *const theOwned[][3] =
+	{
+		{ "LaneWar_FortressA", "LaneWarFortress", "StartOwner:1,3,5" }, { "LaneWar_FortressB", "LaneWarFortress", "StartOwner:2,4,6" },
+		{ "LaneWar_TowerA1", "LaneWarWatchTower", "StartOwner:1,3,5" }, { "LaneWar_TowerB1", "LaneWarWatchTower", "StartOwner:2,4,6" },
+	};
+	for( Int i = 0; i < 4; i++ )
+	{
+		const Int o = RMGLaneObject( theOwned[i][0] );
+		CHECK( o >= 0 );
+		if( o < 0 )
+			continue;
+		CHECK( theRMGParse.m_objectNames[o] == theOwned[i][1] );
+		CHECK( theRMGParse.m_objectOwners[o] == theOwned[i][2] );
+		CHECK_NEAR( theRMGParse.m_objectPositions[o].y, middleY, 0.5f );		// the fortress on the line too
+	}
+	CHECK( RMGLaneObject( "LaneWar_TowerA2" ) < 0 && RMGLaneObject( "LaneWar_MiddleStructure" ) < 0 );
+	const Int fortress[2] = { RMGLaneObject( "LaneWar_FortressA" ), RMGLaneObject( "LaneWar_FortressB" ) };
+	const Int tower[2] = { RMGLaneObject( "LaneWar_TowerA1" ), RMGLaneObject( "LaneWar_TowerB1" ) };
+	if( fortress[0] < 0 || fortress[1] < 0 || tower[0] < 0 || tower[1] < 0 )
+		return;
+	CHECK_NEAR( theRMGParse.m_objectPositions[fortress[0]].x, middleX - 1260.0f, 0.5f );
+	CHECK_NEAR( theRMGParse.m_objectPositions[fortress[1]].x, middleX + 1260.0f, 0.5f );
+	CHECK_NEAR( theRMGParse.m_objectPositions[tower[0]].x, middleX - 666.0f, 0.5f );
+	CHECK_NEAR( theRMGParse.m_objectPositions[tower[1]].x, middleX + 666.0f, 0.5f );
+
+	/* A wave copy is a plot turned onto the lane, 320 along and 240 across, round its spawn anchor. It
+		lies on the lane, wholly behind its own fortress, two cells clear of the fortress's 140 by 140, so
+		the fortress stands between the pad and the lane; and the fortress leaves the wave room to pass
+		it, more than ten cells of open lane either side. */
+	for( Int team = 0; team < 2; team++ )
+	{
+		const Coord3D& own = theRMGParse.m_objectPositions[fortress[team]];
+		const Real ahead = team == 0 ? 1.0f : -1.0f;
+		CHECK( spawnAt[team].x - 160.0f >= laneX0 * MAP_XY_FACTOR && spawnAt[team].x + 160.0f <= laneX1 * MAP_XY_FACTOR );
+		CHECK( spawnAt[team].y - 120.0f >= laneY0 * MAP_XY_FACTOR && spawnAt[team].y + 120.0f <= laneY1 * MAP_XY_FACTOR );
+		CHECK( ( ( own.x - ahead * 70.0f ) - ( spawnAt[team].x + ahead * 160.0f ) ) * ahead >= 2.0f * MAP_XY_FACTOR );
+		CHECK( own.y - 70.0f - laneY0 * MAP_XY_FACTOR > 100.0f && laneY1 * MAP_XY_FACTOR - ( own.y + 70.0f ) > 100.0f );
+		CHECK( ( theRMGParse.m_objectPositions[tower[team]].x - own.x ) * ahead > 0.0f );
+	}
+
+	// the lane and the plots flat at one height, and every one of them in one walk
+	const Int ground = theRMGParse.m_heights[( 180 + border ) * W + 321 + border];
+	Int uneven = 0;
+	for( size_t r = 0; r + 3 < playRects.size(); r += 4 )
+		for( Int y = playRects[r + 1]; y <= playRects[r + 3]; y++ )
+			for( Int x = playRects[r]; x <= playRects[r + 2]; x++ )
+				uneven += theRMGParse.m_heights[( y + border ) * W + x + border] != ground;
+	CHECK_EQ( uneven, 0 );
+	std::vector<char> reached;
+	const Int laneCell = ( 180 + border ) * W + 321 + border;
+	RMGLaneFlood( laneCell % W, laneCell / W, reached );
+	for( Int start = 0; start < 6; start++ )
+		CHECK( reached[startCells[start]] == 1 );
+
+	/* Soft: no cell of the map spans more than 8 height bytes, half the pathfinder's cliff and under
+		the 10 at which the generator calls ground steep (5 world units over a cell, a beach or a lake's
+		bank at its steepest), and within six cells of any edge of play none spans more than 2, a rise of
+		under 8 degrees across a cell. The walls of the first lane map were 18 and more inside one cell. */
+	const RMGLaneSlopes slopes = RMGLaneSpans( playRects, 6 );
+	CHECK( slopes.anywhere <= 8 );
+	CHECK( slopes.nearPlay <= 2 );
+
+	/* An island in open sea: water within 24 cells of each of the four edges, at least 12 cells of it
+		on every side, no water inland (every wet vertex one walk through the wet from the map's edge), and
+		a coast that wanders, the island's top and bottom edges over the lane's length lying at least 8
+		cells nearer the map's edge in one place than in another, where the first build's ran straight.
+		At least 50 cells of open sea round all of it, so a wide camera sees the whole island in water. */
+	RMGLaneIsland island = RMGLaneCoast( laneX0, laneX1 );
+	CHECK( island.fewestSea >= 12.0f );
+	CHECK_EQ( island.inlandWater, 0 );
+	CHECK( island.coastSwing[0] >= 8 && island.coastSwing[1] >= 8 );
+	CHECK( island.seaMargin >= 50 );
+	const std::vector<Int> outline = island.outline;
+	CHECK_EQ( theRMGParse.m_numWaterAreas, 1 );
+	CHECK( RMGLanePropsDry() );
+
+	// nothing off play but trees and stones, and the four ground classes each in a texture of its own (only the bank and the shore are painted)
+	CHECK( RMGLaneOnlyNature() );
+	for( Int a = 0; a < 4; a++ )
+		for( Int b = a + 1; b < 4; b++ )
+			CHECK( theRMGParse.m_textureNames[a] != theRMGParse.m_textureNames[b] );
+
+	/* other seeds: the ground in play is the same, as soft and as open, nothing but nature stands off it,
+		the island's outline is its own (its long sides lie on average 2 cells or more from seed 3's,
+		where the first islands were one capsule for every seed), and over a dozen seeds the theme
+		changes */
+	const std::vector<UnsignedByte> heights = theRMGParse.m_heights;
+	std::vector<AsciiString> themes;
+	/* The ends are round: the island reaches further out to sea on the lane's axis than level with
+		the plot columns' outer edges (y 134 and 226), by RMG_LANE_END_ROUND's ellipse, 11.8 cells on
+		average over seeds 1 to 12. The core with corners rounded over 30 cells that came before
+		it ran the coast straight down the column, 4.2 cells. */
+	Real roundness = 0.0f;
+	auto endBulge = [&]()
+	{
+		const Int W2 = theRMGParse.m_width, BX = theRMGParse.m_boundaryX, b = theRMGParse.m_border;
+		auto firstDry = [&]( Int row, Int from ) -> Int
+		{
+			for( Int k = 0; k <= BX; k++ )
+				if( theRMGParse.m_heights[( row + b ) * W2 + ( from == 0 ? k : BX - k ) + b] >= 50 )
+					return k;
+			return BX;
+		};
+		Real bulge = 0.0f;
+		for( Int from = 0; from < 2; from++ )
+			bulge += 0.5f * (Real)( firstDry( 134, from ) + firstDry( 226, from ) ) - (Real)firstDry( 180, from );
+		return 0.5f * bulge;
+	};
+	roundness += endBulge();
+	for( Int seed = 1; seed <= 12; seed++ )
+	{
+		settings.m_seed = seed;
+		RandomMapGenerator::generate( settings, again );
+		parseGeneratedMap( again );
+		Int differs = 0;
+		for( size_t r = 0; r + 3 < playRects.size(); r += 4 )
+			for( Int y = playRects[r + 1]; y <= playRects[r + 3]; y++ )
+				for( Int x = playRects[r]; x <= playRects[r + 2]; x++ )
+					differs += theRMGParse.m_heights[( y + border ) * W + x + border] != heights[( y + border ) * W + x + border];
+		CHECK_EQ( differs, 0 );
+		RMGLaneFlood( laneCell % W, laneCell / W, reached );
+		for( Int start = 0; start < 6; start++ )
+			CHECK( reached[startCells[start]] == 1 );
+		const RMGLaneSlopes seedSlopes = RMGLaneSpans( playRects, 6 );
+		CHECK( seedSlopes.anywhere <= 8 );
+		CHECK( seedSlopes.nearPlay <= 2 );
+		CHECK( RMGLaneOnlyNature() );
+		CHECK( RMGLanePropsDry() );
+		island = RMGLaneCoast( laneX0, laneX1 );
+		CHECK( island.fewestSea >= 12.0f );
+		CHECK_EQ( island.inlandWater, 0 );
+		CHECK( island.seaMargin >= 50 );
+		if( seed != 3 )
+			roundness += endBulge();
+		if( seed != 3 && island.outline.size() == outline.size() )
+		{
+			Int apart = 0;
+			for( size_t k = 0; k < outline.size(); k++ )
+				apart += abs( island.outline[k] - outline[k] );
+			CHECK( apart >= 2 * (Int)outline.size() );
+		}
+		if( std::find( themes.begin(), themes.end(), theRMGParse.m_textureName ) == themes.end() )
+			themes.push_back( theRMGParse.m_textureName );
+	}
+	CHECK( themes.size() >= 3 );
+	printf( "  lane island ends bulge %.1f cells on average\n", roundness / 12.0f );
+	CHECK( roundness / 12.0f >= 9.0f );
+
+	/* The plots wear the island's ground, so the slot grid takes the theme's line colour off the map's
+		name: seed 5 is temperate's pale lines, seed 6 twilight's, seed 3 desert's dark ones, every one
+		visible, and a name that is not a lane map gets none. */
+	UnsignedInt line[3], edge[3];
+	const Int gridSeeds[3] = { 5, 6, 3 };
+	for( Int k = 0; k < 3; k++ )
+	{
+		AsciiString path;
+		path.format( "Maps\\RMG_v%d_%d_6p_642c_lane\\RMG_v%d_%d_6p_642c_lane.map", RANDOM_MAP_GENERATOR_VERSION, gridSeeds[k],
+			RANDOM_MAP_GENERATOR_VERSION, gridSeeds[k] );
+		CHECK( LaneGridColours( path, &line[k], &edge[k] ) );
+		CHECK( ( line[k] >> 24 ) >= 0x40 && ( edge[k] >> 24 ) > ( line[k] >> 24 ) );
+		CHECK_EQ( line[k] & 0x00FFFFFF, edge[k] & 0x00FFFFFF );
+	}
+	CHECK( ( line[0] & 0x00FFFFFF ) != ( line[1] & 0x00FFFFFF ) && ( line[0] & 0x00FFFFFF ) != ( line[2] & 0x00FFFFFF ) );
+	AsciiString plain;
+	plain.format( "Maps\\RMG_v%d_5_2p_64c\\RMG_v%d_5_2p_64c.map", RANDOM_MAP_GENERATOR_VERSION, RANDOM_MAP_GENERATOR_VERSION );
+	CHECK( !LaneGridColours( plain, &line[0], &edge[0] ) );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The Lane War director's rules (LaneWarDirector.h), the parts that are plain arithmetic: who sits
+	  where, whose wave a tick sends, who holds the middle, what a tick pays and how long things last. */
+#include "GameLogic/LaneWarDirector.h"
+
+TEST(lane_war_seats_follow_the_starts_and_alternate_the_ends)
+{
+	// start 1 (0) is A's seat 1, start 2 B's seat 1, start 3 A's seat 2, start 6 B's seat 3
+	CHECK_EQ( LaneWar_teamOfStart( 0 ), 0 );
+	CHECK_EQ( LaneWar_seatOfStart( 0 ), 0 );
+	CHECK_EQ( LaneWar_teamOfStart( 1 ), 1 );
+	CHECK_EQ( LaneWar_seatOfStart( 1 ), 0 );
+	CHECK_EQ( LaneWar_teamOfStart( 2 ), 0 );
+	CHECK_EQ( LaneWar_seatOfStart( 2 ), 1 );
+	CHECK_EQ( LaneWar_teamOfStart( 5 ), 1 );
+	CHECK_EQ( LaneWar_seatOfStart( 5 ), 2 );
+}
+
+TEST(lane_war_rotation_takes_seats_in_turn_and_passes_over_empty_ones)
+{
+	const Bool full[ LANEWAR_SEATS ] = { TRUE, TRUE, TRUE };
+	for( UnsignedInt tick = 0; tick < 9; ++tick )
+		CHECK_EQ( LaneWar_seatForTick( full, tick ), (Int)( tick % 3 ) );
+
+	// a lone player spawns on every tick
+	const Bool lone[ LANEWAR_SEATS ] = { FALSE, TRUE, FALSE };
+	for( UnsignedInt tick = 0; tick < 5; ++tick )
+		CHECK_EQ( LaneWar_seatForTick( lone, tick ), 1 );
+
+	// two players alternate, the empty middle seat never comes up
+	const Bool ends[ LANEWAR_SEATS ] = { TRUE, FALSE, TRUE };
+	CHECK_EQ( LaneWar_seatForTick( ends, 0 ), 0 );
+	CHECK_EQ( LaneWar_seatForTick( ends, 1 ), 2 );
+	CHECK_EQ( LaneWar_seatForTick( ends, 2 ), 0 );
+	CHECK_EQ( LaneWar_seatForTick( ends, 3 ), 2 );
+
+	const Bool none[ LANEWAR_SEATS ] = { FALSE, FALSE, FALSE };
+	CHECK_EQ( LaneWar_seatForTick( none, 0 ), -1 );
+	CHECK_EQ( LaneWar_seatForTick( none, 7 ), -1 );
+}
+
+TEST(lane_war_middle_goes_to_the_larger_count_past_the_line_and_pays_a_quarter_more)
+{
+	CHECK_EQ( LaneWar_middleHolder( 0, 0 ), -1 );
+	CHECK_EQ( LaneWar_middleHolder( 3, 3 ), -1 );
+	CHECK_EQ( LaneWar_middleHolder( 1, 0 ), 0 );
+	CHECK_EQ( LaneWar_middleHolder( 4, 9 ), 1 );
+
+	CHECK_EQ( LaneWar_income( FALSE ), (UnsignedInt)400 );
+	CHECK_EQ( LaneWar_income( TRUE ), (UnsignedInt)( 400 + 100 ) );
+	CHECK_EQ( (Int)LANEWAR_START_MONEY, 2000 );
+}
+
+TEST(lane_war_plot_slots_cover_the_footprint_and_never_share)
+{
+	// a Ranger's few units take one slot, a tank of radius 15 two a side, an Overlord's 25 three
+	CHECK_EQ( LaneWar_slotsFor( 0.0f ), 1 );
+	CHECK_EQ( LaneWar_slotsFor( 6.0f ), 1 );
+	CHECK_EQ( LaneWar_slotsFor( 10.0f ), 1 );
+	CHECK_EQ( LaneWar_slotsFor( 10.5f ), 2 );
+	CHECK_EQ( LaneWar_slotsFor( 15.0f ), 2 );
+	CHECK_EQ( LaneWar_slotsFor( 25.0f ), 3 );
+
+	// a 12 by 8 grid: the block has to stay inside it
+	CHECK( LaneWar_blockFits( 0, 0, 1, 12, 8 ) );
+	CHECK( LaneWar_blockFits( 10, 6, 2, 12, 8 ) );
+	CHECK( !LaneWar_blockFits( 11, 6, 2, 12, 8 ) );
+	CHECK( !LaneWar_blockFits( 10, 7, 2, 12, 8 ) );
+	CHECK( !LaneWar_blockFits( -1, 0, 1, 12, 8 ) );
+
+	// two blocks overlap when they share a slot, and touching edges is no overlap
+	CHECK( LaneWar_blocksOverlap( 0, 0, 2, 1, 1, 1 ) );
+	CHECK( LaneWar_blocksOverlap( 3, 3, 1, 2, 2, 2 ) );
+	CHECK( !LaneWar_blocksOverlap( 0, 0, 2, 2, 0, 2 ) );
+	CHECK( !LaneWar_blocksOverlap( 0, 0, 2, 0, 2, 1 ) );
+
+	ScenarioAction action;
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 laneplace 0 AmericaTankCrusader 4 2", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANEPLACE );
+	CHECK_EQ( (Int)action.at.x, 4 );
+	CHECK_EQ( (Int)action.at.y, 2 );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 laneplace 0 AmericaTankCrusader 4 -2", &action ), (Int)SCENARIO_PARSE_BAD_POSITION );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 laneplace 0 AmericaTankCrusader 4", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
+}
+
+TEST(lane_war_plot_front_faces_the_lane_and_leads_the_wave)
+{
+	/* The plots of the night of 2026-11-20, turned: 160 along the lane and 240 across, team A's behind
+		the west end with its front, the edge towards the lane, facing east, team B's behind the east end
+		facing west. Column 0 row 0 is the front left slot as each team faces the enemy. */
+	const Coord2D a00 = LaneWar_slotPlace( 400.0f, 1280.0f, 560.0f, 1520.0f, 1.0f, 0, 0, 1 );
+	const Coord2D aLast = LaneWar_slotPlace( 400.0f, 1280.0f, 560.0f, 1520.0f, 1.0f, 11, 7, 1 );
+	CHECK_NEAR( a00.x, 550.0f, 0.01f );
+	CHECK_NEAR( a00.y, 1510.0f, 0.01f );
+	CHECK_NEAR( aLast.x, 410.0f, 0.01f );
+	CHECK_NEAR( aLast.y, 1290.0f, 0.01f );
+	const Coord2D b00 = LaneWar_slotPlace( 4440.0f, 1280.0f, 4600.0f, 1520.0f, -1.0f, 0, 0, 1 );
+	const Coord2D bLast = LaneWar_slotPlace( 4440.0f, 1280.0f, 4600.0f, 1520.0f, -1.0f, 11, 7, 1 );
+	CHECK_NEAR( b00.x, 4450.0f, 0.01f );
+	CHECK_NEAR( b00.y, 1290.0f, 0.01f );
+	CHECK_NEAR( bLast.x, 4590.0f, 0.01f );
+	CHECK_NEAR( bLast.y, 1510.0f, 0.01f );
+
+	// a tank's two by two block at column 4 row 0 centres one slot in from its front left corner
+	const Coord2D tank = LaneWar_slotPlace( 400.0f, 1280.0f, 560.0f, 1520.0f, 1.0f, 4, 0, 2 );
+	CHECK_NEAR( tank.x, 540.0f, 0.01f );
+	CHECK_NEAR( tank.y, 1420.0f, 0.01f );
+
+	/* The wave is the plot moved onto the lane round the grid's middle: at both ends the front row
+		lands ahead of the middle, towards the enemy, and column 0 on the left flank. */
+	const Real aheadA = a00.x - 0.5f * ( a00.x + aLast.x ), leftA = a00.y - 0.5f * ( a00.y + aLast.y );
+	const Real aheadB = b00.x - 0.5f * ( b00.x + bLast.x ), leftB = b00.y - 0.5f * ( b00.y + bLast.y );
+	CHECK( aheadA > 0.0f && leftA > 0.0f );			// facing +x, the left is +y
+	CHECK( aheadB < 0.0f && leftB < 0.0f );			// facing -x, the left is -y
+	CHECK_NEAR( aheadA, -aheadB, 0.01f );
+	CHECK_NEAR( leftA, -leftB, 0.01f );
+}
+
+TEST(lane_war_times_are_wall_seconds_in_logic_frames)
+{
+	// wall time, so the logic rate and never the game speed: a tick every 45 s, the first at 90 s, a
+	// copy living 130 s, at any speed
+	CHECK_EQ( LANEWAR_TICK_FRAMES, (UnsignedInt)( 45 * LOGICFRAMES_PER_SECOND ) );
+	CHECK_EQ( LANEWAR_FIRST_TICK_FRAMES, (UnsignedInt)( 90 * LOGICFRAMES_PER_SECOND ) );
+	CHECK_EQ( LANEWAR_LIFESPAN_FRAMES, (UnsignedInt)( 130 * LOGICFRAMES_PER_SECOND ) );
+
+	// a plot unit's status bit has a name, so a save writes it and an INI can read it
+	CHECK_EQ( ObjectStatusMaskType::getSingleBitFromName( "UNATTACKABLE" ), (Int)OBJECT_STATUS_UNATTACKABLE );
+}
+
+TEST(lane_war_jets_take_off_when_the_meeting_is_no_further_than_their_flight)
+{
+	Real ahead = -1.0f;
+	// fronts 1000 apart closing at 1 and 1 a frame meet in 500 frames, 500 ahead of my front; jets
+	// 2500 behind it at 10 a frame need 300 frames to be there: not yet
+	CHECK( !LaneWar_strikeDue( 1000.0f, 1.0f, 1.0f, 2500.0f, 10.0f, &ahead ) );
+	CHECK_NEAR( ahead, 500.0f, 0.001f );
+	// 500 apart: they meet in 250 frames, 250 ahead, and the jets need 275: go
+	CHECK( LaneWar_strikeDue( 500.0f, 1.0f, 1.0f, 2500.0f, 10.0f, &ahead ) );
+	CHECK_NEAR( ahead, 250.0f, 0.001f );
+	// a front standing still is met where it stands: 200 frames off, 300 of flight
+	CHECK( LaneWar_strikeDue( 400.0f, 0.0f, 2.0f, 3000.0f, 10.0f, &ahead ) );
+	CHECK_NEAR( ahead, 0.0f, 0.001f );
+	// fronts in contact strike now, halfway between them, moving or not and with no jet speed known
+	CHECK( LaneWar_strikeDue( (Real)LANEWAR_STRIKE_CONTACT_GAP, 0.0f, 0.0f, 5000.0f, 0.0f, &ahead ) );
+	CHECK_NEAR( ahead, 0.5f * LANEWAR_STRIKE_CONTACT_GAP, 0.001f );
+	CHECK( LaneWar_strikeDue( -30.0f, 1.0f, 1.0f, 5000.0f, 10.0f, &ahead ) );
+	CHECK_NEAR( ahead, 0.0f, 0.001f );
+	// apart and standing, or backing off, there is nothing to meet
+	CHECK( !LaneWar_strikeDue( 600.0f, 0.0f, 0.0f, 100.0f, 10.0f, &ahead ) );
+	CHECK( !LaneWar_strikeDue( 600.0f, -2.0f, -1.0f, 100.0f, 10.0f, &ahead ) );
+
+	// a strike and a rearm are game time, the lifespan stays wall time
+	CHECK_EQ( LANEWAR_STRIKE_FRAMES, (UnsignedInt)( 30 * LOGICFRAMES_PER_GAME_SECOND ) );
+	CHECK_EQ( LANEWAR_JET_REARM_FRAMES, (UnsignedInt)( 15 * LOGICFRAMES_PER_GAME_SECOND ) );
+}
+
+TEST(lane_war_tiers_cost_what_the_plan_says_and_a_sale_pays_back_half_once_sent)
+{
+	// four income levels of 1000 each, every one paying 100 more a tick, the middle a quarter on top
+	CHECK_EQ( LaneWar_incomeAt( 0, FALSE ), (UnsignedInt)400 );
+	CHECK_EQ( LaneWar_incomeAt( 4, FALSE ), (UnsignedInt)( 400 + 4 * 100 ) );
+	CHECK_EQ( LaneWar_incomeAt( 2, TRUE ), (UnsignedInt)( ( 400 + 2 * 100 ) * 125 / 100 ) );
+	CHECK_EQ( LaneWar_incomeAt( 0, TRUE ), LaneWar_income( TRUE ) );
+	for( Int level = 1; level <= LANEWAR_INCOME_TIERS; ++level )
+		CHECK_EQ( LaneWar_tierPrice( LANEWAR_TRACK_INCOME, level ), 1000 );
+	CHECK_EQ( LaneWar_tierPrice( LANEWAR_TRACK_INCOME, LANEWAR_INCOME_TIERS + 1 ), 0 );
+
+	// tech starts at 1, so 2 and 3 are the levels on sale
+	CHECK_EQ( LaneWar_tierPrice( LANEWAR_TRACK_TECH, 1 ), 0 );
+	CHECK_EQ( LaneWar_tierPrice( LANEWAR_TRACK_TECH, 2 ), 1500 );
+	CHECK_EQ( LaneWar_tierPrice( LANEWAR_TRACK_TECH, 3 ), 3000 );
+	CHECK_EQ( LaneWar_tierPrice( LANEWAR_TRACK_TECH, 4 ), 0 );
+
+	CHECK_EQ( LaneWar_refund( 225, FALSE ), 225 );
+	CHECK_EQ( LaneWar_refund( 225, TRUE ), 112 );
+	CHECK_EQ( LaneWar_refund( 900, TRUE ), 450 );
+
+	// the drill's lane verbs keep their numbers in name for the director's order
+	ScenarioAction action;
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 lanetier 0 1 2", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANETIER );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 lanesell 0 0 3 1", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANESELL );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 lanemove 0 0 3 1 5 2", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANEMOVE );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 laneupgrade 0 Upgrade_AmericaRangerFlashBangGrenade", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANEUPGRADE );
+	CHECK( ScenarioDrill_parseLine( "30 lanemove 0 0 3 1 5", &action ) != SCENARIO_PARSE_OK );
+}
+
+TEST(lane_war_abilities_start_on_but_the_captures_and_money_and_a_switch_holds_only_what_differs)
+{
+	// the owner's list of 2026-11-20: building captures and money abilities start off, the car bomb too
+	CHECK( !LaneWar_abilityDefaultOn( GUI_COMMAND_SPECIAL_POWER, SPECIAL_INFANTRY_CAPTURE_BUILDING ) );
+	CHECK( !LaneWar_abilityDefaultOn( GUI_COMMAND_SPECIAL_POWER, SPECIAL_BLACKLOTUS_CAPTURE_BUILDING ) );
+	CHECK( !LaneWar_abilityDefaultOn( GUI_COMMAND_SPECIAL_POWER, SPECIAL_BLACKLOTUS_STEAL_CASH_HACK ) );
+	CHECK( !LaneWar_abilityDefaultOn( GUI_COMMAND_HACK_INTERNET, SPECIAL_INVALID ) );
+	CHECK( !LaneWar_abilityDefaultOn( GUICOMMANDMODE_SABOTAGE_BUILDING, SPECIAL_INVALID ) );
+	CHECK( !LaneWar_abilityDefaultOn( GUICOMMANDMODE_CONVERT_TO_CARBOMB, SPECIAL_INVALID ) );
+	CHECK( LaneWar_abilityDefaultOn( GUI_COMMAND_SPECIAL_POWER, SPECIAL_BLACKLOTUS_DISABLE_VEHICLE_HACK ) );
+	CHECK( LaneWar_abilityDefaultOn( GUI_COMMAND_SPECIAL_POWER, SPECIAL_TANKHUNTER_TNT_ATTACK ) );
+	CHECK( LaneWar_abilityDefaultOn( GUI_COMMAND_SPECIAL_POWER, SPECIAL_HACKER_DISABLE_BUILDING ) );
+	CHECK( LaneWar_abilityDefaultOn( GUICOMMANDMODE_HIJACK_VEHICLE, SPECIAL_INVALID ) );
+	CHECK( LaneWar_abilityDefaultOn( GUI_COMMAND_FIRE_WEAPON, SPECIAL_INVALID ) );
+	CHECK( LaneWar_abilityDefaultOn( GUI_COMMAND_SWITCH_WEAPON, SPECIAL_INVALID ) );
+
+	// a switch away from the default is kept, sorted by player, template and slot; back to it drops it
+	std::vector<LaneWarAbilityToggle> list;
+	LaneWar_setAbilityToggle( list, 2, 40, 3, FALSE, TRUE );
+	LaneWar_setAbilityToggle( list, 0, 90, 1, TRUE, FALSE );
+	LaneWar_setAbilityToggle( list, 2, 40, 1, FALSE, TRUE );
+	LaneWar_setAbilityToggle( list, 0, 90, 1, TRUE, FALSE );		// the same again: no second entry
+	CHECK_EQ( (Int)list.size(), 3 );
+	CHECK_EQ( list[ 0 ].player, 0 );
+	CHECK_EQ( list[ 1 ].slot, 1 );
+	CHECK_EQ( list[ 2 ].slot, 3 );
+	CHECK( !LaneWar_abilityToggleOn( list, 2, 40, 3, TRUE ) );
+	CHECK( LaneWar_abilityToggleOn( list, 0, 90, 1, FALSE ) );
+	CHECK( LaneWar_abilityToggleOn( list, 1, 40, 3, TRUE ) );			// another player keeps the default
+	CHECK( !LaneWar_abilityToggleOn( list, 2, 41, 3, FALSE ) );
+	LaneWar_setAbilityToggle( list, 2, 40, 3, TRUE, TRUE );
+	CHECK_EQ( (Int)list.size(), 2 );
+	CHECK( LaneWar_abilityToggleOn( list, 2, 40, 3, TRUE ) );
+	LaneWar_setAbilityToggle( list, 2, 40, 1, TRUE, FALSE );			// on where the default is off: kept as on
+	CHECK_EQ( (Int)list.size(), 2 );
+	CHECK( LaneWar_abilityToggleOn( list, 2, 40, 1, FALSE ) );
+
+	// the order's integers: template id, a command set slot, and the switch as 0 or 1
+	const Int good[ 3 ] = { 12, 1, 0 };
+	CHECK( LaneWar_abilityOrderArgsOk( good, 3 ) );
+	CHECK( !LaneWar_abilityOrderArgsOk( good, 2 ) );
+	const Int badId[ 3 ] = { -1, 1, 1 };
+	const Int bigId[ 3 ] = { 0x10000, 1, 1 };
+	const Int badSlot[ 3 ] = { 12, MAX_COMMANDS_PER_SET, 1 };
+	const Int badSwitch[ 3 ] = { 12, 1, 2 };
+	CHECK( !LaneWar_abilityOrderArgsOk( badId, 3 ) );
+	CHECK( !LaneWar_abilityOrderArgsOk( bigId, 3 ) );
+	CHECK( !LaneWar_abilityOrderArgsOk( badSlot, 3 ) );
+	CHECK( !LaneWar_abilityOrderArgsOk( badSwitch, 3 ) );
+	CHECK_EQ( (Int)LANEWAR_ORDER_ABILITY, 5 );
+
+	ScenarioAction action;
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 laneability 0 ChinaInfantryTankHunter 1 0", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANEABILITY );
+	CHECK_EQ( (Int)action.at.x, 1 );
+	CHECK_EQ( (Int)action.at.y, 0 );
+	CHECK( ScenarioDrill_parseLine( "30 laneability 0 ChinaInfantryTankHunter 1 2", &action ) != SCENARIO_PARSE_OK );
+}
+
+TEST(lane_war_ranks_cost_a_half_three_quarters_and_all_of_the_unit)
+{
+	// a Crusader bought for 900: Veteran 450, Elite 675, Heroic 900, nothing past Heroic or for Regular
+	CHECK_EQ( LaneWar_veterancyPrice( 900, LEVEL_VETERAN ), 450 );
+	CHECK_EQ( LaneWar_veterancyPrice( 900, LEVEL_ELITE ), 675 );
+	CHECK_EQ( LaneWar_veterancyPrice( 900, LEVEL_HEROIC ), 900 );
+	CHECK_EQ( LaneWar_veterancyPrice( 900, LEVEL_HEROIC + 1 ), 0 );
+	CHECK_EQ( LaneWar_veterancyPrice( 900, LEVEL_REGULAR ), 0 );
+	// a Ranger's 225 rounds down: 112 and 168
+	CHECK_EQ( LaneWar_veterancyPrice( 225, LEVEL_VETERAN ), 112 );
+	CHECK_EQ( LaneWar_veterancyPrice( 225, LEVEL_ELITE ), 168 );
+	CHECK_EQ( (Int)LANEWAR_ORDER_VETERANCY, 6 );
+
+	ScenarioAction action;
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 lanevet 0 0 3 1", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANEVET );
+	CHECK_STR( action.name.str(), "0 3 1" );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 lanevet 0 0 3 1 2", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_STR( action.name.str(), "0 3 1 2" );
+}
+
+TEST(lane_war_cargo_orders_name_the_plot_unit_and_what_goes_on_it)
+{
+	CHECK_EQ( (Int)LANEWAR_ORDER_GARRISON, 7 );
+	CHECK_EQ( (Int)LANEWAR_ORDER_UNIT_UPGRADE, 8 );
+
+	ScenarioAction action;
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "90 lanegarrison 1 ChinaInfantryRedguard 0 0 0", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANEGARRISON );
+	CHECK_STR( action.selector.str(), "ChinaInfantryRedguard" );
+	CHECK_STR( action.name.str(), "0 0 0" );
+	CHECK( ScenarioDrill_parseLine( "90 lanegarrison 1 ChinaInfantryRedguard 0 0", &action ) != SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 laneunitupgrade 0 Upgrade_AmericaBattleDrone 0 4 1", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANEUNITUPGRADE );
+	CHECK_STR( action.name.str(), "0 4 1" );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "30 lanecash 0 20000", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( action.count, 20000 );
+	// a passenger sold comes after the slot, as a rank's does
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "120 lanesell 1 0 0 0 1", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_STR( action.name.str(), "0 0 0 1" );
+
+	// every part of a sale comes back under the unit's rule: a 2000 tank, a 500 bunker, a 300 man
+	// ranked for 150, after its first wave
+	CHECK_EQ( LaneWar_refund( 2000, TRUE ) + LaneWar_refund( 500, TRUE ) + LaneWar_refund( 300, TRUE ) + LaneWar_refund( 150, TRUE ), 1475 );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The Lane War bot's plan (LaneWarBot.h): one curve of the AI rating through the lobby's four levels,
+	  when it wants its income and tech, moves and sells, and where on a plot it looks for room first. */
+#include "GameLogic/LaneWarBot.h"
+
+TEST(lane_war_bot_plan_follows_the_rating_and_looks_for_room_from_the_middle)
+{
+	LaneWarBotPlan easy, medium, hard, brutal, between, past;
+	LaneWarBot_planAt( AI_RATING_EASY, &easy );
+	LaneWarBot_planAt( AI_RATING_MEDIUM, &medium );
+	LaneWarBot_planAt( AI_RATING_HARD, &hard );
+	LaneWarBot_planAt( AI_RATING_BRUTAL, &brutal );
+	LaneWarBot_planAt( 2000.0f, &between );
+	LaneWarBot_planAt( 2600.0f, &past );
+	CHECK_EQ( AILevelAboveHardRating[ 0 ], aiRatingToHundredths( AI_RATING_BRUTAL ) );	// the lobby's Brutal is the plan's fourth level
+
+	// the four lobby levels are points on the curve: no level buys income, which never pays back inside
+	// a match; Easy opens tier 2 on tick 12 and Medium on tick 4
+	for( Int level = 1; level <= LANEWAR_INCOME_TIERS; ++level )
+		CHECK( !LaneWarBot_wantsTier( brutal, LANEWAR_TRACK_INCOME, level, 100 ) && !LaneWarBot_wantsTier( easy, LANEWAR_TRACK_INCOME, level, 100 ) );
+	CHECK( !LaneWarBot_wantsTier( easy, LANEWAR_TRACK_TECH, 2, 11 ) );
+	CHECK( LaneWarBot_wantsTier( easy, LANEWAR_TRACK_TECH, 2, 12 ) );
+	CHECK( !LaneWarBot_wantsTier( easy, LANEWAR_TRACK_TECH, 3, 100 ) );
+	CHECK( !LaneWarBot_wantsTier( medium, LANEWAR_TRACK_TECH, 2, 3 ) );
+	CHECK( LaneWarBot_wantsTier( medium, LANEWAR_TRACK_TECH, 2, 4 ) );
+	CHECK( !LaneWarBot_wantsTier( brutal, LANEWAR_TRACK_INCOME, 5, 100 ) );
+	CHECK( !LaneWarBot_wantsTier( brutal, LANEWAR_TRACK_TECH, 1, 100 ) );
+	CHECK_EQ( (Int)easy.stepFrames, 6 * LOGICFRAMES_PER_SECOND );
+	CHECK_EQ( (Int)brutal.stepFrames, LOGICFRAMES_PER_SECOND );
+	CHECK( !easy.saves && medium.saves );
+	CHECK_NEAR( easy.counterWeight, 0.0f, 1e-6f );
+	CHECK_NEAR( hard.counterWeight, 1.0f, 1e-6f );
+
+	// between two levels a number lies between theirs; past Brutal the plan keeps coming earlier and quicker
+	CHECK( between.techTick[ 1 ] < hard.techTick[ 1 ] && between.techTick[ 1 ] > brutal.techTick[ 1 ] );
+	CHECK( past.techTick[ 1 ] < brutal.techTick[ 1 ] );
+	CHECK( past.stepFrames < brutal.stepFrames );
+	CHECK( past.jitter < brutal.jitter );
+
+	// a higher rating never wants a tier later, never decides slower, never weighs the enemy less or the dice more
+	for( Real r = 300.0f; r < 3800.0f; r += 10.0f )
+	{
+		LaneWarBotPlan lo, hi;
+		LaneWarBot_planAt( r, &lo );
+		LaneWarBot_planAt( r + 10.0f, &hi );
+		Bool ordered = hi.stepFrames <= lo.stepFrames && hi.heroTick <= lo.heroTick && hi.jetTick <= lo.jetTick
+									 && hi.extrasTick <= lo.extrasTick && hi.moveTick <= lo.moveTick && hi.sellTick <= lo.sellTick
+									 && hi.counterWeight >= lo.counterWeight && hi.jitter <= lo.jitter;
+		for( Int k = 0; k < LANEWAR_INCOME_TIERS; ++k )
+			ordered = ordered && hi.incomeTick[ k ] <= lo.incomeTick[ k ];
+		for( Int k = 0; k < LANEWAR_TECH_TIERS - 1; ++k )
+			ordered = ordered && hi.techTick[ k ] <= lo.techTick[ k ];
+		CHECK( ordered );
+	}
+
+	// Easy never moves or sells; Brutal moves from tick 1 and sells from tick 6
+	CHECK( easy.moveTick >= (Real)LANEWAR_BOT_NEVER_TICK && easy.sellTick >= (Real)LANEWAR_BOT_NEVER_TICK );
+	CHECK_NEAR( brutal.moveTick, 1.0f, 1e-6f );
+	CHECK_NEAR( brutal.sellTick, 6.0f, 1e-6f );
+
+	// an 8-row plot in three bands, rows 0-2, 3-4 and 5-7, and a 2-slot block: the front band from the
+	// front, the back band from the back, the middle band from its front, then the rows nearest the band
+	Int rows[ 16 ], inBand;
+	CHECK_EQ( LaneWarBot_rowOrder( LANEWAR_BOT_FRONT, 8, 2, rows, 16, &inBand ), 7 );
+	CHECK_EQ( inBand, 3 );
+	CHECK_EQ( rows[ 0 ], 0 );
+	CHECK_EQ( rows[ 2 ], 2 );
+	CHECK_EQ( rows[ 3 ], 3 );
+	CHECK_EQ( rows[ 6 ], 6 );
+	CHECK_EQ( LaneWarBot_rowOrder( LANEWAR_BOT_BACK, 8, 2, rows, 16, &inBand ), 7 );
+	CHECK_EQ( inBand, 2 );		// a 2-deep block's front row can stand on 5 or 6
+	CHECK_EQ( rows[ 0 ], 6 );
+	CHECK_EQ( rows[ 1 ], 5 );
+	CHECK_EQ( rows[ 2 ], 4 );
+	CHECK_EQ( rows[ 6 ], 0 );
+	CHECK_EQ( LaneWarBot_rowOrder( LANEWAR_BOT_MIDDLE, 8, 2, rows, 16, &inBand ), 7 );
+	CHECK_EQ( inBand, 2 );
+	CHECK_EQ( rows[ 0 ], 3 );
+	CHECK_EQ( rows[ 1 ], 4 );
+	CHECK_EQ( rows[ 2 ], 5 );
+	CHECK_EQ( rows[ 3 ], 2 );
+	CHECK_EQ( rows[ 6 ], 0 );
+	Int every = 0;
+	for( Int i = 0; i < 7; ++i )
+		every |= 1 << rows[ i ];
+	CHECK_EQ( every, ( 1 << 7 ) - 1 );
+	CHECK_EQ( LaneWarBot_rowOrder( LANEWAR_BOT_FRONT, 2, 3, rows, 16, &inBand ), 0 );
+	// a grid two rows deep: a 1-slot block tries row 0, then row 1
+	CHECK_EQ( LaneWarBot_rowOrder( LANEWAR_BOT_FRONT, 2, 1, rows, 16, &inBand ), 2 );
+	CHECK_EQ( inBand, 1 );
+	CHECK_EQ( rows[ 1 ], 1 );
+
+	// 12 columns and a 2-slot block: 5, 4, 6, 3, 7 ... every one of 0 to 10 once
+	Int cols[ 16 ];
+	CHECK_EQ( LaneWarBot_columnOrder( 12, 2, cols, 16 ), 11 );
+	CHECK_EQ( cols[ 0 ], 5 );
+	CHECK_EQ( cols[ 1 ], 4 );
+	CHECK_EQ( cols[ 2 ], 6 );
+	Int seen = 0;
+	for( Int i = 0; i < 11; ++i )
+		seen |= 1 << cols[ i ];
+	CHECK_EQ( seen, ( 1 << 11 ) - 1 );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -18017,10 +18939,11 @@ static Real aiProfileField( const AIDifficultyProfile &profile, const FieldParse
 	return field->parse == INI::parseReal ? *(const Real *)at : INT_TO_REAL( *(const Int *)at );
 }
 
-/** A seat's rating reads every rung-keyed knob off one curve through Easy's value at 0 and Hard's at 30
-	 (aiKnobAt).  At 0 and 30 it has to be the rung to the bit, or every replay of the rung stops playing
-	 back; Medium is wherever the curve passes at 15.  Past either end there is no edge: 100 and -10 are
-	 ratings, and every knob stays a finite number that means something. */
+/** A seat's rating, an Elo, reads every rung-keyed knob off one curve through Easy's value at 800 and
+	 Hard's at 1800 (aiKnobAt).  At 800 and 1800 it has to be the rung to the bit, or every replay of the
+	 rung stops playing back; Medium is wherever the curve passes at 1300.  Past either end there is no
+	 edge: 4133.33 and 466.67 (100 and -10 on the scale before Elo) are ratings, and every knob stays a
+	 finite number that means something. */
 TEST(an_ai_rating_is_easy_and_hard_at_their_anchors_and_one_curve_through_and_past_them)
 {
 	TAiData data;
@@ -18034,37 +18957,73 @@ TEST(an_ai_rating_is_easy_and_hard_at_their_anchors_and_one_curve_through_and_pa
 		CHECK_EQ( (Int)i, (Int)aiSkillOfRating( aiRatingOfSkill( (AISkillLevel)i ) ) );
 
 	// no edge on the scale: only an Int's guard far past any ladder
-	CHECK_EQ( 100.0f, aiRatingClamp( 100.0f ) );
-	CHECK_EQ( -10.0f, aiRatingClamp( -10.0f ) );
-	CHECK_EQ( AI_RATING_LIMIT, aiRatingClamp( 5000.0f ) );
-	// NaN is Easy, and its hundredths 0 on every machine
+	CHECK_EQ( 4200.0f, aiRatingClamp( 4200.0f ) );
+	CHECK_EQ( -500.0f, aiRatingClamp( -500.0f ) );
+	CHECK_EQ( AI_RATING_LIMIT, aiRatingClamp( 50000.0f ) );
+	CHECK_EQ( -AI_RATING_LIMIT, aiRatingClamp( -50000.0f ) );
+	// NaN is Easy, and its hundredths Easy's on every machine
 	const Real notANumber = std::numeric_limits<Real>::quiet_NaN();
 	CHECK_EQ( AI_RATING_EASY, aiRatingClamp( notANumber ) );
-	CHECK_EQ( 0, aiRatingToHundredths( notANumber ) );
+	CHECK_EQ( 80000, aiRatingToHundredths( notANumber ) );
 
-	// the ladder shows two decimals; a seat carries whole hundredths either side of 0
-	CHECK_EQ( 1234, aiRatingToHundredths( 12.34f ) );
-	CHECK_EQ( 1234, aiRatingToHundredths( aiRatingFromHundredths( 1234 ) ) );
+	// a seat carries whole hundredths either side of 0, the furthest of them well inside an Int
+	CHECK_EQ( 123456, aiRatingToHundredths( 1234.56f ) );
+	CHECK_EQ( 123456, aiRatingToHundredths( aiRatingFromHundredths( 123456 ) ) );
 	CHECK_EQ( -1050, aiRatingToHundredths( -10.5f ) );
 	CHECK_EQ( -1050, aiRatingToHundredths( aiRatingFromHundredths( -1050 ) ) );
-	CHECK_EQ( 10000, aiRatingToHundredths( 100.0f ) );
-	CHECK_EQ( AI_RATING_HARD, aiRatingFromHundredths( 3000 ) );
-	CHECK_EQ( 100000, aiRatingToHundredths( 5000.0f ) );
+	CHECK_EQ( 420000, aiRatingToHundredths( 4200.0f ) );
+	CHECK_EQ( AI_RATING_HARD, aiRatingFromHundredths( 180000 ) );
+	CHECK_EQ( 500000, aiRatingToHundredths( 5000.0f ) );
+	CHECK_EQ( 3200000, aiRatingToHundredths( 50000.0f ) );
 
-	// every Real and Int knob: finite and not negative far either way, the same value either side of 0,
+	// the scale before Elo maps on straight, each anchor onto its own to the bit, and back
+	CHECK_EQ( AI_RATING_EASY, aiRatingOfLegacy( 0.0f ) );
+	CHECK_EQ( AI_RATING_MEDIUM, aiRatingOfLegacy( 15.0f ) );
+	CHECK_EQ( AI_RATING_HARD, aiRatingOfLegacy( 30.0f ) );
+	CHECK_EQ( 2300.0f, aiRatingOfLegacy( 45.0f ) );		// the old Brutal, a little over today's 2200
+	CHECK_NEAR( 4133.33f, aiRatingOfLegacy( 100.0f ), 0.01f );
+	CHECK_NEAR( 466.67f, aiRatingOfLegacy( -10.0f ), 0.01f );
+	CHECK_EQ( AI_RATING_LIMIT, aiRatingOfLegacy( 1000.0f ) );		// the old guard is past the new one
+	// a save from before: an old level loads as that level, an anchor as its anchor, the rest straight
+	CHECK_EQ( AI_RATING_BRUTAL, aiRatingOfLegacySave( 45.0f ) );
+	CHECK_EQ( AI_RATING_VICIOUS, aiRatingOfLegacySave( 60.0f ) );
+	CHECK_EQ( AI_RATING_SAVAGE, aiRatingOfLegacySave( 90.0f ) );
+	CHECK_EQ( AI_RATING_INSANE, aiRatingOfLegacySave( 120.0f ) );
+	CHECK_EQ( AI_RATING_HARD, aiRatingOfLegacySave( 30.0f ) );
+	CHECK_EQ( AI_RATING_EASY, aiRatingOfLegacySave( 0.0f ) );
+	CHECK_EQ( aiRatingOfLegacy( 45.01f ), aiRatingOfLegacySave( 45.01f ) );
+	CHECK_NEAR( 1213.33f, aiRatingOfLegacySave( 12.4f ), 0.01f );
+	CHECK_EQ( AI_RATING_EASY, aiRatingOfLegacySave( notANumber ) );
+	CHECK_EQ( AI_RATING_LIMIT, aiRatingOfLegacySave( 1000.0f ) );
+	// the slot's hundredths through the same gate SkirmishGameInfo::xfer reads an old save with
+	for( Int i = 0; i < AI_LEVELS_ABOVE_HARD; ++i )
+	{
+		static const Int OLD_LEVEL[ AI_LEVELS_ABOVE_HARD ] = { 4500, 6000, 9000, 12000 };
+		CHECK_EQ( AILevelAboveHardRating[ i ], AIRatingFromLegacySlot( OLD_LEVEL[ i ] ) );
+	}
+	CHECK_EQ( 180000, AIRatingFromLegacySlot( 3000 ) );
+	CHECK_EQ( 130000, AIRatingFromLegacySlot( 1500 ) );
+	CHECK_EQ( 230100, AIRatingFromLegacySlot( 4503 ) );
+	CHECK_EQ( AI_RATING_NONE, AIRatingFromLegacySlot( AI_RATING_NONE ) );
+	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, AIRatingFromLegacySlot( 6000 ) ).str(), u"Vicious AI" ) == 0 );
+	CHECK_EQ( 15.0f, aiRatingToLegacy( AI_RATING_MEDIUM ) );
+	CHECK_EQ( 30.0f, aiRatingToLegacy( AI_RATING_HARD ) );
+
+	// every Real and Int knob: finite and not negative far either way, the same value either side of Easy,
 	// and the old Medium against the new one for the record
-	printf( "  knob                          Easy    Medium(old)  at 15      Hard     at 60      at 100     at -10\n" );
+	printf( "  knob                          Easy    Medium(old)  at 1300    Hard     at 2800    at 4133    at 467\n" );
 	const AIDifficultyProfile &easy = data.m_skill[ AISKILL_EASY ];
 	const AIDifficultyProfile &medium = data.m_skill[ AISKILL_MEDIUM ];
 	const AIDifficultyProfile &hard = data.m_skill[ AISKILL_BRUTAL ];
-	static const Real FAR_RATINGS[] = { -1000.0f, -100.0f, -10.0f, 0.5f, 7.5f, 15.0f, 22.5f, 45.0f, 60.0f, 100.0f, 1000.0f };
+	static const Real FAR_RATINGS[] = { -32000.0f, -2500.0f, 466.67f, 816.67f, 1050.0f, 1300.0f, 1550.0f, 2200.0f, 2600.0f, 3400.0f,
+		4133.33f, 4200.0f, 32000.0f };
 	AIDifficultyProfile at15, at60, at100, atMinus10, justOver, justUnder;
-	aiRatingProfile( 15.0f, data.m_skill, &at15 );
-	aiRatingProfile( 60.0f, data.m_skill, &at60 );
-	aiRatingProfile( 100.0f, data.m_skill, &at100 );
-	aiRatingProfile( -10.0f, data.m_skill, &atMinus10 );
-	aiRatingProfile( 0.001f, data.m_skill, &justOver );
-	aiRatingProfile( -0.001f, data.m_skill, &justUnder );
+	aiRatingProfile( 1300.0f, data.m_skill, &at15 );
+	aiRatingProfile( 2800.0f, data.m_skill, &at60 );
+	aiRatingProfile( 4133.33f, data.m_skill, &at100 );
+	aiRatingProfile( 466.67f, data.m_skill, &atMinus10 );
+	aiRatingProfile( 800.01f, data.m_skill, &justOver );
+	aiRatingProfile( 799.99f, data.m_skill, &justUnder );
 	for( const FieldParse *field = aiSkillLevelFields(); field->token != NULL; ++field )
 	{
 		if( field->parse == INI::parseBool )
@@ -18084,8 +19043,8 @@ TEST(an_ai_rating_is_easy_and_hard_at_their_anchors_and_one_curve_through_and_pa
 	}
 
 	// past Hard a falling knob keeps falling and a rising one keeps rising; a share nears 1 and stays under
-	AIDifficultyProfile at45;
-	aiRatingProfile( 45.0f, data.m_skill, &at45 );
+	AIDifficultyProfile at45;		// Brutal
+	aiRatingProfile( AI_RATING_BRUTAL, data.m_skill, &at45 );
 	CHECK( hard.m_decisionIntervalSeconds > at45.m_decisionIntervalSeconds && at45.m_decisionIntervalSeconds > at100.m_decisionIntervalSeconds );
 	CHECK( at100.m_decisionIntervalSeconds > 0.0f );
 	CHECK( hard.m_minAttackPower < at45.m_minAttackPower && at45.m_minAttackPower < at100.m_minAttackPower );
@@ -18115,52 +19074,53 @@ TEST(an_ai_rating_is_easy_and_hard_at_their_anchors_and_one_curve_through_and_pa
 	CHECK( atMinus10.m_buildDelayScale > easy.m_buildDelayScale );
 
 	// the curves themselves: a falling one hits Hard exactly and never 0, a rising share nears 1, Hard's 0
-	// is a straight line to it, a gated one is off below 7.5 and passes Medium at 15
-	CHECK_EQ( 1.5f, aiKnobAt( 30.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ) );
-	CHECK_NEAR( 7.0f / ( 1.0f + ( 7.0f / 1.5f - 1.0f ) * 0.5f ), aiKnobAt( 15.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ), 1.0e-5f );
-	CHECK( aiKnobAt( 1000.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ) > 0.0f );
-	CHECK( aiKnobAt( -10.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ) > 7.0f );
-	CHECK( aiKnobAt( 100.0f, 0.0f, 0.35f, 0.5f, AIKNOB_SHARE ) < 1.0f );
-	CHECK( aiKnobAt( 100.0f, 0.0f, 0.35f, 0.5f, AIKNOB_SHARE ) > 0.5f );
-	CHECK_EQ( 0.0f, aiKnobAt( -10.0f, 0.0f, 0.35f, 0.5f, AIKNOB_SHARE ) );
-	CHECK( aiKnobAt( -10.0f, 0.5f, 0.75f, 1.0f, AIKNOB_SHARE ) < 0.5f );
-	CHECK( aiKnobAt( -10.0f, 0.5f, 0.75f, 1.0f, AIKNOB_SHARE ) > 0.0f );
-	CHECK( aiKnobAt( -10.0f, 1.0f, 0.5f, 0.25f, AIKNOB_SHARE ) <= 1.0f );
-	CHECK_EQ( 1.0f, aiKnobAt( 60.0f, 0.5f, 0.75f, 1.0f, AIKNOB_SHARE ) );
-	CHECK_EQ( 1.0f, aiKnobAt( 15.0f, 2.0f, 1.0f, 0.0f, AIKNOB_OPEN ) );
-	CHECK_EQ( 0.0f, aiKnobAt( 100.0f, 2.0f, 1.0f, 0.0f, AIKNOB_OPEN ) );
-	CHECK_EQ( 0.0f, aiKnobAt( 7.49f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) );
-	CHECK_EQ( 6000.0f, aiKnobAt( 15.0f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) );
-	CHECK( aiKnobAt( 100.0f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) < 4000.0f );
-	CHECK( aiKnobAt( 100.0f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) > 0.0f );
+	// is a straight line to it, a gated one is off below 1050 and passes Medium at 1300
+	CHECK_EQ( 1.5f, aiKnobAt( 1800.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ) );
+	CHECK_NEAR( 7.0f / ( 1.0f + ( 7.0f / 1.5f - 1.0f ) * 0.5f ), aiKnobAt( 1300.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ), 1.0e-5f );
+	CHECK( aiKnobAt( 32000.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ) > 0.0f );
+	CHECK( aiKnobAt( 466.67f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ) > 7.0f );
+	CHECK( aiKnobAt( 4133.33f, 0.0f, 0.35f, 0.5f, AIKNOB_SHARE ) < 1.0f );
+	CHECK( aiKnobAt( 4133.33f, 0.0f, 0.35f, 0.5f, AIKNOB_SHARE ) > 0.5f );
+	CHECK_EQ( 0.0f, aiKnobAt( 466.67f, 0.0f, 0.35f, 0.5f, AIKNOB_SHARE ) );
+	CHECK( aiKnobAt( 466.67f, 0.5f, 0.75f, 1.0f, AIKNOB_SHARE ) < 0.5f );
+	CHECK( aiKnobAt( 466.67f, 0.5f, 0.75f, 1.0f, AIKNOB_SHARE ) > 0.0f );
+	CHECK( aiKnobAt( 466.67f, 1.0f, 0.5f, 0.25f, AIKNOB_SHARE ) <= 1.0f );
+	CHECK_EQ( 1.0f, aiKnobAt( 2600.0f, 0.5f, 0.75f, 1.0f, AIKNOB_SHARE ) );
+	CHECK_EQ( 1.0f, aiKnobAt( 1300.0f, 2.0f, 1.0f, 0.0f, AIKNOB_OPEN ) );
+	CHECK_EQ( 0.0f, aiKnobAt( 4133.33f, 2.0f, 1.0f, 0.0f, AIKNOB_OPEN ) );
+	CHECK_EQ( 0.0f, aiKnobAt( 1049.9f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) );
+	CHECK_EQ( 6000.0f, aiKnobAt( 1300.0f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) );
+	CHECK( aiKnobAt( 4133.33f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) < 4000.0f );
+	CHECK( aiKnobAt( 4133.33f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) > 0.0f );
 	static const AIRungInt CENTERS = { { 3, 4, 6 }, AIKNOB_OPEN };
-	CHECK_EQ( 3, aiRatingLerp( 0.0f, CENTERS ) );
-	CHECK_EQ( 5, aiRatingLerp( 15.0f, CENTERS ) );		// 4.5 rounds up
-	CHECK_EQ( 6, aiRatingLerp( 30.0f, CENTERS ) );
-	CHECK_EQ( 13, aiRatingLerp( 100.0f, CENTERS ) );		// 3 + 3 * 100 / 30
-	CHECK_EQ( 2, aiRatingLerp( -10.0f, CENTERS ) );		// 3 / (1 + 10 / 30)
+	CHECK_EQ( 3, aiRatingLerp( 800.0f, CENTERS ) );
+	CHECK_EQ( 5, aiRatingLerp( 1300.0f, CENTERS ) );		// 4.5 rounds up
+	CHECK_EQ( 6, aiRatingLerp( 1800.0f, CENTERS ) );
+	CHECK_EQ( 13, aiRatingLerp( 4133.33f, CENTERS ) );		// 3 + 3 * 3333.33 / 1000
+	CHECK_EQ( 2, aiRatingLerp( 466.67f, CENTERS ) );		// 3 / (1 + 333.33 / 1000)
 
-	// a Bool reads its nearest rung, so it flips at 7.5 or 22.5 and holds past the ends
+	// a Bool reads its nearest rung, so it flips at 1050 or 1550 and holds past the ends
 	CHECK( !easy.m_retreatIndividualUnits && medium.m_retreatIndividualUnits );
-	aiRatingProfile( 7.49f, data.m_skill, &out );
+	aiRatingProfile( 1049.9f, data.m_skill, &out );
 	CHECK( !out.m_retreatIndividualUnits );
-	aiRatingProfile( 7.5f, data.m_skill, &out );
+	aiRatingProfile( 1050.0f, data.m_skill, &out );
 	CHECK( out.m_retreatIndividualUnits );
 	CHECK( !medium.m_massBeforeAttacking && hard.m_massBeforeAttacking );
-	aiRatingProfile( 22.49f, data.m_skill, &out );
+	aiRatingProfile( 1549.9f, data.m_skill, &out );
 	CHECK( !out.m_massBeforeAttacking );
-	aiRatingProfile( 22.5f, data.m_skill, &out );
+	aiRatingProfile( 1550.0f, data.m_skill, &out );
 	CHECK( out.m_massBeforeAttacking );
 	CHECK( at100.m_massBeforeAttacking && !atMinus10.m_retreatIndividualUnits );
-	CHECK_EQ( (Int)AISKILL_EASY, (Int)aiSkillOfRating( 7.49f ) );
-	CHECK_EQ( (Int)AISKILL_MEDIUM, (Int)aiSkillOfRating( 7.5f ) );
-	CHECK_EQ( (Int)AISKILL_MEDIUM, (Int)aiSkillOfRating( 22.49f ) );
-	CHECK_EQ( (Int)AISKILL_BRUTAL, (Int)aiSkillOfRating( 22.5f ) );
-	CHECK_EQ( (Int)AISKILL_BRUTAL, (Int)aiSkillOfRating( 100.0f ) );
-	CHECK_EQ( (Int)AISKILL_EASY, (Int)aiSkillOfRating( -10.0f ) );
-	CHECK( !aiRatingReaches( 7.49f, AISKILL_MEDIUM ) );
-	CHECK( aiRatingReaches( 7.5f, AISKILL_MEDIUM ) );
-	CHECK( !aiRatingReaches( 15.0f, AISKILL_BRUTAL ) );
+	CHECK_EQ( (Int)AISKILL_EASY, (Int)aiSkillOfRating( 1049.9f ) );
+	CHECK_EQ( (Int)AISKILL_MEDIUM, (Int)aiSkillOfRating( 1050.0f ) );
+	CHECK_EQ( (Int)AISKILL_MEDIUM, (Int)aiSkillOfRating( 1549.9f ) );
+	CHECK_EQ( (Int)AISKILL_BRUTAL, (Int)aiSkillOfRating( 1550.0f ) );
+	CHECK_EQ( (Int)AISKILL_BRUTAL, (Int)aiSkillOfRating( 4200.0f ) );
+	CHECK_EQ( (Int)AISKILL_EASY, (Int)aiSkillOfRating( 466.67f ) );
+	CHECK_EQ( (Int)AISKILL_EASY, (Int)aiSkillOfRating( 0.0f ) );		// the old Easy anchor is far below Easy now
+	CHECK( !aiRatingReaches( 1049.9f, AISKILL_MEDIUM ) );
+	CHECK( aiRatingReaches( 1050.0f, AISKILL_MEDIUM ) );
+	CHECK( !aiRatingReaches( 1300.0f, AISKILL_BRUTAL ) );
 
 	// the slot field carries hundredths, negative ones too; only past the guard is it none
 	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( NULL ) );
@@ -18169,8 +19129,9 @@ TEST(an_ai_rating_is_easy_and_hard_at_their_anchors_and_one_curve_through_and_pa
 	CHECK_EQ( -1000, AIRatingFromSlotField( "-1000" ) );
 	CHECK_EQ( 0, AIRatingFromSlotField( "0" ) );
 	CHECK_EQ( 1234, AIRatingFromSlotField( "1234" ) );
-	CHECK_EQ( 10000, AIRatingFromSlotField( "10000" ) );
-	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( "100001" ) );
+	CHECK_EQ( 420000, AIRatingFromSlotField( "420000" ) );		// Insane
+	CHECK_EQ( 3200000, AIRatingFromSlotField( "3200000" ) );
+	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( "3200001" ) );
 	// past an Int: atoi saturated on Windows and truncated elsewhere, 4294967396 truncating to 100
 	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( "4294967396" ) );
 	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( "-4294967396" ) );
@@ -18189,9 +19150,9 @@ static const char *aiKnobFormName( Real e, Real m, Real h, AIKnobForm form, Real
 		if( h < m && h > 0.0f )
 		{
 			*k = ( AI_RATING_HARD - AI_RATING_MEDIUM ) / ( m / h - 1.0f );
-			return "GATED off below 7.5, falls Medium to Hard";
+			return "GATED off below 1050, falls Medium to Hard";
 		}
-		return "GATED off below 7.5, then Medium to Hard";
+		return "GATED off below 1050, then Medium to Hard";
 	}
 	if( e == h )
 		return "flat";
@@ -18217,8 +19178,8 @@ static const char *aiKnobFormName( Real e, Real m, Real h, AIKnobForm form, Real
 	return "OPEN falls towards 0";
 }
 
-static const Int CURVE_SAMPLES = 221;		// -10 to 100 by a half
-static Real aiCurveRating( Int i ) { return -10.0f + 0.5f * INT_TO_REAL( i ); }
+static const Int CURVE_SAMPLES = 221;		// 466.67 to 4133.33 Elo by 16.67, the scale before Elo's -10 to 100 by a half
+static Real aiCurveRating( Int i ) { return aiRatingOfLegacy( -10.0f + 0.5f * INT_TO_REAL( i ) ); }
 
 static void writeCurve( FILE *fp, Bool *first, const char *name, const char *source, const char *type, const char *form,
 	Real e, Real m, Real h, Real k, const Real *samples )
@@ -18236,16 +19197,16 @@ static void writeCurve( FILE *fp, Bool *first, const char *name, const char *sou
 	*first = FALSE;
 }
 
-/** Every table of three outside the profile (aiRatingTables): Easy's and Hard's own values at 0 and 30, a
-	 finite number not under 0 anywhere.  With ZH_AI_CURVES_JSON naming a file, every knob of the profile and
-	 every table is written there as JSON, sampled from -10 to 100 by a half through the game's own code, for
-	 the chart of the curves. */
+/** Every table of three outside the profile (aiRatingTables): Easy's and Hard's own values at 800 and 1800,
+	 a finite number not under 0 anywhere.  With ZH_AI_CURVES_JSON naming a file, every knob of the profile and
+	 every table is written there as JSON, sampled from 466.67 to 4133.33 Elo (-10 to 100 by a half on the
+	 scale before Elo) through the game's own code, for the chart of the curves; k is in Elo. */
 TEST(every_rated_table_is_its_rows_at_the_ends_and_the_curves_can_be_written_out)
 {
 	Int count = 0;
 	const AIRatingTable *tables = aiRatingTables( &count );
 	CHECK( count > 50 );
-	static const Real FAR_RATINGS[] = { -1000.0f, -10.0f, 15.0f, 100.0f, 1000.0f };
+	static const Real FAR_RATINGS[] = { -32000.0f, 466.67f, 1300.0f, 4133.33f, 4200.0f, 32000.0f };
 	for( Int t = 0; t < count; ++t )
 	{
 		const AIRatingTable &table = tables[ t ];
@@ -19188,7 +20149,7 @@ TEST(the_ai_ambulance_pulls_back_when_hit_and_is_not_rebought_at_once)
 	CHECK( !AIAmbulance_waitsAt( 50.0f, 110.0f, 80.0f ) );
 	CHECK( AIAmbulance_waitsAt( -20.0f, 90.0f, 80.0f ) );
 
-	// Hard waits a minute and a half, Easy twice as long, and a rating of 15 two minutes on the curve
+	// Hard waits a minute and a half, Easy twice as long, and Medium's 1300 two minutes on the curve
 	// between them (180 / (1 + 0.5))
 	CHECK( !AIAmbulance_rebuyWaits( 1000, 0, AI_RATING_HARD ) );
 	CHECK( AIAmbulance_rebuyWaits( 1000, 900, AI_RATING_HARD ) );
@@ -20266,7 +21227,7 @@ TEST(a_cash_hoard_shortens_the_wait_but_only_so_far)
 		CHECK_EQ( frames, aiScaledBuildDelay( frames, data.m_skill[ AISKILL_BRUTAL ].m_buildDelayScale ) );
 	CHECK_EQ( 450, aiScaledBuildDelay( 300, data.m_skill[ AISKILL_EASY ].m_buildDelayScale ) );
 	AIDifficultyProfile at100;
-	aiRatingProfile( 100.0f, data.m_skill, &at100 );
+	aiRatingProfile( 4133.33f, data.m_skill, &at100 );
 	CHECK( aiScaledBuildDelay( 300, at100.m_buildDelayScale ) < 180 );
 	CHECK_EQ( 1, aiScaledBuildDelay( 1, 0.1f ) );		// never under a frame
 	CHECK_EQ( 0, aiScaledBuildDelay( 0, 1.5f ) );			// no delay stays none
@@ -20276,10 +21237,10 @@ TEST(a_cash_hoard_shortens_the_wait_but_only_so_far)
 	CHECK_EQ( 1, aiRatingLerp( AI_RATING_EASY, rising ) );
 	CHECK_EQ( 3, aiRatingLerp( AI_RATING_HARD, rising ) );
 	CHECK_EQ( 2, aiRatingLerp( AI_RATING_MEDIUM, rising ) );
-	CHECK_EQ( 8, aiRatingLerp( 100.0f, rising ) );
+	CHECK_EQ( 8, aiRatingLerp( 4133.33f, rising ) );
 	const AIRungInt flat = { { 2, 2, 2 }, AIKNOB_OPEN };
-	CHECK_EQ( 2, aiRatingLerp( 100.0f, flat ) );
-	CHECK_EQ( 2, aiRatingLerp( -10.0f, flat ) );
+	CHECK_EQ( 2, aiRatingLerp( 4133.33f, flat ) );
+	CHECK_EQ( 2, aiRatingLerp( 466.67f, flat ) );
 	CHECK( data.m_skill[ AISKILL_MEDIUM ].m_cashHoardThreshold > 0 );
 	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_cashHoardThreshold <
 				 data.m_skill[ AISKILL_MEDIUM ].m_cashHoardThreshold );
@@ -20870,7 +21831,7 @@ TEST(every_ai_rung_is_named_the_same_way_as_every_other)
 			CHECK( WideCharCmp( SlotStateName( rungs[a] ).str(), SlotStateName( rungs[b] ).str() ) != 0 );
 }
 
-/* The four levels above Hard are Hard seats at ratings 45, 60, 90 and 120.  The slot box's item data
+/* The four levels above Hard are Hard seats at Elo 2200, 2600, 3400 and 4200.  The slot box's item data
 	 holds a SlotState or one of those ratings, so they must never meet; a Hard seat at one of them goes
 	 by that level's name and comes back to that line, and any other rating stays plain Hard. */
 TEST(levels_above_hard_are_hard_seats_with_names_of_their_own)
@@ -20883,17 +21844,32 @@ TEST(levels_above_hard_are_hard_seats_with_names_of_their_own)
 		if (i > 0)
 			CHECK( rating > AILevelAboveHardRating[i - 1] );
 	}
-	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, 6000 ).str(), u"Vicious AI" ) == 0 );
-	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, 5000 ).str(), u"Hard AI" ) == 0 );
-	CHECK( WideCharCmp( SlotStateName( SLOT_MED_AI, 6000 ).str(), u"Medium AI" ) == 0 );
+	CHECK_EQ( AILevelAboveHardRating[0], 220000 );
+	CHECK_EQ( AILevelAboveHardRating[1], 260000 );
+	CHECK_EQ( AILevelAboveHardRating[2], 340000 );
+	CHECK_EQ( AILevelAboveHardRating[3], 420000 );
+	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, 220000 ).str(), u"Brutal AI" ) == 0 );
+	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, 260000 ).str(), u"Vicious AI" ) == 0 );
+	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, 340000 ).str(), u"Savage AI" ) == 0 );
+	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, 500000 ).str(), u"Hard AI" ) == 0 );
+	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, 6000 ).str(), u"Hard AI" ) == 0 );		// the old Vicious is no level now
+	CHECK( WideCharCmp( SlotStateName( SLOT_MED_AI, 260000 ).str(), u"Medium AI" ) == 0 );
+	// every level is a Hard seat, and the field carries it
+	for (Int i = 0; i < AI_LEVELS_ABOVE_HARD; ++i)
+	{
+		CHECK_EQ( (Int)AISKILL_BRUTAL, (Int)aiSkillOfRating( aiRatingFromHundredths( AILevelAboveHardRating[i] ) ) );
+		AsciiString field;
+		field.format( "%d", AILevelAboveHardRating[i] );
+		CHECK_EQ( AILevelAboveHardRating[i], AIRatingFromSlotField( field.str() ) );
+	}
 
 	// picking the level seats Hard at its rating under its name, and the seat finds its line again
 	GameSlot slot;
-	SlotApplyPick( &slot, 6000 );
+	SlotApplyPick( &slot, 260000 );
 	CHECK_EQ( (Int)slot.getState(), (Int)SLOT_BRUTAL_AI );
-	CHECK_EQ( slot.getAIRating(), 6000 );
+	CHECK_EQ( slot.getAIRating(), 260000 );
 	CHECK( WideCharCmp( slot.getName().str(), u"Vicious AI" ) == 0 );
-	CHECK_EQ( SlotPickOf( &slot ), 6000 );
+	CHECK_EQ( SlotPickOf( &slot ), 260000 );
 
 	// back to plain Hard drops the rating and the name, though the state does not change
 	SlotApplyPick( &slot, SLOT_BRUTAL_AI );
@@ -20902,17 +21878,17 @@ TEST(levels_above_hard_are_hard_seats_with_names_of_their_own)
 	CHECK_EQ( SlotPickOf( &slot ), (Int)SLOT_BRUTAL_AI );
 
 	// a rating set by itself, as the slot string and a save do, renames the seat too
-	slot.setAIRating( 12000 );
+	slot.setAIRating( 420000 );
 	CHECK( WideCharCmp( slot.getName().str(), u"Insane AI" ) == 0 );
 
-	// a Hard seat at a rating that is not a level (-airating 50) is Hard in the box
-	slot.setAIRating( 5000 );
+	// a Hard seat at a rating that is not a level (-airating 5000) is Hard in the box
+	slot.setAIRating( 500000 );
 	CHECK( WideCharCmp( slot.getName().str(), u"Hard AI" ) == 0 );
 	CHECK_EQ( SlotPickOf( &slot ), (Int)SLOT_BRUTAL_AI );
 
 	// a name of its own (-seatname) is left alone
 	slot.setName( UnicodeString( u"Bot" ) );
-	slot.setAIRating( 4500 );
+	slot.setAIRating( 220000 );
 	CHECK( WideCharCmp( slot.getName().str(), u"Bot" ) == 0 );
 
 	SlotApplyPick( &slot, SLOT_EASY_AI );
@@ -26274,6 +27250,12 @@ TEST(scenario_parses_the_order_lines)
 	CHECK_EQ( action.atStart, 0 );
 	CHECK_EQ( (Int)ScenarioDrill_parseLine( "240 respond 0 *", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
 
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "48 lanemarch 1 * -1570", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_LANEMARCH );
+	CHECK_NEAR( action.at.x, -1570.0f, 0.01f );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "48 lanemarch 1 * east", &action ), (Int)SCENARIO_PARSE_BAD_POSITION );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "48 lanemarch 1 *", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
+
 	CHECK_EQ( (Int)ScenarioDrill_parseLine( "200 shiftpower 0 * 1 AmericaSupplyCenter SpecialAbilityBlackLotusCaptureBuilding",
 																					 &action ), (Int)SCENARIO_PARSE_OK );
 	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_SHIFTPOWER );
@@ -28026,9 +29008,11 @@ TEST(skin_loadout_rides_the_slot_entry_and_an_old_string_reads_as_none)
 
 /* SkinsReforged.ini as it ships: ids 1, 2 and 3 are the splinter Crusader, Battlemaster and Scorpion
 	 (the ids zerohour.gg uses), each on its generals' models (the Laser General's Crusader left out),
-	 the damaged states and the wrecks that are its alone, case ignored, and on nothing else.  Each pairs the rebuilt sheets and retail's with their skin copies, never a house
-	 colour sheet.  The replacement filenames retain the old gold paint's Skin1K prefix.
-	 A loadout keeps one skin a unit and drops ids past 63. */
+	 the damaged states and the wrecks that are its alone, case ignored, and on nothing else. Each pairs
+	 the rebuilt sheets and retail's with their skin copies, never a house colour sheet. The splinter
+	 replacement filenames retain the old gold paint's Skin1K prefix. Ids 4 to 15 are the supporter
+	 grades of the Chinook and the China Supply Truck, 16 and 17 the Bug Hunter dozers. A loadout
+	 keeps one skin a unit and drops ids past 63. */
 TEST(skins_table_dresses_each_unit_once_with_rebuilt_and_retail_sheets)
 {
 	CHECK( bootOnce() );
@@ -28052,7 +29036,7 @@ TEST(skins_table_dresses_each_unit_once_with_rebuilt_and_retail_sheets)
 	for( Int i = 0; i < (Int)ARRAY_SIZE( plain ); ++i )
 		CHECK_EQ( TankSkin_forModel( all, plain[i] ), 0 );
 	CHECK_EQ( TankSkin_forModel( (SkinLoadout)1 << 2, "AVLeopard" ), 0 );	// owns the Battlemaster's only
-	CHECK_EQ( TankSkin_forModel( (SkinLoadout)1 << 9, "AVLeopard" ), 0 );	// a newer build's skin
+	CHECK_EQ( TankSkin_forModel( (SkinLoadout)1 << 40, "AVLeopard" ), 0 );	// a newer build's skin
 	CHECK_EQ( TankSkin_forModel( all, NULL ), 0 );
 
 	CHECK_STR( TankSkin_replacementSheet( 1, "AVCrusader_R.tga" ), "Skin1K_AVCrusader_R.tga" );
@@ -28066,7 +29050,41 @@ TEST(skins_table_dresses_each_unit_once_with_rebuilt_and_retail_sheets)
 	CHECK( TankSkin_replacementSheet( 1, "ZHCA_AVCrusPlate.tga" ) == NULL );
 	CHECK( TankSkin_replacementSheet( 1, "NVTreads.tga" ) == NULL );
 	CHECK( TankSkin_replacementSheet( 2, "AVCrusader_R.tga" ) == NULL );
-	CHECK( TankSkin_replacementSheet( 9, "AVCrusader_R.tga" ) == NULL );
+	CHECK( TankSkin_replacementSheet( 40, "AVCrusader_R.tga" ) == NULL );
+
+	// the supporter grades (4 to 9 the Chinook, 10 to 15 the China Supply Truck) and the Bug Hunter
+	// dozers (16 USA, 17 China), wrecks and flying pieces included; nothing another unit draws
+	for( Int g = 0; g < 6; ++g )
+	{
+		const SkinLoadout chinook = (SkinLoadout)1 << ( 4 + g );
+		const SkinLoadout truck = (SkinLoadout)1 << ( 10 + g );
+		static const char *const chinookModels[] = { "AVChinook", "AVChinook_d", "AVChinookAG", "avchinookag_d", "AVChinook_D1" };
+		static const char *const truckModels[] = { "NVSSupplyTk", "NVSSUPPLYTK_D", "NVSSupplyTK_D1", "NVSSupplyTk_d2", "NVSSupplyTk_D5" };
+		for( Int i = 0; i < (Int)ARRAY_SIZE( chinookModels ); ++i )
+			CHECK_EQ( TankSkin_forModel( chinook, chinookModels[i] ), 4 + g );
+		for( Int i = 0; i < (Int)ARRAY_SIZE( truckModels ); ++i )
+			CHECK_EQ( TankSkin_forModel( truck, truckModels[i] ), 10 + g );
+		static const char *const notOurs[] = { "CINE_Chinook", "AVChinook_A", "AVChinook_A1MSH", "NVSupplyTk", "NVSupplyTk_d1",
+			"CVToxSpplyTk_D1", "CVToxSpplyTk_D4" };
+		for( Int i = 0; i < (Int)ARRAY_SIZE( notOurs ); ++i )
+			CHECK_EQ( TankSkin_forModel( chinook | truck, notOurs[i] ), 0 );
+		AsciiString sheet;
+		sheet.format( "SkinSup%d_AVChinook_d1_R.tga", g + 1 );
+		CHECK_STR( TankSkin_replacementSheet( 4 + g, "avchinook_d1_r.dds" ), sheet.str() );
+		sheet.format( "SkinSup%dC_nvsupplytr_d.tga", g + 1 );
+		CHECK_STR( TankSkin_replacementSheet( 10 + g, "NVSupplyTr_d.tga" ), sheet.str() );
+		CHECK( TankSkin_replacementSheet( 4 + g, "AVComanche_p_R.tga" ) == NULL );		// the rotor blades
+		CHECK( TankSkin_replacementSheet( 4 + g, "ZHCA_AVSupLine.tga" ) == NULL );
+	}
+	const SkinLoadout dozers = ( (SkinLoadout)1 << 16 ) | ( (SkinLoadout)1 << 17 );
+	CHECK_EQ( TankSkin_forModel( dozers, "AVCONSTDOZ_A" ), 16 );
+	CHECK_EQ( TankSkin_forModel( dozers, "avconstdoz_d5" ), 16 );
+	CHECK_EQ( TankSkin_forModel( dozers, "nvconstdoz_AD" ), 17 );
+	CHECK_EQ( TankSkin_forModel( dozers, "NVCONSTDOZ_D4" ), 17 );
+	CHECK_EQ( TankSkin_forModel( dozers, "AVCONSTDOZ" ), 0 );		// the GLA dozer nobody builds
+	CHECK_STR( TankSkin_replacementSheet( 16, "avconstdoz_d_R.tga" ), "SkinBug_avconstdoz_D_R.tga" );	// the wreck's second sheet
+	CHECK_STR( TankSkin_replacementSheet( 17, "nvconstdoz_D1.tga" ), "SkinBugC_nvconstdoz_D1.tga" );
+	CHECK( TankSkin_replacementSheet( 17, "NVTreads.tga" ) == NULL );
 
 	// the Skins screen's rows: each unit by its own name, the skin by the string table's
 	AsciiString unit, unitLabel, label;
@@ -28076,12 +29094,59 @@ TEST(skins_table_dresses_each_unit_once_with_rebuilt_and_retail_sheets)
 	CHECK_STR( label.str(), "SKIN:Splinter" );
 	CHECK( TankSkin_describe( 3, unit, unitLabel, label ) && unitLabel == "OBJECT:Scorpion" );
 	CHECK( TankSkin_describe( 1, unit, unitLabel, label ) && unitLabel == "OBJECT:Crusader" );
-	CHECK( !TankSkin_describe( 9, unit, unitLabel, label ) );
+	CHECK( TankSkin_describe( 9, unit, unitLabel, label ) && unit == "Chinook" && label == "SKIN:Reforged" );
+	CHECK( TankSkin_describe( 10, unit, unitLabel, label ) && unitLabel == "OBJECT:SupplyTruck" && label == "SKIN:Iron" );
+	CHECK( TankSkin_describe( 16, unit, unitLabel, label ) && unit == "USADozer" && label == "SKIN:BugHunter" );
+	CHECK( TankSkin_describe( 17, unit, unitLabel, label ) && unit == "ChinaDozer" && unitLabel == "SKIN:UnitChinaDozer" );
+	CHECK( TankSkin_describe( 16, unit, unitLabel, label ) && unitLabel == "SKIN:UnitUsaDozer" );	// two dozers, two names
+	CHECK( TankSkin_describe( 18, unit, unitLabel, label ) && unit == "Worker" && unitLabel == "OBJECT:Worker" && label == "SKIN:SpecialThanks" );
+	CHECK( !TankSkin_describe( 19, unit, unitLabel, label ) );
+	// how each is earned, the line under a locked card: a code, the supporter grade or a higher one, the badge
+	static const char *const grades[] = { "Iron", "Bronze", "Silver", "Gold", "Emerald", "Reforged" };
+	for( Int id = 1; id <= 3; ++id )
+		CHECK_STR( TankSkin_earnedBy( id ).str(), "SKIN:EarnedCode" );
+	for( Int g = 0; g < 6; ++g )
+	{
+		AsciiString earned;
+		earned.format( "SKIN:Earned%s", grades[g] );
+		CHECK_STR( TankSkin_earnedBy( 4 + g ).str(), earned.str() );
+		CHECK_STR( TankSkin_earnedBy( 10 + g ).str(), earned.str() );
+	}
+	CHECK_STR( TankSkin_earnedBy( 16 ).str(), "SKIN:EarnedBugHunter" );
+	CHECK_STR( TankSkin_earnedBy( 17 ).str(), "SKIN:EarnedBugHunter" );
+	CHECK_STR( TankSkin_earnedBy( 18 ).str(), "SKIN:EarnedSpecialThanks" );
+	CHECK( TankSkin_earnedBy( 19 ).isEmpty() );
+	CHECK( !TankSkin_describe( 40, unit, unitLabel, label ) );
+
+	// Special Thanks (18), the GLA Worker, the one rare look; his body is a house colour sheet, and its
+	// copy keeps the ZHC part so the team colour still goes on
+	for( Int id = 1; id <= 17; ++id )
+		CHECK( !TankSkin_isRare( id ) );
+	CHECK( TankSkin_isRare( 18 ) );
+	CHECK( !TankSkin_isRare( 40 ) );
+	CHECK_EQ( TankSkin_forModel( (SkinLoadout)1 << 18, "uiwrkr_skn" ), 18 );
+	CHECK_EQ( TankSkin_forModel( (SkinLoadout)1 << 18, "UIWrkr_CmBk" ), 0 );
+	CHECK_STR( TankSkin_replacementSheet( 18, "ZHCA_UIWorker.tga" ), "SkinThx_ZHCA_UIWorker.tga" );
+	CHECK_STR( TankSkin_replacementSheet( 18, "zhca_uiworker_r.dds" ), "SkinThx_ZHCA_UIWorker_R.tga" );
+	CHECK_STR( TankSkin_replacementSheet( 18, "CTCrateBoxes_R.tga" ), "SkinThx_CTCrateBoxes_R.tga" );
+	CHECK( TankSkin_replacementSheet( 18, "ZHCA_UIGLAUpgKit.tga" ) == NULL );
+	CHECK_STR( TankSkin_houseColorPart( "ZHCA_UIWorker.tga" ), "ZHCA_UIWorker.tga" );
+	CHECK_STR( TankSkin_houseColorPart( "SkinThx_ZHCA_UIWorker_R.tga" ), "ZHCA_UIWorker_R.tga" );
+	CHECK_STR( TankSkin_houseColorPart( "skinthx_zhcd_x.tga" ), "zhcd_x.tga" );
+	CHECK_STR( TankSkin_houseColorPart( "Skin_Thx_ZHCA_UIWorker.tga" ), "ZHCA_UIWorker.tga" );		// a prefix with its own underscore
+	static const char *const uncoloured[] = { "SkinThx_CTCrateBoxes.tga", "Skin1K_AVCrusader_R.tga", "SkinSup1C_avchinook.tga",
+		"AVCrusader_R.tga", "Skin_", "XZHCA_UIWorker.tga", "" };
+	for( Int i = 0; i < (Int)ARRAY_SIZE( uncoloured ); ++i )
+		CHECK( TankSkin_houseColorPart( uncoloured[i] ) == NULL );
+	CHECK( TankSkin_houseColorPart( NULL ) == NULL );
 
 	CHECK( TankSkin_setLocalLoadout( "1 2 3" ) == all );
 	CHECK( TankSkin_localLoadout() == all );
 	CHECK( TankSkin_setLocalLoadout( "3,99.1" ) == ( ( (SkinLoadout)1 << 1 ) | ( (SkinLoadout)1 << 3 ) ) );
-	CHECK( TankSkin_setLocalLoadout( "9 1" ) == ( ( (SkinLoadout)1 << 9 ) | ( (SkinLoadout)1 << 1 ) ) );	// a newer build's skin rides along
+	CHECK( TankSkin_setLocalLoadout( "40 1" ) == ( ( (SkinLoadout)1 << 40 ) | ( (SkinLoadout)1 << 1 ) ) );	// a newer build's skin rides along
+	// one supporter grade a unit, whichever comes first; both dozers at once
+	CHECK( TankSkin_setLocalLoadout( "7 4 15 10 16 17" ) == ( ( (SkinLoadout)1 << 7 ) | ( (SkinLoadout)1 << 15 )
+		| ( (SkinLoadout)1 << 16 ) | ( (SkinLoadout)1 << 17 ) ) );
 	CHECK( TankSkin_setLocalLoadout( "" ) == 0 );
 	CHECK( TankSkin_setLocalLoadout( NULL ) == 0 );
 

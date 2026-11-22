@@ -227,6 +227,21 @@ static int gpu()
         CHECK(module.Apply_Atmosphere(*frame,scene,in));CHECK(component(read(*frame,scene),w,w/2,h/2)==0);end();
         atmosphere.MapSize[0]=atmosphere.MapSize[1]=10;begin(down);depth(*frame,sampled,w,h,.1f,.1f);in=capture(*frame,scene,sampled,down,views);
         CHECK(module.Apply_Atmosphere(*frame,scene,in));CHECK(component(read(*frame,scene),w,w/2,h/2)==140);end();
+        // Skirt mapping delays closure until the heightmap border and grows it
+        // over the skirt reach; its zero default above retains the legacy closure.
+        atmosphere.MapSize[2]=1000;atmosphere.MapSize[3]=1000;
+        begin(down);depth(*frame,sampled,w,h,.1f,.1f);in=capture(*frame,scene,sampled,down,views);
+        CHECK(module.Apply_Atmosphere(*frame,scene,in));
+        const unsigned insideSkirt=component(read(*frame,scene),w,w/2,h/2);
+        CHECK(insideSkirt>=12 && insideSkirt<=14);end();
+        atmosphere.MapSize[2]=0;
+        begin(down);depth(*frame,sampled,w,h,.1f,.1f);in=capture(*frame,scene,sampled,down,views);
+        CHECK(module.Apply_Atmosphere(*frame,scene,in));
+        const unsigned withinSkirt=component(read(*frame,scene),w,w/2,h/2);
+        const float outside=std::sqrt(2.0f*490.0f*490.0f),t=outside/1000.0f;
+        const float expectedSkirt=.55f*(t*t*(3-2*t))*255.0f;
+        CHECK(std::abs(float(withinSkirt)-expectedSkirt)<2.0f);end();
+        atmosphere.MapSize[2]=atmosphere.MapSize[3]=0;
         atmosphere.MapSize[0]=atmosphere.MapSize[1]=1000000;atmosphere.Strength=0;
 
         haze.Strength=1;haze.Top=1;haze.Thickness=1;haze.Reach=1000;haze.Colour[0]=haze.Colour[1]=haze.Colour[2]=1;

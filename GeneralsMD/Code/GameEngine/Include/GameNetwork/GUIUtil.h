@@ -47,7 +47,8 @@ void ShowUnderlyingGUIElements( Bool show, const char *layoutFilename, const cha
 // take over in game, which only the skirmish lobby offers.
 void PopulatePlayerSlotComboBox(GameWindow *comboBox, Int color, Bool allowTakeover);
 void PopulateColorComboBox(Int comboBox, GameWindow *comboArray[], GameInfo *myGame, Bool isObserver = FALSE);
-void PopulatePlayerTemplateComboBox(Int comboBox, GameWindow *comboArray[], GameInfo *myGame, Bool allowObservers );
+// directStrike leaves out the sides that mode does not offer (Turkiye)
+void PopulatePlayerTemplateComboBox(Int comboBox, GameWindow *comboArray[], GameInfo *myGame, Bool allowObservers, Bool directStrike = FALSE );
 void PopulateTeamComboBox(Int comboBox, GameWindow *comboArray[], GameInfo *myGame, Bool isObserver = FALSE);
 void PopulateStartingCashComboBox(GameWindow *comboBox, GameInfo *myGame);
 
@@ -118,6 +119,10 @@ Int SupplyPileLimitFromComboBox(GameWindow *comboBox);
 void PopulateGameSpeedComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
 void UpdateGameSpeedComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
 Int GameSpeedFromComboBox(GameWindow *comboBox, GameInfo *myGame);
+UnicodeString GameSpeedText(Int percent);	///< 1.0x, 1.25x, 1.5x, 2.0x
+// Quick Match's and Play vs AI's preferred speed: the same list, the player's own pick
+void PopulatePlayerGameSpeedComboBox(GameWindow *comboBox, Int percent);
+Int PlayerGameSpeedFromComboBox(GameWindow *comboBox, Int fallback);
 
 // The lobby's own tab strip: one page of host settings, and the window that page covers - the chat
 // log in the two network lobbies, the map info list in the skirmish one.  All three screens share
@@ -189,8 +194,9 @@ void DrawMapListTab(GameWindow *window, class WinInstanceData *instData);
 // players seated then.  The picker's init calls RandomMapTabInit after filling its list (filling it
 // moves the preview), its system callback offers every message to RandomMapTabHandle first, and
 // Accept takes RandomMapTabMap(), which stages that map, whenever that is not empty.  allowed FALSE greys the tab out (a ranked
-// online room plays official maps only).  A room seating more than SHIPPED_MAP_MAX_PLAYERS opens
-// on the tab with the Official and Unofficial ones greyed out.  RandomMapTabShutdown forgets the windows.
+// online room plays official maps only).  A room seating more than SHIPPED_MAP_MAX_PLAYERS on a
+// generated map opens on the tab; its picker lists only the maps with a start spot for every seat.
+// RandomMapTabShutdown forgets the windows.
 void RandomMapTabInit(const char *layoutFilename, GameWindow *parent, GameWindow *preview,
 										GameWindow *startSpots[], const GameInfo *game, Bool allowed);
 Bool RandomMapTabHandle(UnsignedInt msg, UnsignedIntPtr mData1, UnsignedIntPtr mData2);
@@ -204,11 +210,35 @@ void RandomMapTabShutdown(void);
 Bool FitRandomMapToRoom(GameInfo *game);
 /// The most start positions a shipped or user map has: WorldBuilder places eight.
 enum { SHIPPED_MAP_MAX_PLAYERS = 8 };
-// A room seating more players than any shipped map holds plays a generated map. When it seats more
-// and its map is not one, the Random tab's remembered choice (RandomMap.ini) is staged for them and
-// becomes the room's map, as FitRandomMapToRoom does; TRUE when the map changed. Only the skirmish
-// room seats that many.
-Bool GenerateMapForCrowdedRoom(GameInfo *game);
+// A room seating more than eight plays a map with a start spot for every seat: a custom map with
+// that many, or a generated one. When its map has too few, the Random tab's remembered choice
+// (RandomMap.ini) is staged for them and becomes the room's map, as FitRandomMapToRoom does; TRUE
+// when the map changed. Only the skirmish room seats that many. whenTooSmall does the same at eight
+// or fewer (a preset's eight on a four-player map); a map that holds them is kept.
+Bool GenerateMapForCrowdedRoom(GameInfo *game, Bool whenTooSmall = FALSE);
+
+// Direct Strike, the Lane War director's mode, in a staging room.  The mode is the map: a room whose
+// map is a generated lane map ("-randommap <seed> lane", RMG_v<n>_<seed>_6p_..._lane) is a Direct
+// Strike room on every machine, so nothing new travels in the options string and a joiner, a replay
+// and the game list all read the mode off the map's name.  There is no map choice: the host stages a
+// fresh lane map from a new seed (SetDirectStrikeMap), the skirmish room on Start and a network room
+// when it opens, and the seed reaches the other seats in the name.
+Bool IsDirectStrikeMap(const AsciiString &map);
+// a lane map from a seed off the clock, staged, in the map cache and the game's, CRC and size with it
+Bool SetDirectStrikeMap(GameInfo *game);
+// The seats under the mode's rules, for a host to call before it shows or sends the slot list.  The
+// seat is the place: seats 1, 3 and 5 are team 1, 2, 4 and 6 team 2, and seat n stands on start n,
+// which is how the director pairs starts with teams.  Seats past six are closed, Turkiye and the
+// observer become Random (a Random pool loses Turkiye), and the rules that mean nothing here (unit
+// limit, peace time, income sharing, the tech and supply rules, Pro Rules) go off.  TRUE when it
+// changed anything, so a network host sends the options again.
+Bool FitDirectStrikeRoom(GameInfo *game);
+// The room's look (SkirmishGameOptionsMenu, LanGameOptionsMenu, WOLGameSetupMenu): the Direct Strike
+// lobby over the room's layout, DirectStrikeLobby.h, its three seat cards a team facing each other.  A
+// room calls it after every slot list repaint; ShutdownLobbySeatVisuals takes it off.
+void LayoutDirectStrikeRoom(GameWindow *parent, const char *layoutFilename, const GameInfo *game);
+// Create Game's question, which mode the room is for: Classic or Direct Strike, and Cancel
+void AskGameMode(void (*classic)(void), void (*directStrike)(void));
 
 void EnableSlotListUpdates( Bool val );
 Bool AreSlotListUpdatesEnabled( void );

@@ -225,9 +225,8 @@ static AsciiString unratedKey( const AsciiString &reason )
 // -online, after a Quick Match or Play vs AI: the rating card under the standings (ONLINE-UI-REDESIGN.md,
 // "Score screen after an online match").  The rating that moved, the new tier's rank portrait, the old
 // value, an arrow, the new one and the change, the tier and the next one with a track, and one line on
-// where the result stands.  After a Quick Match the chat keeps its place under it; after an AI match a
-// box there says how the AI rating moves.  The card stands on the Summary alone: Graphs and Build order
-// keep their whole page.
+// where the result stands.  After a Quick Match the chat keeps its place under it.  The card stands on
+// the Summary alone: Graphs and Build order keep their whole page.
 //-----------------------------------------------------------------------------
 enum ScoreCard
 {
@@ -241,7 +240,7 @@ static AsciiString s_cardSide;								///< the local player's base side, for the
 static AsciiString s_cardAIMatch;							///< the Play vs AI match still live as the screen opened (a quit)
 static UnsignedInt s_cardSince = 0;						///< when the screen opened: the line's no-answer clock
 static GameWindow *s_cardWindow = NULL;
-static GameWindow *s_howWindow = NULL;
+static GameWindow *s_aiFloor = NULL;					///< after an AI match, the chat's place left empty
 
 /// where the card's buttons send the player once this screen is gone
 enum ScoreLeave
@@ -289,8 +288,6 @@ enum
 	CARD_TIER,
 	CARD_NEXT,
 	CARD_LINE,
-	CARD_HOW,					///< the AI box's heading and words, made once
-	CARD_HOW_BODY,
 	CARD_TEXT_COUNT
 };
 static DisplayString *s_cardText[ CARD_TEXT_COUNT ];
@@ -408,9 +405,20 @@ static UnicodeString newCardWords( const AsciiString &key )
 	return UnicodeString( u"Sending the result" );
 }
 
+/// the card's figures on its own scale: the ladder's two decimals, or the AI rating's whole Elo
+static UnicodeString cardRatingText( Real value, Bool sign = FALSE )
+{
+	return s_card == SCORE_CARD_AI ? UIStyle::eloText( value, sign ) : UIStyle::ratingText( value, sign );
+}
+
+static Real cardTierStart( UIStyle::RatingTier tier )
+{
+	return s_card == SCORE_CARD_AI ? UIStyle::aiTierStart( tier ) : UIStyle::tierStart( tier );
+}
+
 static void buildRatingCard( const RatingFacts &facts )
 {
-	freeCardText( CARD_HEADING, CARD_HOW );
+	freeCardText( CARD_HEADING, CARD_TEXT_COUNT );
 	GameFont *body = UIStyle::font( UIStyle::TEXT_BODY );
 	setCardText( CARD_HEADING, TheGameText->fetch( s_card == SCORE_CARD_AI ? "GUI:OnlineAIRatingLabel" : "GUI:OnlineLadderRatingLabel" ),
 		UIStyle::sectionFont() );
@@ -420,18 +428,19 @@ static void buildRatingCard( const RatingFacts &facts )
 	s_cardPortrait = NULL;
 	if( facts.shown )
 	{
-		const UIStyle::RatingTier tier = UIStyle::ratingTier( facts.after, facts.games );
+		const UIStyle::RatingTier tier = s_card == SCORE_CARD_AI ? UIStyle::aiRatingTier( facts.after, facts.games ) :
+			UIStyle::ratingTier( facts.after, facts.games );
 		s_cardPortrait = UIStyle::tierImage( tier, s_cardSide );
 		if( facts.moved )
 		{
-			setCardText( CARD_OLD, UIStyle::ratingText( facts.before ), UIStyle::titleFont( UIStyle::TEXT_TITLE ) );
+			setCardText( CARD_OLD, cardRatingText( facts.before ), UIStyle::titleFont( UIStyle::TEXT_TITLE ) );
 			static const WideChar ARROW[] = { 0x2192, 0 };		// as a code unit: the sources build without /utf-8
 			setCardText( CARD_ARROW, UnicodeString( ARROW ), UIStyle::font( UIStyle::TEXT_HEADING ) );
-			setCardText( CARD_CHANGE, UIStyle::ratingText( facts.after - facts.before, TRUE ), UIStyle::font( UIStyle::TEXT_STRONG, TRUE ) );
+			setCardText( CARD_CHANGE, cardRatingText( facts.after - facts.before, TRUE ), UIStyle::font( UIStyle::TEXT_STRONG, TRUE ) );
 			// a defeat's change is MUTED, as its verdict is
 			s_cardChangeColor = s_cardWon ? UIStyle::changeColor( facts.after - facts.before ) : UIStyle::MUTED;
 		}
-		setCardText( CARD_NEW, UIStyle::ratingText( facts.after ), UIStyle::titleFont( UIStyle::TEXT_DISPLAY ) );
+		setCardText( CARD_NEW, cardRatingText( facts.after ), UIStyle::titleFont( UIStyle::TEXT_DISPLAY ) );
 		setCardText( CARD_TIER, OnlineTierName( AsciiString( UIStyle::tierKey( tier ) ) ), body );
 
 		// the next tier at the card's right, as far left as the numbers leave room; none past the last
@@ -448,11 +457,11 @@ static void buildRatingCard( const RatingFacts &facts )
 		if( tier != UIStyle::TIER_UNRANKED && tier + 1 < UIStyle::TIER_COUNT && nextRoom > 0 )
 		{
 			const UIStyle::RatingTier next = (UIStyle::RatingTier)( tier + 1 );
-			const Real start = UIStyle::tierStart( tier );
-			const Real goal = UIStyle::tierStart( next );
+			const Real start = cardTierStart( tier );
+			const Real goal = cardTierStart( next );
 			UnicodeString words;
 			words.format( TheGameText->fetch( "GUI:OnlineNextTier" ), OnlineTierName( AsciiString( UIStyle::tierKey( next ) ) ).str(),
-				UIStyle::ratingText( goal ).str(), UIStyle::ratingText( goal - facts.after ).str() );
+				cardRatingText( goal ).str(), cardRatingText( goal - facts.after ).str() );
 			setCardText( CARD_NEXT, UIStyle::fitText( words, body, nextRoom ), body );
 			s_cardProgress = goal > start ? ( facts.after - start ) / ( goal - start ) : 1.0f;
 			s_cardTrackWidth = min( UIStyle::px( 436.0f ), nextRoom );
@@ -462,7 +471,7 @@ static void buildRatingCard( const RatingFacts &facts )
 	UnicodeString line;
 	s_cardSending = facts.sending;
 	if( facts.line == "GUI:OnlineScoreAISaved" )
-		line.format( TheGameText->fetch( facts.line ), UIStyle::ratingText( facts.after ).str() );
+		line.format( TheGameText->fetch( facts.line ), cardRatingText( facts.after ).str() );
 	else if( facts.line == "GUI:OnlineScoreNoAnswer" || facts.line == "GUI:OnlineScoreSendingResult" )
 		line = newCardWords( facts.line );
 	else
@@ -550,23 +559,6 @@ static void drawRatingCard( GameWindow *window, WinInstanceData *instData )
 	}
 }
 
-/// after an AI match, in the chat's place: how the AI rating moves
-static void drawHowBox( GameWindow *window, WinInstanceData *instData )
-{
-	if( s_cardText[ CARD_HOW ] == NULL || s_cardText[ CARD_HOW_BODY ] == NULL )
-		return;
-	Int x, y, width, height;
-	window->winGetScreenPosition( &x, &y );
-	window->winGetSize( &width, &height );
-	UIStyle::panel( x, y, width, height, UIStyle::PANEL );
-	const Int pad = UIStyle::px( 24.0f );
-	const Int headTop = y + UIStyle::px( 20.0f );
-	UIStyle::heading( s_cardText[ CARD_HOW ], x + pad, headTop );
-	Int w, h;
-	cardSize( CARD_HOW, w, h );
-	s_cardText[ CARD_HOW_BODY ]->draw( x + pad, max( y + UIStyle::px( 60.0f ), headTop + h + UIStyle::px( 8.0f ) ), UIStyle::MUTED, UIStyle::SHADOW );
-}
-
 static GameWindow *makeCardWindow( Real top, Real bottom, GameWinDrawFunc draw )
 {
 	// over the summary panel, which is the backdrop's last child; it shows what is under it, and takes no input
@@ -574,6 +566,11 @@ static GameWindow *makeCardWindow( Real top, Real bottom, GameWinDrawFunc draw )
 	placeOnBoard( window, SCORE_LEFT, top, SCORE_LEFT_RIGHT, bottom );
 	window->winSetDrawFunc( draw );
 	return window;
+}
+
+/// the chat's place after an AI match, which has no chat: nothing drawn, only the floor the seats stop over
+static void drawNothing( GameWindow *, WinInstanceData * )
+{
 }
 
 /* The send holds Exit, the wide button and the card's Ladder or Quick Match button, every way off the
@@ -621,7 +618,7 @@ static void updateRatingCard( void )
 }
 
 /** After the init of the screen's kind: the card for a Quick Match or a Play vs AI match, the row's
-	* buttons as the card's, and the AI box in the chat's place. */
+	* buttons as the card's. */
 static void initRatingCard( void )
 {
 	s_card = SCORE_CARD_NONE;
@@ -659,27 +656,20 @@ static void initRatingCard( void )
 
 	s_cardWindow = makeCardWindow( SCORE_RATING_TOP, SCORE_RATING_BOTTOM, drawRatingCard );
 	if( s_card == SCORE_CARD_AI )
-	{
-		s_howWindow = makeCardWindow( SCORE_CHAT_TOP, SCORE_CONTENT_BOTTOM, drawHowBox );
-		setCardText( CARD_HOW, TheGameText->fetch( "GUI:OnlineScoreHow" ), UIStyle::sectionFont() );
-		setCardText( CARD_HOW_BODY, TheGameText->fetch( "GUI:OnlineScoreHow1" ), UIStyle::font( UIStyle::TEXT_BODY ) );
-		Int width, height;
-		s_howWindow->winGetSize( &width, &height );
-		s_cardText[ CARD_HOW_BODY ]->setWordWrap( width - UIStyle::px( 48.0f ) );
-	}
+		s_aiFloor = makeCardWindow( SCORE_CHAT_TOP, SCORE_CONTENT_BOTTOM, drawNothing );
 	updateRatingCard();
 }
 
 static void freeRatingCard( void )
 {
 	freeCardText( 0, CARD_TEXT_COUNT );
-	GameWindow *made[] = { s_cardWindow, s_howWindow };
+	GameWindow *made[] = { s_cardWindow, s_aiFloor };
 	for( Int each = 0; each < ARRAY_SIZE( made ); each++ )
 	{
 		if( made[ each ] && TheWindowManager )
 			TheWindowManager->winDestroy( made[ each ] );
 	}
-	s_cardWindow = s_howWindow = NULL;
+	s_cardWindow = s_aiFloor = NULL;
 	s_cardPortrait = NULL;
 	s_card = SCORE_CARD_NONE;
 }
@@ -962,8 +952,8 @@ void ScoreScreenInit( WindowLayout *layout, void *userData )
 		if (!isChallengeCampaign)
 			ScoreScreenGraphsShow(staticTextGameSaved, FALSE);
 	}
-	else if (s_howWindow)
-		ScoreScreenGraphsShow(s_howWindow, TRUE);		// the AI box keeps the chat's place, and the seats stop over it as over the chat
+	else if (s_aiFloor)
+		ScoreScreenGraphsShow(s_aiFloor, TRUE);		// the seats stop over the chat's place as after a network match
 	else if (listboxChatWindowScoreScreen->winIsHidden())
 		ScoreScreenGraphsShow(NULL, FALSE);
 	else

@@ -1042,6 +1042,7 @@ void HeightMapRenderObjClass::setSunPerPixel(Bool on)
 	}
 	m_sunPerPixel = on;
 	m_terrainContentVersion++;
+	invalidateSkirt();	// it bakes the map's shade under the sun per pixel
 #ifdef DO_ROADS
 	if (m_roadBuffer) {
 		m_roadBuffer->updateLighting();
@@ -2168,6 +2169,10 @@ static void drawGroundOverlays(Bool modernFullMirror, Bool shadeByShroud)
 	DX8Wrapper::Set_Texture(1,NULL);
 	ShaderClass::Invalidate();
 	TheInGameUI->drawBuildGrid(shadeByShroud);
+	// the slot grid of each Lane War build plot, which its units stand on; it is there all the time,
+	// so it stays out of the classic water's mirror, which draws no ground under it
+	if (!ShaderClass::Is_Backface_Culling_Inverted())
+		TheInGameUI->drawLanePlotGrids(shadeByShroud);
 	TheInGameUI->drawAttackCircleFill(shadeByShroud);
 	TheInGameUI->drawOrderRings(shadeByShroud);
 	DX8Wrapper::Set_Texture(0,NULL);
@@ -2404,6 +2409,10 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 		if (pass)	//shader was applied at least once?
  			W3DShaderManager::resetShader(st);
 
+		// the ground past the map's last sample, and its shroud
+		if (drawGround)
+			drawSkirt(rinfo);
+
 		// Classic water leaves the ground out: its mirror darkens the water wherever anything
 		// stands in it, so the banks would lay a dark band along every shore. Modern needs the
 		// coloured ground, including its third blend layer, but not the feather painted over water.
@@ -2471,6 +2480,7 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 	if (m_propBuffer) {
 		m_propBuffer->drawProps(rinfo);
 	}
+	drawSkirtProps(rinfo);
 	#ifdef DO_SCORCH
 		DX8Wrapper::Set_Texture(0,NULL);
 		DX8Wrapper::Set_Texture(1,NULL);

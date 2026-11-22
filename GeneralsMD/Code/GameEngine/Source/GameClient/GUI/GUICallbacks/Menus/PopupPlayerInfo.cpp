@@ -1600,18 +1600,6 @@ static UnicodeString winsAndLosses( Int wins, Int games )
 	return text;
 }
 
-/// the speed a Play vs AI match plays: retail's, 1.0x at 100
-static UnicodeString speedText( void )
-{
-	const Int speed = RETAIL_GAME_SPEED_PERCENT;
-	UnicodeString text;
-	if( speed % 10 == 0 )
-		text.format( u"%d.%dx", speed / 100, speed / 10 % 10 );
-	else
-		text.format( u"%d.%02dx", speed / 100, speed % 100 );
-	return text;
-}
-
 static void layOutCard( Int width )
 {
 	s_cardDirty = FALSE;
@@ -1633,7 +1621,7 @@ static void layOutCard( Int width )
 	GameFont *section = UIStyle::sectionFont();
 	GameFont *figure = UIStyle::titleFont( UIStyle::TEXT_TITLE );
 	const UIStyle::RatingTier ladderTier = UIStyle::playerTier( card );
-	const UIStyle::RatingTier aiTier = UIStyle::ratingTier( card.aiRating, card.hasAIRating ? card.aiGames : -1 );
+	const UIStyle::RatingTier aiTier = UIStyle::aiRatingTier( card.aiRating, card.hasAIRating ? card.aiGames : -1 );
 
 	// the head: the portrait of his ladder tier, the nick, where he is, both ratings at the right and
 	// the two-pixel rule closing it.  An unranked player has EA's new player's portrait here.
@@ -1642,7 +1630,7 @@ static void layOutCard( Int width )
 		portrait = TheMappedImageCollection->findImageByName( "NewPlayer" );
 	cardBox( at( 24 ) - 1, at( 24 ) - 1, at( 96 ) + 2, at( 96 ) + 2, UIStyle::FRAME, TRUE );
 	cardPicture( portrait, at( 24 ), at( 24 ), at( 96 ) );
-	ratingSummary( aiTier, side, "GUI:OnlineAIRatingLabel", card.hasAIRating ? UIStyle::ratingText( card.aiRating ) : none,
+	ratingSummary( aiTier, side, "GUI:OnlineAIRatingLabel", card.hasAIRating ? UIStyle::eloText( card.aiRating ) : none,
 		CARD_WIDTH - 24.0f );
 	const Int ratingsLeft = ratingSummary( ladderTier, side, "GUI:OnlineLadderRatingLabel",
 		card.hasRating ? UIStyle::ratingText( card.exactRating ) : none, CARD_WIDTH - 330.0f );
@@ -1662,8 +1650,8 @@ static void layOutCard( Int width )
 		whereLeft, at( 82 ), at( 27 ), UIStyle::MUTED );
 	cardBox( 1, at( 144 ), width - 2, max( 1, at( 2 ) ), UIStyle::FRAME );
 
-	// the tab's four figures: the rating with its tier, then games with the record and the win rate,
-	// with the speed after them on vs AI and the ladder place before them on Quick Match
+	// the tab's figures: the rating with its tier, then games with the record and the win rate, with the
+	// ladder place before them on Quick Match (vs AI has three: each match plays the speed its player picked)
 	Int wins = -1;
 	Int games = -1;
 	if( ai && card.hasAIRating )
@@ -1686,7 +1674,7 @@ static void layOutCard( Int width )
 	const Int gamesAt = ai ? 1 : 2;
 	label[ 0 ] = TheGameText->fetch( ai ? "GUI:OnlineAIRatingLabel" : "GUI:OnlineLadderRatingLabel" );
 	if( ai ? card.hasAIRating : card.hasRating )
-		value[ 0 ] = UIStyle::ratingText( ai ? card.aiRating : card.exactRating );
+		value[ 0 ] = ai ? UIStyle::eloText( card.aiRating ) : UIStyle::ratingText( card.exactRating );
 	else
 		value[ 0 ] = none;
 	under[ 0 ] = OnlineTierName( AsciiString( UIStyle::tierKey( ai ? aiTier : ladderTier ) ) );
@@ -1698,12 +1686,7 @@ static void layOutCard( Int width )
 	under[ gamesAt ] = winsAndLosses( wins, games );
 	label[ gamesAt + 1 ] = TheGameText->fetch( "GUI:OnlineWinRateLabel" );
 	value[ gamesAt + 1 ] = games > 0 ? UIStyle::percentText( UIStyle::percent( wins, games ) ) : none;
-	if( ai )
-	{
-		label[ 3 ] = TheGameText->fetch( "GUI:OnlineSpeedLabel" );
-		value[ 3 ] = speedText();
-	}
-	else
+	if( !ai )
 	{
 		label[ 1 ] = TheGameText->fetch( "GUI:OnlinePlaceLabel" );
 		if( card.rank > 0 )
@@ -1807,7 +1790,7 @@ static void layOutCard( Int width )
 			cardWords( none, body, at( 424 ), top, height, UIStyle::MUTED );
 
 		if( ai )
-			cardWords( UIStyle::ratingText( match.opponentRating ), body, at( 624 ), top, height, UIStyle::INK );
+			cardWords( UIStyle::eloText( match.opponentRating ), body, at( 624 ), top, height, UIStyle::INK );
 		else
 		{
 			// the opponent's nick, then his rating MUTED after it

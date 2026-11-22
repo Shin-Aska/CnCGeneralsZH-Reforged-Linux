@@ -74,6 +74,7 @@
 #include "W3DDevice/GameClient/W3DDisplay.h"
 #include "W3DDevice/GameClient/W3DScene.h"
 #include "W3DDevice/GameClient/W3DShadow.h"
+#include "W3DDevice/GameClient/SubObjectBoneWalk.h"
 #include "W3DDevice/GameClient/BaseHeightMap.h"
 #include "W3DDevice/GameClient/W3DTerrainTracks.h"
 #include "W3DDevice/GameClient/WorldHeightMap.h"
@@ -3001,26 +3002,22 @@ Real W3DModelDraw::getCurAnimDistanceCovered() const
 static void doHideShowBoneSubObjs(Bool state, Int numSubObjects, Int boneIdx, RenderObjClass *fullObject, const HTreeClass *htree)
 {
 #if 1	//(gth) fixed and tested this version
-	for (Int i=0; i < numSubObjects; i++) 
+	struct ParentOf
 	{
-		bool is_child = false;
-		Int parentBoneIndex = fullObject->Get_Sub_Object_Bone_Index(0, i);
-		
-		while (parentBoneIndex != 0) 
-		{
-			parentBoneIndex = htree->Get_Parent_Index(parentBoneIndex);
+		const HTreeClass *tree;
+		Int operator()(Int bone) const { return tree->Get_Parent_Index(bone); }
+	} parentOf = { htree };
 
-			if (parentBoneIndex == boneIdx) 
-			{
-				is_child = true;
-				break;
-			}
-		}
-
-		if (is_child) 
+	for (Int i=0; i < numSubObjects; i++)
+	{
+		if (SubObjectBoneWalk::isBelow(parentOf, boneIdx, fullObject->Get_Sub_Object_Bone_Index(0, i)))
 		{
 			RenderObjClass* childObject = fullObject->Get_Sub_Object(i);
-			childObject->Set_Hidden(state);
+			// a show from a skin on the root leaves an upgrade's part, written hidden, to its upgrade
+			const Bool hiddenInFile = childObject->Class_ID() == RenderObjClass::CLASSID_MESH &&
+				(((MeshClass *)childObject)->Get_W3D_Flags() & W3D_MESH_FLAG_HIDDEN) != 0;
+			if (!SubObjectBoneWalk::keepsFileHidden(boneIdx, state, hiddenInFile))
+				childObject->Set_Hidden(state);
 			childObject->Release_Ref();
 		}
 	}
@@ -3052,8 +3049,8 @@ static void doHideShowBoneSubObjs(Bool state, Int numSubObjects, Int boneIdx, Re
 	it, and on a model of one level, every retail one, that is all.  A model with levels of detail
 	carries the part once a level, and the first copy is the coarsest level's, so every copy takes the
 	order there, or an upgrade's pods would come and go as the camera zooms.  FALSE when nothing has
-	the name. */
-static Bool hideShowSubObject(RenderObjClass *fullObject, const char *name, Bool hide)
+	the name.  The skins screen's preview (W3DModelPreview.cpp) applies a default state's list with it. */
+Bool hideShowSubObject(RenderObjClass *fullObject, const char *name, Bool hide)
 {
 	Int objIndex;
 	RenderObjClass *subObj = fullObject->Get_Sub_Object_By_Name(name, &objIndex);

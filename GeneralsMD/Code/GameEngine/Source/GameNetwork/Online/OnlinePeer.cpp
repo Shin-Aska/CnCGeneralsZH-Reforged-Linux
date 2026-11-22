@@ -37,9 +37,11 @@
 #include "Common/MessageStream.h"
 #include "Common/RandomValue.h"
 #include "Common/Recorder.h"
+#include "GameLogic/AI.h"
 #include "GameLogic/GameLogic.h"
 #include "GameNetwork/GameInfo.h"
 #include "GameNetwork/GameSpy/StagingRoomGameInfo.h"
+#include "GameNetwork/GUIUtil.h"
 #include "GameNetwork/GameSpy/ThreadUtils.h"
 #include "GameNetwork/NetworkInterface.h"
 #include "GameNetwork/Online/OnlineSession.h"
@@ -149,7 +151,7 @@ OnlineSession &OnlineSession::get()
 OnlineSession::OnlineSession() :
 	connection( NULL ), capture( NULL ), status( ONLINE_OFF ), relayPort( 0 ), testMode( FALSE ), failRetry( 0 ),
 	noticeSerial( 0 ), maintenanceRefused( FALSE ), relayTicketFresh( FALSE ), rejoinSerial( 0 ), cardSerial( 0 ), ladderState( ONLINE_LADDER_FAILED ), armiesState( ONLINE_LADDER_FAILED ), historySerial( 0 ), revealing( FALSE ),
-	revealSerial( 0 ), aiVerdictSerial( 0 ), peer( NULL ), buddy( NULL ), ps( NULL )
+	revealSerial( 0 ), aiSpeed( 100 ), aiVerdictSerial( 0 ), peer( NULL ), buddy( NULL ), ps( NULL )
 {
 	connectionGone();
 	forgetAccount();
@@ -338,6 +340,7 @@ OnlineMessage OnlineHelloLine( UnsignedInt exe, UnsignedInt ini, const char *ver
 	hello.setInt( "proto", ONLINE_PROTO );
 	hello.setInt( "files", 1 );		// the install files' hashes come before the login (OnlineSession::sendFiles)
 	hello.setInt( "notice", 1 );	// the server's notices and maintenance, after the welcome and on every change
+	hello.setInt( "speedask", 1 );	// a Quick Match's faster pick may be put to us (qm.matched speedAsk)
 	return hello;
 }
 
@@ -552,6 +555,24 @@ static Bool hexTicket( const std::string &hex, UnsignedByte out[16] )
 	return TRUE;
 }
 
+Bool OnlineHostDirectStrike = FALSE;
+
+/* Is this map a Direct Strike lane map, and its seed: the generated name is
+	 "...\rmg_v<version>_<seed>_6p_..._lane", the seed the second number (stageRandomMap).  The game list's
+	 copy is GameSpy's portable path with '/' for '\' (GameSpyInfo::setGameOptions), which the name reader
+	 does not split, so it reads the leaf alone. */
+static Bool directStrikeSeed( const std::string &map, Int *seed )
+{
+	const size_t slash = map.find_last_of( "\\/" );
+	const char *leaf = map.c_str() + (slash == std::string::npos ? 0 : slash + 1);
+	if (!IsDirectStrikeMap( AsciiString( leaf ) ))
+		return FALSE;
+	Int version = 0, s = -1;
+	if (sscanf( leaf, "%*[rRmMgG]_v%d_%d_", &version, &s ) == 2 && s >= 0)
+		*seed = s;
+	return TRUE;
+}
+
 /* A game{action:add|update}: the server's fields plus what the host put in game.opts (OnlinePeerQueue's
 	 SETGAMEOPTIONS writes it as a line of its own), as the lobby's game list wants it. */
 void OnlineSession::gameListEntry( const OnlineMessage &m )
@@ -568,6 +589,17 @@ void OnlineSession::gameListEntry( const OnlineMessage &m )
 	r.stagingRoom.maxPlayers = (Int)m.getInt( "maxp", MAX_SLOTS );
 	r.stagingRoom.useStats = TRUE;
 	r.stagingRoomPlayerNames[0] = m.getString( "host" );
+	// a host sits in its staging room, out of the chat room, so the list's ping column reads its card from here
+	if (m.has( "hostPing" ) && !m.getString( "host" ).empty())
+	{
+		OnlineCard &card = cards[OnlineNickKey( m.getString( "host" ) )];
+		const long long ping = m.getInt( "hostPing" );
+		if (card.ping != ping || !card.serial)
+		{
+			card.ping = ping;
+			card.serial = ++cardSerial;
+		}
+	}
 
 	OnlineMessage o;
 	const std::string opts = m.getString( "opts" );
@@ -638,6 +670,27 @@ std::string OnlineNickKey( const std::string &nick )
 	return key;
 }
 
+/** An AI figure as an Elo, the AI's own scale: the Elo field when the server sent one, else the field
+	* on the engine's old 0 to 30 scale (a server or site from before Bot ELO) mapped onto it.  FALSE, and
+	* 0, when neither is a number. */
+static Bool onlineAIElo( const OnlineMessage &m, const char *elo, const char *legacy, Real &out )
+{
+	const OnlineValue *v = m.find( elo );
+	if (v != NULL && v->kind == OnlineValue::NUMBER)
+	{
+		out = (Real)m.getNumber( elo );
+		return TRUE;
+	}
+	v = m.find( legacy );
+	if (v != NULL && v->kind == OnlineValue::NUMBER)
+	{
+		out = aiRatingOfLegacy( (Real)m.getNumber( legacy ) );
+		return TRUE;
+	}
+	out = 0.0f;
+	return FALSE;
+}
+
 void OnlineSession::noteCard( const OnlineMessage &m )
 {
 	const std::string who = m.getString( "nick" );
@@ -667,10 +720,11 @@ void OnlineSession::noteCard( const OnlineMessage &m )
 		c.losses = v->kind == OnlineValue::NUMBER ? m.getInt( "losses" ) : -1;
 	if ((v = m.find( "rank" )) != NULL)
 		c.rank = v->kind == OnlineValue::NUMBER ? m.getInt( "rank" ) : 0;
-	if ((v = m.find( "aiRating" )) != NULL)
+	if (m.find( "aiElo" ) != NULL || m.find( "aiRating" ) != NULL)
 	{
-		c.hasAIRating = v->kind == OnlineValue::NUMBER;
-		c.aiRating = c.hasAIRating ? m.getNumber( "aiRating" ) : 0;
+		Real elo = 0.0f;
+		c.hasAIRating = onlineAIElo( m, "aiElo", "aiRating", elo );
+		c.aiRating = elo;
 	}
 	if ((v = m.find( "aiGames" )) != NULL)
 		c.aiGames = v->kind == OnlineValue::NUMBER ? m.getInt( "aiGames" ) : 0;
@@ -696,6 +750,7 @@ void OnlineSession::matched( const OnlineMessage &m )
 	r.qmStatus.status = QM_MATCHED;
 	r.qmStatus.seed = (Int)m.getInt( "seed" );
 	r.qmStatus.mapIdx = (Int)m.getInt( "mapIdx" );
+	r.qmStatus.speed = OnlineMatchSpeed( m.getInt( "speed", 100 ) );		// qm.speed's when an ask settled it
 	const std::vector<std::string> nicks = m.getStrings( "nicks" );
 	const std::vector<long long> v = m.getInts( "vips" ), sides = m.getInts( "sides" ), colors = m.getInts( "colors" );
 	const std::vector<std::string> skins = m.getStrings( "skins" );		// each seat's "K1.3", as its account wears them
@@ -1147,16 +1202,26 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 		const std::vector<OnlineMessage> opponents = m.getObjects( "opponents" );
 		for (size_t i = 0; i < opponents.size(); ++i)
 			noteCard( opponents[i] );
-		if (m.has( "revealMs" ))
+		/* A server that reveals first launches with game.start revealMs later; one that puts a faster pick to
+			 the slower player (speedAsk to him, speedWait to the other) launches only after its qm.speed, with or
+			 without a reveal. */
+		if (m.has( "revealMs" ) || m.has( "speedAsk" ) || m.has( "speedWait" ))
 		{
-			// a server that reveals first launches with game.start revealMs later
 			reveal = m;
 			revealing = TRUE;
 			++revealSerial;
-			DEBUG_LOG(("ONLINE REVEAL match=%s revealMs=%d\n", matchId.c_str(), (Int)m.getInt( "revealMs" )));
+			DEBUG_LOG(("ONLINE REVEAL match=%s revealMs=%d speed=%d ask=%d wait=%d\n", matchId.c_str(),
+				(Int)m.getInt( "revealMs" ), (Int)m.getInt( "speed", 100 ), (Int)m.getInt( "speedAsk" ), (Int)m.getInt( "speedWait" )));
 		}
 		else
 			matched( m );
+	}
+	else if (t == "qm.speed" && revealing && m.getString( "match" ) == reveal.getString( "match" ))
+	{
+		// the ask is settled: the speed game.start plays, and the reveal's countdown starts again from here
+		reveal.setInt( "speed", OnlineMatchSpeed( m.getInt( "speed", 100 ) ) ).setInt( "speedFinal", 1 );
+		++revealSerial;
+		DEBUG_LOG(("ONLINE SPEED match=%s speed=%d\n", m.getString( "match" ).c_str(), (Int)reveal.getInt( "speed" )));
 	}
 	else if (t == "stats")
 	{
@@ -1259,9 +1324,9 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 			aiState = ONLINE_AI_READY;
 			aiReadyMs = aiTickMs = OnlineNowMs();
 		}
-		const OnlineValue *rating = m.find( "aiRating" );
-		DEBUG_LOG(("ONLINE AI READY match=%s aiRating=%s map=%s seed=%lld\n", m.getString( "matchId" ).c_str(),
-			rating ? rating->text.c_str() : "", m.getString( "map" ).c_str(), m.getInt( "seed" )));
+		const OnlineValue *rating = m.find( "aiRating" ), *botElo = m.find( "botElo" );
+		DEBUG_LOG(("ONLINE AI READY match=%s botElo=%s aiRating=%s map=%s seed=%lld\n", m.getString( "matchId" ).c_str(),
+			botElo ? botElo->text.c_str() : "", rating ? rating->text.c_str() : "", m.getString( "map" ).c_str(), m.getInt( "seed" )));
 	}
 	else if (t == "ai.refused" && !m.has( "matchId" ) && aiState == ONLINE_AI_WAITING)
 	{
@@ -1364,8 +1429,9 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 		{
 			// the hub's own card shows the new rating at once, without asking for stats
 			OnlineCard &c = cards[OnlineNickKey( nick )];
-			c.hasAIRating = TRUE;
-			c.aiRating = m.getNumber( "after" );
+			Real elo = 0.0f;
+			c.hasAIRating = onlineAIElo( m, "eloAfter", "after", elo );
+			c.aiRating = elo;
 			c.aiGames = m.getInt( "games" );
 			if (m.has( "wins" ))
 				c.aiWins = m.getInt( "wins" );
@@ -1374,9 +1440,11 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 			c.serial = ++cardSerial;
 		}
 		const OnlineValue *before = m.find( "before" ), *after = m.find( "after" );
+		const OnlineValue *eloBefore = m.find( "eloBefore" ), *eloAfter = m.find( "eloAfter" );
 		if (t == "ai.rated")
-			DEBUG_LOG(("ONLINE AI RATED match=%s before=%s after=%s games=%lld\n", m.getString( "matchId" ).c_str(),
-				before ? before->text.c_str() : "", after ? after->text.c_str() : "", m.getInt( "games" )));
+			DEBUG_LOG(("ONLINE AI RATED match=%s before=%s after=%s eloBefore=%s eloAfter=%s games=%lld\n", m.getString( "matchId" ).c_str(),
+				before ? before->text.c_str() : "", after ? after->text.c_str() : "", eloBefore ? eloBefore->text.c_str() : "",
+				eloAfter ? eloAfter->text.c_str() : "", m.getInt( "games" )));
 		else
 			DEBUG_LOG(("ONLINE AI UNRATED match=%s reason=%s\n", m.getString( "matchId" ).c_str(), m.getString( "reason" ).c_str()));
 	}
@@ -1533,6 +1601,7 @@ void OnlinePeerQueue::addRequest( const PeerRequest& req )
 		// the map is chosen in the staging room, after this; game.opts carries it to the list
 		m.setString( "t", "game.host" ).setString( "name", WideCharStringToMultiByte( req.text.c_str() ) );
 		m.setString( "map", "-" ).setInt( "maxp", MAX_SLOTS );
+		m.setString( "mode", OnlineHostDirectStrike ? "directstrike" : "classic" );
 		s.send( m );
 		return;
 
@@ -1566,7 +1635,16 @@ void OnlinePeerQueue::addRequest( const PeerRequest& req )
 			{
 				line.resize( line.size() - 1 );		// the newline
 				m.setString( "t", "game.opts" ).setString( "opts", line );
-				s.send( m );
+				// the room's mode is its map: a lane map is Direct Strike, its seed in its name.  A Direct Strike
+				// host's options from before its room staged the island (the room object's default map) never
+				// reach the list, which would show the room as Classic on that map for a moment.
+				Int seed = -1;
+				const Bool directStrike = directStrikeSeed( req.gameOptsMapName, &seed );
+				m.setString( "mode", directStrike ? "directstrike" : "classic" );
+				if (seed >= 0)
+					m.setInt( "seed", seed );
+				if (directStrike || !OnlineHostDirectStrike)
+					s.send( m );
 			}
 			// and the slot list to the room, as GameSpy's SL/ UTM
 			OnlineMessage sl;
@@ -1624,6 +1702,7 @@ void OnlinePeerQueue::addRequest( const PeerRequest& req )
 					maps.push_back( (long long)i );
 			m.setString( "t", "qm.join" ).setInts( "maps", maps );
 			m.setInt( "side", req.QM.side ).setInt( "color", req.QM.color );
+			m.setInt( "speed", OnlineMatchSpeed( req.QM.speed ) );
 			s.send( m );
 		}
 		return;
@@ -1852,6 +1931,7 @@ OnlineRejoinState OnlineGetRejoin( RejoinInfo &out, AsciiString &refusal )
 		out.seed = (Int)(UnsignedInt)m.getInt( "seed" );
 		out.map = m.getString( "map" ).c_str();
 		out.opts = m.getString( "opts" ).c_str();
+		out.speed = m.has( "speed" ) ? OnlineMatchSpeed( m.getInt( "speed" ) ) : 0;
 		s.rejoinOk.clear();
 		s.rejoinState = ONLINE_REJOIN_IDLE;
 	}
@@ -1923,6 +2003,9 @@ static Bool rejoinStartMatch( const AsciiString &options, Int gameSpeedPercent )
 	}
 	if (s_rejoin.opts.isEmpty())
 		TheGameSpyGame->markGameAsQM();
+	// the speed the server set the match up with (a Quick Match's settled pick), over the replay's own
+	if (s_rejoin.speed)
+		gameSpeedPercent = s_rejoin.speed;
 	TheGameSpyGame->setGameSpeedPercent( gameSpeedPercent );
 	placeRejoinSeats();
 	TheGameSpyGame->setGameInProgress( TRUE );
@@ -2223,7 +2306,15 @@ OnlineSkinsState OnlineGetSkins( UnsignedInt64 &owned, AsciiString &error )
 	return s.authed ? (OnlineSkinsState)s.skinsState : ONLINE_SKINS_FAILED;
 }
 
-void OnlineRequestAIMatch( const AsciiString &army )
+Int OnlineMatchSpeed( long long percent )
+{
+	for (Int i = 0; i < PLAYER_GAME_SPEED_COUNT; ++i)
+		if (percent == PLAYER_GAME_SPEED_PERCENTS[i])
+			return PLAYER_GAME_SPEED_PERCENTS[i];
+	return RETAIL_GAME_SPEED_PERCENT;
+}
+
+void OnlineRequestAIMatch( const AsciiString &army, Int speed )
 {
 	OnlineSession &s = OnlineSession::get();
 	s.aiReady.clear();
@@ -2241,6 +2332,7 @@ void OnlineRequestAIMatch( const AsciiString &army )
 	OnlineMessage m;
 	m.setString( "t", "ai.start" ).setString( "army", army.str() );
 	m.setInt( "exe", TheGlobalData ? TheGlobalData->m_exeCRC : 0 ).setInt( "ini", TheGlobalData ? TheGlobalData->m_iniCRC : 0 );
+	m.setInt( "speed", OnlineMatchSpeed( speed ) );
 	s.send( m );
 }
 
@@ -2252,15 +2344,20 @@ OnlineAIMatchState OnlineGetAIMatch( OnlineAIMatch &out )
 	out.aiRating = 0.0f;
 	out.map.clear();
 	out.seed = 0;
+	out.speed = RETAIL_GAME_SPEED_PERCENT;
 	out.reason.clear();
 	if (state == ONLINE_AI_READY)
 	{
 		s.aiMatch = s.aiReady.getString( "matchId" );
 		s.aiWonMatch.clear();
 		out.match = s.aiMatch.c_str();
-		out.aiRating = (Real)s.aiReady.getNumber( "aiRating" );
+		// the bot's Elo; a server from before sends only its strength on the old scale, which says the same
+		if (!onlineAIElo( s.aiReady, "botElo", "aiRating", out.aiRating ))
+			out.aiRating = AI_RATING_EASY;
 		out.map = s.aiReady.getString( "map" ).c_str();
 		out.seed = (Int)(UnsignedInt)s.aiReady.getInt( "seed" );
+		// the server's clamp of what ai.start asked; a server from before echoes none and plays retail's pace
+		out.speed = s.aiSpeed = OnlineMatchSpeed( s.aiReady.getInt( "speed", RETAIL_GAME_SPEED_PERCENT ) );
 		s.aiReady.clear();
 	}
 	else if (state == ONLINE_AI_REFUSED)
@@ -2304,7 +2401,7 @@ void OnlineSendAIResult( const OnlineAIResult &r )
 	stats.setInt( "structuresKilled", r.structuresKilled ).setInt( "moneyEarned", r.moneyEarned );
 	OnlineMessage m;
 	m.setString( "t", "ai.result" ).setString( "matchId", s.aiMatch ).setString( "result", r.won ? "win" : "loss" );
-	m.setInt( "seconds", seconds ).setInt( "endFrame", r.endFrame ).setInt( "blind", r.blind );
+	m.setInt( "seconds", seconds ).setInt( "endFrame", r.endFrame ).setInt( "blind", r.blind ).setInt( "speed", s.aiSpeed );
 	m.setString( "playerArmy", r.playerArmy.str() ).setString( "aiArmy", r.aiArmy.str() ).setObject( "stats", stats );
 	s.send( m );
 	DEBUG_LOG(("ONLINE AI RESULT match=%s result=%s seconds=%lld endFrame=%d blind=%d army=%s ai=%s units=%d/%d/%d"
@@ -2330,8 +2427,8 @@ Bool OnlineGetAIVerdict( OnlineAIVerdict &out )
 		return FALSE;
 	out.match = m.getString( "matchId" ).c_str();
 	out.rated = m.type() == "ai.rated";
-	out.before = (Real)m.getNumber( "before" );
-	out.after = (Real)m.getNumber( "after" );
+	onlineAIElo( m, "eloBefore", "before", out.before );
+	onlineAIElo( m, "eloAfter", "after", out.after );
 	out.games = (Int)m.getInt( "games" );
 	out.reason = m.getString( "reason" ).c_str();
 	out.serial = s.aiVerdictSerial;
