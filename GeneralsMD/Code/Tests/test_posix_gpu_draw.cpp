@@ -1090,7 +1090,9 @@ static void check_sun_smoke(PosixDevice9 *device)
     CHECK(SunShadow::Parameters(device,0,0,0,0,0,1,0));
     device->SetTransform(D3DTS_VIEW,&identity);CHECK(SunShadow::ReceivesView(device));
     draw(.25f,WHITE,.25f);CHECK_PIXEL(17,15,WHITE); // sunward face has no smoke ahead
-    draw(.9f,WHITE,.25f);CHECK((at(17,15)&255)>70 && (at(17,15)&255)<95);
+    draw(.9f,WHITE,.25f);
+    // At optical depth 2, a self-shadow gain of 0.55 leaves each white channel at 134 out of 255.
+    CHECK_PIXEL(17,15,0xFF868686);
     const auto particle=pixels;
     // Firelight in normals reaches the pixel after shadowing, exactly once.
     struct G {float x,y,z,nx,ny,nz;uint32_t colour;};

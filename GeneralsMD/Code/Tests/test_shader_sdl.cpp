@@ -2422,9 +2422,9 @@ TEST(fft_local_water_preserves_original_swell_medium_and_compiles_numerical_fixt
 
 TEST(direct3d11_modern_water_source_matches_the_material_controls_baseline)
 {
-	// FNV-1a recorded after wind resistance replaced scum. Both platforms must
-	// carry the same additions; zero surface constants retain the original material.
-	const uint64_t expected[] = {1855056755446624291ull, 9325501918153769159ull};
+	// These FNV-1a hashes include the shared smoke sampler from upstream 4248fbb7b.
+	// Zero surface constants retain the original water material on both platforms.
+	const uint64_t expected[] = {1229619490326247017ull, 3701097028309439229ull};
 	unsigned index = 0;
 	for (auto program : {ENGINE_SHADER_WATER_TRAPEZOID, ENGINE_SHADER_WATER_RIVER}) {
 		PixelPipelineDescription pipeline = {}; std::string source;
