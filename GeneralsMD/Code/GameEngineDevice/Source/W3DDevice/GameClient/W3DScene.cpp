@@ -526,7 +526,8 @@ static Bool posedPartsInView(RenderObjClass *robj, CameraClass *camera)
   * A model standing on a limit flipped as the camera only turned, so a level is left only past a
   * margin: a coarser one is taken once the area is LOD_SCREEN_SIZE_MARGIN under its limit, and the
   * level drawn is kept until the area is that much over the level's own, so a coarse level can
-  * draw 20% of area past the limit its art gives.  20% of the area is about 10% of the distance.  The level drawn, HLodClass::CurLod, is the only state. */
+  * draw 20% of area past the limit its art gives.  20% of the area is about 10% of the distance.
+  * The drawn level supplies the hysteresis. An active attachment can require a finer level. */
 //=============================================================================
 static const Real LOD_SCREEN_SIZE_MARGIN = 0.2f;
 
@@ -552,10 +553,10 @@ static void chooseLODByScreenSize(RenderObjClass *robj, CameraClass &camera)
 	// stretched by the margin; the second is never finer than the first
 	const Int withRoom = coarsestLODHolding(hlod, count, area / (1.0f - LOD_SCREEN_SIZE_MARGIN));
 	const Int stretched = coarsestLODHolding(hlod, count, area / (1.0f + LOD_SCREEN_SIZE_MARGIN));
-	if (withRoom < drawn)
-		hlod->Set_LOD_Level(withRoom);
-	else if (stretched > drawn)
-		hlod->Set_LOD_Level(stretched);
+	const Int preferred = std::clamp(drawn, stretched, withRoom);
+	const Int lod = hlod->Get_LOD_With_Required_Bone(preferred);
+	if (lod != drawn)
+		hlod->Set_LOD_Level(lod);
 }
 
 /** Visibility_Check's walk is a linked list of objects scattered over the heap, most of them off the
