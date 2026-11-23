@@ -3136,6 +3136,9 @@ static void setControlRodGlow(RenderObjClass& model, const ModelConditionFlags& 
 	const int planeBone = tree->Get_Bone_Index("PLANE01");
 	const bool hide = !conditions.test(MODELCONDITION_POWER_PLANT_UPGRADING)
 		&& !conditions.test(MODELCONDITION_POWER_PLANT_UPGRADED);
+	// Some HD rod attachments omit the glow mesh from their most distant level.
+	if (model.Class_ID() == RenderObjClass::CLASSID_HLOD && model.Get_LOD_Count() > 1)
+		static_cast<HLodClass&>(model).Set_Required_LOD_Bone(hide ? 0 : glowBone);
 	const int count = model.Get_Num_Sub_Objects();
 	for (int i = 0; i < count; ++i)
 	{
