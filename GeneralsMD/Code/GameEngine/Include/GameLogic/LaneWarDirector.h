@@ -28,12 +28,12 @@
 // player's left as he faces the enemy, and its row counts back from the front.  A unit is bought onto
 // it at a slot through MSG_LANEWAR_ORDER (LANEWAR_ORDER_PLACE), covering as many slots a side as its
 // footprint needs.  The plot's units stand at their slots: held, unable to fire, taking no damage,
-// and no weapon may pick them.  None of that leans on the terrain around the plot.  Every 30 wall
-// seconds a spawn tick pays every player and sends one seat's wave from each team, the seats taking
+// and no weapon may pick them.  None of that leans on the terrain around the plot.  Every 45 wall
+// seconds at 1.5x (game time, LaneWar_gameFrames) a spawn tick pays every player and sends one seat's wave from each team, the seats taking
 // turns: the plot's units are copied, template and slot place relative to the grid's centre, onto
 // the team's spawn pad behind its fortress with the plot's front row in front, facing the enemy, and march past it down the lane
 // as AIGroup::groupLaneMarch sends them.  The copies
-// belong to the player and cannot be selected; each dies 130 wall seconds after it spawned.  A copy
+// belong to the player and cannot be selected; each dies 130 wall seconds at 1.5x after it spawned.  A copy
 // presses its own buttons on the skirmish AI's rules, as far as its player's switches let it
 // (LANEWAR_ORDER_ABILITY), and one left standing short of the enemy fortress marches on.  A team
 // loses when its fortress dies, through VictoryConditions, and nothing else counts.
@@ -70,10 +70,10 @@ enum
 	LANEWAR_START_MONEY = 2000,						///< every player's cash when the match starts
 	LANEWAR_INCOME = 400,									///< paid to every player on every spawn tick: 533 a minute, as 267 every 30 seconds was
 	LANEWAR_MIDDLE_BONUS_PERCENT = 25,		///< on top of the income, for the team holding past the centre line
-	LANEWAR_TICK_SECONDS = 45,						///< wall seconds between two spawn ticks
-	LANEWAR_FIRST_TICK_SECONDS = 90,			///< wall seconds from the start to the first spawn tick, time to fill the plots
-	LANEWAR_LIFESPAN_SECONDS = 130,				///< wall seconds a wave copy lives
-	LANEWAR_SLOT_SIZE = 20,								///< world units a side of one plot slot, two cells; a plot 240 across its front and 320 deep is 12 columns by 16 rows
+	LANEWAR_TICK_SECONDS = 45,						///< between two spawn ticks, in wall seconds at the native 1.5x (LaneWar_gameFrames)
+	LANEWAR_FIRST_TICK_SECONDS = 90,			///< from the start to the first spawn tick, time to fill the plots, the same way
+	LANEWAR_LIFESPAN_SECONDS = 130,				///< what a wave copy lives, the same way
+	LANEWAR_SLOT_SIZE = 20,								///< world units a side of one plot slot, two cells; a plot 320 across its front and 240 deep is 16 columns by 12 rows (upright since 2026-11-22)
 	LANEWAR_INCOME_TIERS = 4,							///< income levels a player can buy past the first
 	LANEWAR_INCOME_TIER_PRICE = 1000,			///< each of them
 	LANEWAR_INCOME_TIER_PAYS = 100,				///< more on every tick for each level bought, back in ten ticks
@@ -84,11 +84,24 @@ enum
 	LANEWAR_STRIKE_SECONDS = 30,					///< game seconds a strike may last before its jets are called home
 	LANEWAR_JET_REARM_SECONDS = 15,				///< game seconds a parked jet takes to reload before it can strike again
 	LANEWAR_CARGO_LOG_SECONDS = 5,				///< wall seconds between the log's counts of passengers and drones out in the waves
+	LANEWAR_TOWER_BOUNTY = 500,						///< paid once to every seated player of the team that brings an enemy Watch Tower down
+	LANEWAR_PRESS_COOLDOWN_SECONDS = 20,	///< game seconds a Dragon's fire wall or a Toxin Truck's slime waits before that copy presses it again
+	LANEWAR_HERO_COOLDOWN_SECONDS = 30,		///< game seconds a hero's copy waits after any of its buttons before the next
+	LANEWAR_HACK_RANGE = 250,							///< how far a Hacker starts his building hack, just past the Watch Tower's 225 (SpecialAbilityUpdate::getStartAbilityRange)
 };
 
-#define LANEWAR_TICK_FRAMES ((UnsignedInt)(LANEWAR_TICK_SECONDS * LOGICFRAMES_PER_SECOND))
-#define LANEWAR_FIRST_TICK_FRAMES ((UnsignedInt)(LANEWAR_FIRST_TICK_SECONDS * LOGICFRAMES_PER_SECOND))
-#define LANEWAR_LIFESPAN_FRAMES ((UnsignedInt)(LANEWAR_LIFESPAN_SECONDS * LOGICFRAMES_PER_SECOND))
+/** A span the mode was tuned for in wall seconds at the native 1.5x, as game time: the same share of the
+	  match at every game speed (45 is 1350 frames at 1.5x, 2025 at 1.0x), so a slower room plays the same
+	  match, paced slower.  Exact at the native speed.  Read every time: the speed is the match's. */
+inline UnsignedInt LaneWar_gameFrames( UnsignedInt nativeSeconds )
+{
+	const UnsignedInt percent = (UnsignedInt)GAME_SPEED_PERCENT;
+	return ( nativeSeconds * (UnsignedInt)LOGICFRAMES_PER_SECOND * (UnsignedInt)NATIVE_GAME_SPEED_PERCENT + percent / 2 ) / percent;
+}
+
+#define LANEWAR_TICK_FRAMES LaneWar_gameFrames( LANEWAR_TICK_SECONDS )
+#define LANEWAR_FIRST_TICK_FRAMES LaneWar_gameFrames( LANEWAR_FIRST_TICK_SECONDS )
+#define LANEWAR_LIFESPAN_FRAMES LaneWar_gameFrames( LANEWAR_LIFESPAN_SECONDS )
 #define LANEWAR_STRIKE_FRAMES ((UnsignedInt)(LANEWAR_STRIKE_SECONDS * LOGICFRAMES_PER_GAME_SECOND))
 #define LANEWAR_JET_REARM_FRAMES ((UnsignedInt)(LANEWAR_JET_REARM_SECONDS * LOGICFRAMES_PER_GAME_SECOND))
 
@@ -177,6 +190,28 @@ enum { LANEWAR_TRACK_INCOME = 0, LANEWAR_TRACK_TECH = 1 };
 
 /// what a player on that income level is paid on a tick, the middle's bonus on top when his team holds it
 extern UnsignedInt LaneWar_incomeAt( Int level, Bool holdsMiddle );
+
+enum
+{
+	LANEWAR_LATE_INCOME_FROM_TICK = 4,		///< the ticks before this one pay what they always did
+	LANEWAR_LATE_INCOME_STEP = 150,				///< every tick from it pays this much more than the last
+	LANEWAR_LATE_INCOME_MOST = 4500,			///< and no more than this on top
+};
+
+/** What every seated player of the team holding the middle is paid on top on tick `tick` (from 0):
+	  nothing on the opening ticks, then LANEWAR_LATE_INCOME_STEP more each tick up to
+	  LANEWAR_LATE_INCOME_MOST, so the middle is worth more the longer the match runs and a stalemate
+	  breaks (the owner's lever of 2026-11-23, income growing with match time). Paid to both teams
+	  alike it changed nothing: both plots fill and the waves still cancel; to the middle's holder it
+	  ended six 3v3 Hard matches at 1.0x at a median of 24 minutes, all inside 40. Ticks are game time,
+	  so the curve is the same at every speed. */
+inline UnsignedInt LaneWar_lateIncome( UnsignedInt tick )
+{
+	if( tick < LANEWAR_LATE_INCOME_FROM_TICK )
+		return 0;
+	const UnsignedInt late = ( tick - LANEWAR_LATE_INCOME_FROM_TICK + 1 ) * LANEWAR_LATE_INCOME_STEP;
+	return late < LANEWAR_LATE_INCOME_MOST ? late : LANEWAR_LATE_INCOME_MOST;
+}
 /// what buying that level of a track costs; 0 for a level that cannot be bought
 extern Int LaneWar_tierPrice( Int track, Int level );
 /// what selling a unit bought for cost gives back, whether or not it has gone out in a wave
@@ -251,6 +286,16 @@ extern Bool LaneWar_isHero( const Player *player, const ThingTemplate *tmpl );
 
 /// the player upgrades the player's side or general sells in Lane War, as LaneWar_roster resolves units
 extern Int LaneWar_upgrades( const Player *player, const UpgradeTemplate **out, Int maxItems );
+
+/** Direct Strike's own scale on a few of EA's guns, a percent of what the hit would do: the artillery
+	  (Tomahawk, Nuke Cannon, Scud Launcher) 60 against anything but a structure, so it still sieges at full
+	  strength; the Aurora 75 against structures; the Pathfinder 45 against infantry, two shots for a Red
+	  Guard.  `damager` is a template name, a general's own ("AirF_AmericaJetAurora") counting as the base
+	  one; 100 for everything else.  ActiveBody::attemptDamage applies it while the mode is on. */
+extern Int LaneWar_damagePercent( const char *damager, Bool victimStructure, Bool victimInfantry );
+
+/// the template is one of the units whose wave copies take the mode's own weapon set (the Microwave Tank)
+extern Bool LaneWar_hasModeWeaponSet( const char *name );
 
 //-------------------------------------------------------------------------------------------------
 class LaneWarDirector : public Snapshot
@@ -334,7 +379,10 @@ public:
 	Int getMiddleHolder( void ) const { return m_middleHolder; }
 	Bool isHeroBought( Int team, Int seat ) const { return m_heroBought[ team ][ seat ]; }
 	/// what the seat is paid on the next tick if the middle stays with whoever holds it now
-	UnsignedInt getIncome( Int team, Int seat ) const { return LaneWar_incomeAt( m_incomeLevel[ team ][ seat ], m_middleHolder == team ); }
+	UnsignedInt getIncome( Int team, Int seat ) const
+	{
+		return LaneWar_incomeAt( m_incomeLevel[ team ][ seat ], m_middleHolder == team ) + ( m_middleHolder == team ? LaneWar_lateIncome( m_tickCount ) : 0 );
+	}
 	Int getSeatPlayer( Int team, Int seat ) const { return m_seatPlayer[ team ][ seat ]; }
 	UnsignedInt getTickCount( void ) const { return m_tickCount; }
 	UnsignedInt getNextTickFrame( void ) const { return m_nextTickFrame; }
@@ -386,6 +434,7 @@ private:
 		ObjectID id;
 		UnsignedInt dieFrame;
 		Int owner;											///< the player index it last marched for; a hijacked copy marches again for its taker
+		UnsignedInt pressFrame = 0;			///< the first frame it may press a button again after a capped one (useAbilities), 0 at once
 	};
 	enum { JET_PARKED, JET_OUT, JET_HOME };
 	/** A wave's jet copy.  Parked, nothing of it is on the map: it is only this entry, so it cannot be
@@ -394,6 +443,7 @@ private:
 	struct Jet
 	{
 		ObjectID id;										///< INVALID_ID while parked
+		ObjectID plotID;								///< the plot unit it is a copy of; INVALID_ID from a save before version 8
 		const ThingTemplate *thing;
 		Int team, seat;
 		Int col, row;										///< its plot slot, its place in the line abreast
@@ -406,6 +456,9 @@ private:
 		std::vector<const UpgradeTemplate *> upgrades;	///< its plot unit's object upgrades when it joined, given again at every take-off
 	};
 	void expireCopies( UnsignedInt now );
+	void adoptStrays( UnsignedInt now );
+	void pruneCopies( void );
+	Bool waveDieFrame( ObjectID parent, UnsignedInt *dieFrame ) const;
 	void useAbilities( UnsignedInt now );
 	Bool buttonOn( Int player, const ThingTemplate *tmpl, const CommandButton *button ) const;
 	Bool walkUp( Object *obj, const CommandButton *button, Int team );
@@ -422,6 +475,7 @@ private:
 	Real enemyEndX( Int team ) const;
 	Bool heroCopyAlive( const Player *player ) const;
 	void tick( UnsignedInt now );
+	void payTowerBounties( UnsignedInt now );
 	void logCargo( UnsignedInt now ) const;
 	void spawnWave( Int team, Int seat, UnsignedInt now );
 	Bool buyTier( Player *player, Int track, Int level );
@@ -445,13 +499,15 @@ private:
 	Coord3D m_middle;
 
 	// saved and CRC'd
+	ObjectID m_strayWatch;																///< adoptStrays has looked at every ObjectID below this one
 	Int m_seatPlayer[ LANEWAR_TEAMS ][ LANEWAR_SEATS ];		///< player index, -1 for an empty seat
 	ObjectID m_fortress[ LANEWAR_TEAMS ];
 	ObjectID m_tower[ LANEWAR_TEAMS ][ 2 ];								///< LaneWar_TowerA1, A2, B1, B2; INVALID_ID where the map has none
+	Bool m_towerPaid[ LANEWAR_TEAMS ][ 2 ];								///< that tower has fallen and its bounty gone to the other team
 	Bool m_fortressDown[ LANEWAR_TEAMS ];
 	UnsignedInt m_nextTickFrame;
 	UnsignedInt m_tickCount;
-	std::vector<Copy> m_copies;														///< in spawn order, so dieFrame never falls
+	std::vector<Copy> m_copies;														///< in spawn order; an adopted stray takes its parent's dieFrame, so the list is not sorted by it
 	std::vector<PlotUnit> m_plotUnits;										///< in purchase order, which is ObjectID order
 	Int m_incomeLevel[ LANEWAR_TEAMS ][ LANEWAR_SEATS ];		///< 0 to LANEWAR_INCOME_TIERS, bought
 	Int m_techLevel[ LANEWAR_TEAMS ][ LANEWAR_SEATS ];			///< 1 to LANEWAR_TECH_TIERS

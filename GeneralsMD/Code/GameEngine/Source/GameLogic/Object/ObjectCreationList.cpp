@@ -520,6 +520,27 @@ public:
 		return firstTransport;
 	}
 
+	virtual Bool getDeliveryPreview( DeliveryPreview *out ) const
+	{
+		out->transportName = m_transportName;
+		out->formationSize = (Int)m_formationSize;
+		out->formationSpacing = m_formationSpacing;
+		out->distToTarget = m_data.m_distToTarget;
+		out->preOpenDistance = m_data.m_preOpenDistance;
+		out->dropDelay = m_data.m_dropDelay;
+		out->startAtMaxSpeed = m_startAtMaxSpeed;
+		// only what rides inside leaves from the plane's own position along the track; a weapon run or
+		// a visible payload (the A-10's missiles) flies at the target instead
+		Int count = 0;
+		if( !m_data.m_fireWeapon && m_data.m_visiblePayloadTemplateName.isEmpty() )
+		{
+			for( std::vector<Payload>::const_iterator it = m_payload.begin(); it != m_payload.end(); ++it )
+				count += it->m_payloadCount;
+		}
+		out->payloadCount = count;
+		return TRUE;
+	}
+
 	static void parsePayload( INI* ini, void *instance, void *store, const void* /*userData*/ )
 	{
 		DeliverPayloadNugget* self = (DeliverPayloadNugget*)instance;
@@ -1031,7 +1052,9 @@ protected:
 			}
 		}
 		
-		if (m_ignorePrimaryObstacle)
+		// debris always: a piece starts inside the hull that threw it, and colliding with that hull
+		// shoved it out on top of its own throw (a dying tank's plates, a falling jet's wings)
+		if (m_ignorePrimaryObstacle || !m_nameAreObjects)
 		{
 			PhysicsBehavior* p = obj->getPhysics();
 			if (p)
@@ -1083,8 +1106,13 @@ protected:
 				// EA's: the source's velocity applied as a force, so the new object keeps 1/mass of it.
 				// EA's masses are tuned against that. A Dragon's fire wall segment (mass 50) took the
 				// whole 9 units a frame of the flame that spawned it as a velocity and slid up to 1000
-				// units away; a napalm bomb (mass 75) would fly on as fast as its plane.
-				objectPhysics->applyForce( sourcePhysics->getVelocity() );			}
+				// units away; a napalm bomb (mass 75) would fly on as fast as its plane. Debris takes
+				// its own Mass first: the dispositions below set it too late, and GenericDebris's 1
+				// handed a crashing jet's pieces its whole speed.
+				if (!m_nameAreObjects && m_mass > 0.0f)
+					objectPhysics->setMass( m_mass );
+				objectPhysics->applyForce( sourcePhysics->getVelocity() );
+			}
 		}
 
 		if( BitTest( m_disposition, LIKE_EXISTING ) )
@@ -1595,6 +1623,17 @@ Bool ObjectCreationList::launchesBody() const
 	for (ObjectCreationNuggetVector::const_iterator i = m_nuggets.begin(); i != m_nuggets.end(); ++i)
 	{
 		if ((*i)->launchesBody())
+			return TRUE;
+	}
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObjectCreationList::getDeliveryPreview( DeliveryPreview *out ) const
+{
+	for (ObjectCreationNuggetVector::const_iterator i = m_nuggets.begin(); i != m_nuggets.end(); ++i)
+	{
+		if ((*i)->getDeliveryPreview(out))
 			return TRUE;
 	}
 	return FALSE;

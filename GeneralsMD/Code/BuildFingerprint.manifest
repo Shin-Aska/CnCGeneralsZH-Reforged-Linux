@@ -12,6 +12,7 @@ Data/Art/Textures/LWFort_LeadD.tga
 Data/Art/Textures/LWFort_Rubble.tga
 Data/Art/Textures/LWFort_Stone.tga
 Data/Art/Textures/LWFort_StoneD.tga
+Data/Art/Textures/LWFrag_InnerAdobe.tga
 Data/Art/Textures/LWFrag_InnerConcrete.tga
 Data/Art/Textures/LWFrag_InnerPlate.tga
 Data/Art/Textures/LWFrag_InnerSand.tga
@@ -29,10 +30,10 @@ Data/Art/Textures/ReforgedBarGLACenter.tga
 Data/Art/Textures/ReforgedBarGLALeft.tga
 Data/Art/Textures/ReforgedBarGLARight.tga
 Data/Art/Textures/ReforgedBlastV.dds
-Data/Art/Textures/ReforgedFactionTurkiye.tga
 Data/Art/Textures/ReforgedFireLoop.dds
 Data/Art/Textures/ReforgedFoliage.tga
 Data/Art/Textures/ReforgedForceAttack.tga
+Data/Art/Textures/ReforgedGroundMarkers.dds
 Data/Art/Textures/ReforgedGuardCentre.tga
 Data/Art/Textures/ReforgedGuardRing.tga
 Data/Art/Textures/ReforgedGuardShield.tga
@@ -57,6 +58,7 @@ Data/Art/Textures/ReforgedHudChinaTabComm.dds
 Data/Art/Textures/ReforgedHudChinaTabPanel.dds
 Data/Art/Textures/ReforgedHudChinaTabSolo.dds
 Data/Art/Textures/ReforgedHudChinaTalents.dds
+Data/Art/Textures/ReforgedHudCommonDirectStrike.dds
 Data/Art/Textures/ReforgedHudControlButtons.dds
 Data/Art/Textures/ReforgedHudDisconnectWindow.dds
 Data/Art/Textures/ReforgedHudGlaCommandBar.dds
@@ -87,6 +89,7 @@ Data/Art/Textures/ReforgedHudTurkiyeTabSolo.dds
 Data/Art/Textures/ReforgedHudTurkiyeTalents.dds
 Data/Art/Textures/ReforgedLaserPink.tga
 Data/Art/Textures/ReforgedLobbySpot.tga
+Data/Art/Textures/ReforgedMatchClock.tga
 Data/Art/Textures/ReforgedRadarContact.tga
 Data/Art/Textures/ReforgedRadarRing.tga
 Data/Art/Textures/ReforgedReconArea.tga
@@ -285,6 +288,9 @@ Data/Art/Textures/TRWarFac_RoofD.tga
 Data/Art/Textures/TRWarFac_RoofE.tga
 Data/Art/Textures/TRWarFac_Rubble.tga
 Data/Art/Textures/TRWarFac_Scorch.tga
+Data/Art/Textures/ZBZomb.tga
+Data/Art/Textures/ZBZombB.tga
+Data/Art/Textures/ZBZombR.tga
 Data/Art/Textures/ZHCA_TRA400M.tga
 Data/Art/Textures/ZHCA_TRA400M_D.tga
 Data/Art/Textures/ZHCA_TRALPAGU.tga
@@ -664,6 +670,12 @@ Data/Art/W3D/TRWARFAC_DR.W3D
 Data/Art/W3D/TRWARFAC_E.W3D
 Data/Art/W3D/TRWARFAC_R.W3D
 Data/Art/W3D/TRWARFAC_SC.W3D
+Data/Art/W3D/ZBZBRT_SKN.W3D
+Data/Art/W3D/ZBZOMB_ATA.W3D
+Data/Art/W3D/ZBZOMB_SKN.W3D
+Data/Art/W3D/ZBZOMB_STA.W3D
+Data/Art/W3D/ZBZOMB_WKA.W3D
+Data/Art/W3D/ZBZRUN_SKN.W3D
 Data/Audio/Sounds/iaknata.wav
 Data/Audio/Sounds/iaknatb.wav
 Data/Audio/Sounds/iaknatc.wav
@@ -1000,6 +1012,17 @@ Data/Audio/Speech/etunitl.wav
 Data/Audio/Speech/etupgra.wav
 Data/Audio/Speech/etvehst.wav
 Data/Cinema/altstyles.txt
+Data/Cinema/apoc_discord3.txt
+Data/Cinema/apoc_discord4.txt
+Data/Cinema/apoc_discord_day.txt
+Data/Cinema/apoc_discord_day2.txt
+Data/Cinema/apoc_discord_night.txt
+Data/Cinema/apoc_discord_night2.txt
+Data/Cinema/apoc_first.txt
+Data/Cinema/apoc_fog.txt
+Data/Cinema/apoc_gate3.txt
+Data/Cinema/apoc_look.txt
+Data/Cinema/apoc_lookmap.txt
 Data/Cinema/aurorablast.txt
 Data/Cinema/aurorafog.txt
 Data/Cinema/blastcheck.txt
@@ -1127,6 +1150,8 @@ Data/Cinema/scudlaunch_film.txt
 Data/Cinema/shadowfar.txt
 Data/Cinema/shadowpan.txt
 Data/Cinema/spectre_reshoot.txt
+Data/Cinema/stealthenemy.txt
+Data/Cinema/stealthown.txt
 Data/Cinema/summary_close.txt
 Data/Cinema/summary_fire.txt
 Data/Cinema/swpair_nuke.txt
@@ -1207,6 +1232,7 @@ Data/Cursors/ReforgedWaypoint.ani
 Data/French/Generals.str
 Data/German/Generals.str
 Data/INI/AIDataReforged.ini
+Data/INI/ApocalypseReforged.ini
 Data/INI/BalanceReforged.ini
 Data/INI/CampaignReforged.ini
 Data/INI/CommandSetReforged.ini
@@ -1218,6 +1244,7 @@ Data/INI/FXListReforged.ini
 Data/INI/FixesReforged.ini
 Data/INI/MappedImages/HandCreated/ReforgedBarChinaBeacon.ini
 Data/INI/MappedImages/HandCreated/ReforgedForceAttack.ini
+Data/INI/MappedImages/HandCreated/ReforgedGroundMarkers.ini
 Data/INI/MappedImages/HandCreated/ReforgedGuardShield.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudAmericaCommandBar.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudAmericaDirectStrike.ini
@@ -1232,6 +1259,7 @@ Data/INI/MappedImages/HandCreated/ReforgedHudChinaPowers.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudChinaSidebar.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudChinaTabPanel.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudChinaTalents.ini
+Data/INI/MappedImages/HandCreated/ReforgedHudCommonDirectStrike.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudControlButtons.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudDisconnectWindow.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudGlaCommandBar.ini
@@ -1252,6 +1280,7 @@ Data/INI/MappedImages/HandCreated/ReforgedHudTurkiyeSidebar.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudTurkiyeTabPanel.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudTurkiyeTalents.ini
 Data/INI/MappedImages/HandCreated/ReforgedLobbySpot.ini
+Data/INI/MappedImages/HandCreated/ReforgedMatchClock.ini
 Data/INI/MappedImages/HandCreated/ReforgedReconHud.ini
 Data/INI/MappedImages/HandCreated/TRCameos.ini
 Data/INI/MappedImages/HandCreated/TRUpgrades.ini
@@ -1300,6 +1329,10 @@ Data/Scenarios/ambulancegiveup.txt
 Data/Scenarios/ambulanceguard.txt
 Data/Scenarios/amovefield.txt
 Data/Scenarios/amovejet.txt
+Data/Scenarios/apoc_discord2.txt
+Data/Scenarios/apoc_discord4.txt
+Data/Scenarios/apoc_look.txt
+Data/Scenarios/apoc_ranksdrop.txt
 Data/Scenarios/artillery.txt
 Data/Scenarios/aurorablast.txt
 Data/Scenarios/aurorafog.txt
@@ -1317,9 +1350,22 @@ Data/Scenarios/blastcheck.txt
 Data/Scenarios/bridgecross.txt
 Data/Scenarios/bridgelong.txt
 Data/Scenarios/broadcastend.txt
+Data/Scenarios/c6ademo.txt
+Data/Scenarios/c6aslth.txt
+Data/Scenarios/c6aslth2.txt
+Data/Scenarios/c6atox.txt
+Data/Scenarios/c6atox2.txt
+Data/Scenarios/cambushdemo.txt
+Data/Scenarios/cambushtox.txt
 Data/Scenarios/capturedbuild.txt
 Data/Scenarios/cargocrash.txt
+Data/Scenarios/cdemotrap.txt
+Data/Scenarios/cgla6b.txt
+Data/Scenarios/cgla6b0.txt
+Data/Scenarios/cgps10a.txt
 Data/Scenarios/cheatwitness.txt
+Data/Scenarios/chinookcombat.txt
+Data/Scenarios/chinookplain.txt
 Data/Scenarios/chokeprobe.txt
 Data/Scenarios/comanchehill.txt
 Data/Scenarios/comanchepods.txt
@@ -1329,6 +1375,7 @@ Data/Scenarios/debristrails.txt
 Data/Scenarios/debristrails3.txt
 Data/Scenarios/defencereach.txt
 Data/Scenarios/deployguard.txt
+Data/Scenarios/deploypullaway.txt
 Data/Scenarios/deploystall.txt
 Data/Scenarios/dozerloss.txt
 Data/Scenarios/dragonfirewall.txt
@@ -1350,8 +1397,10 @@ Data/Scenarios/foreign_dozerkill.txt
 Data/Scenarios/foreign_hijack.txt
 Data/Scenarios/foreign_lotus.txt
 Data/Scenarios/foreign_snipe.txt
+Data/Scenarios/fortressair.txt
 Data/Scenarios/fortressattack.txt
 Data/Scenarios/fortressfall.txt
+Data/Scenarios/fortressrepair.txt
 Data/Scenarios/gate60hz.txt
 Data/Scenarios/geproto_alpine.txt
 Data/Scenarios/geproto_fogedge.txt
@@ -1359,10 +1408,14 @@ Data/Scenarios/geproto_glow.txt
 Data/Scenarios/geproto_hazefog.txt
 Data/Scenarios/geproto_oasis.txt
 Data/Scenarios/givemoney.txt
+Data/Scenarios/glahqfall.txt
+Data/Scenarios/glahqfour.txt
+Data/Scenarios/glahqrepair.txt
 Data/Scenarios/glowbase.txt
 Data/Scenarios/glowfight.txt
 Data/Scenarios/glowmicrowave.txt
 Data/Scenarios/gpu1m_battle.txt
+Data/Scenarios/groupqueue.txt
 Data/Scenarios/guardair.txt
 Data/Scenarios/guardradius.txt
 Data/Scenarios/guardshields.txt
@@ -1413,8 +1466,20 @@ Data/Scenarios/lanewar.txt
 Data/Scenarios/lanewar_air.txt
 Data/Scenarios/lanewar_buy.txt
 Data/Scenarios/lanewar_cargo.txt
+Data/Scenarios/lanewar_cooldowns.txt
 Data/Scenarios/lanewar_end.txt
 Data/Scenarios/lanewar_hack.txt
+Data/Scenarios/lanewar_hacklone.txt
+Data/Scenarios/lanewar_hacktower.txt
+Data/Scenarios/lanewar_lotus.txt
+Data/Scenarios/lanewar_microwave.txt
+Data/Scenarios/lanewar_onejet.txt
+Data/Scenarios/lanewar_ranks.txt
+Data/Scenarios/lanewar_scales.txt
+Data/Scenarios/lanewar_speed.txt
+Data/Scenarios/lanewar_strays.txt
+Data/Scenarios/lanewar_towerbounty.txt
+Data/Scenarios/lanewar_towerheal.txt
 Data/Scenarios/lanewar_tricks.txt
 Data/Scenarios/laserdefense.txt
 Data/Scenarios/laserflow.txt
@@ -1451,11 +1516,13 @@ Data/Scenarios/missiledefence.txt
 Data/Scenarios/missileflyon.txt
 Data/Scenarios/missileflyon_drone.txt
 Data/Scenarios/missilesmoke.txt
+Data/Scenarios/missilesmoke2.txt
 Data/Scenarios/missilespam.txt
 Data/Scenarios/mob100.txt
 Data/Scenarios/mob250.txt
 Data/Scenarios/mob400.txt
 Data/Scenarios/mobattack.txt
+Data/Scenarios/mobchase.txt
 Data/Scenarios/mobclose.txt
 Data/Scenarios/mobopen.txt
 Data/Scenarios/mobstress.txt
@@ -1464,8 +1531,10 @@ Data/Scenarios/mobwin.txt
 Data/Scenarios/moneypop.txt
 Data/Scenarios/moneypop3.txt
 Data/Scenarios/msaa_river.txt
+Data/Scenarios/netjetstrike.txt
 Data/Scenarios/netrepeat.txt
 Data/Scenarios/netstance.txt
+Data/Scenarios/netwrap.txt
 Data/Scenarios/neutronshells.txt
 Data/Scenarios/nukefade.txt
 Data/Scenarios/obeyorders.txt
@@ -1483,6 +1552,9 @@ Data/Scenarios/piecetower.txt
 Data/Scenarios/piecetowerdirect.txt
 Data/Scenarios/piecetowerfilm.txt
 Data/Scenarios/powerpropcapture.txt
+Data/Scenarios/radarbatch.txt
+Data/Scenarios/ragdoll_mixed.txt
+Data/Scenarios/ragdoll_slope.txt
 Data/Scenarios/reachhills.txt
 Data/Scenarios/reachproof.txt
 Data/Scenarios/reachshot.txt
@@ -1514,6 +1586,7 @@ Data/Scenarios/rf_thumb_fa.txt
 Data/Scenarios/rf_thumb_fe.txt
 Data/Scenarios/rocketfx.txt
 Data/Scenarios/rocketglow.txt
+Data/Scenarios/rtlights.txt
 Data/Scenarios/s240_beach.txt
 Data/Scenarios/s240_bridge.txt
 Data/Scenarios/s240_heli.txt
@@ -1541,7 +1614,10 @@ Data/Scenarios/standinbuild.txt
 Data/Scenarios/standinfake.txt
 Data/Scenarios/stashbeside.txt
 Data/Scenarios/statues.txt
+Data/Scenarios/stealthenemy.txt
 Data/Scenarios/stealthintruder.txt
+Data/Scenarios/stealthlate.txt
+Data/Scenarios/stealthown.txt
 Data/Scenarios/stealthreveal.txt
 Data/Scenarios/strikeair_nuke.txt
 Data/Scenarios/strikeair_nukehelix.txt
@@ -1567,6 +1643,8 @@ Data/Scenarios/trailer_clash.txt
 Data/Scenarios/trailer_corridor.txt
 Data/Scenarios/trailer_fourway.txt
 Data/Scenarios/trailer_intro.txt
+Data/Scenarios/trainerloss.txt
+Data/Scenarios/trainerloss2.txt
 Data/Scenarios/truckredirect.txt
 Data/Scenarios/tunnelattack.txt
 Data/Scenarios/tunnelfull.txt
@@ -1607,6 +1685,7 @@ Data/Window/GeneralsExpPoints.wnd
 Data/Window/InGameChat.wnd
 Data/Window/Menus/Defeat.wnd
 Data/Window/Menus/DisconnectScreen.wnd
+Data/Window/Menus/GameModeBox.wnd
 Data/Window/Menus/GameSpyGameOptionsMenu.wnd
 Data/Window/Menus/GameSpyLoginProfile.wnd
 Data/Window/Menus/HDAssetsMenu.wnd
@@ -1880,6 +1959,7 @@ GameEngine/Include/GameClient/LoadScreen.h
 GameEngine/Include/GameClient/LoadScreenLayout.h
 GameEngine/Include/GameClient/LookAtXlat.h
 GameEngine/Include/GameClient/MapUtil.h
+GameEngine/Include/GameClient/MatchClock.h
 GameEngine/Include/GameClient/MessageBox.h
 GameEngine/Include/GameClient/MetaEvent.h
 GameEngine/Include/GameClient/Module/AnimatedParticleSysBoneClientUpdate.h
@@ -1932,6 +2012,7 @@ GameEngine/Include/GameLogic/AIPlayer.h
 GameEngine/Include/GameLogic/AISkirmishPlayer.h
 GameEngine/Include/GameLogic/AIStateMachine.h
 GameEngine/Include/GameLogic/AITNGuard.h
+GameEngine/Include/GameLogic/ApocalypseDirector.h
 GameEngine/Include/GameLogic/Armor.h
 GameEngine/Include/GameLogic/ArmorSet.h
 GameEngine/Include/GameLogic/CRCSnapshotRing.h
@@ -1939,6 +2020,7 @@ GameEngine/Include/GameLogic/CaveSystem.h
 GameEngine/Include/GameLogic/CrateSystem.h
 GameEngine/Include/GameLogic/CrowdModel.h
 GameEngine/Include/GameLogic/Damage.h
+GameEngine/Include/GameLogic/DayNightCycle.h
 GameEngine/Include/GameLogic/ExperienceTracker.h
 GameEngine/Include/GameLogic/FPUControl.h
 GameEngine/Include/GameLogic/FiringTracker.h
@@ -2577,6 +2659,7 @@ GameEngine/Source/GameClient/LaneWarEndScreen.cpp
 GameEngine/Source/GameClient/LanguageFilter.cpp
 GameEngine/Source/GameClient/Line2D.cpp
 GameEngine/Source/GameClient/MapUtil.cpp
+GameEngine/Source/GameClient/MatchClock.cpp
 GameEngine/Source/GameClient/MessageStream/CommandXlat.cpp
 GameEngine/Source/GameClient/MessageStream/GUICommandTranslator.cpp
 GameEngine/Source/GameClient/MessageStream/HintSpy.cpp
@@ -2877,10 +2960,12 @@ GameEngine/Source/GameLogic/ScriptEngine/ScriptConditions.cpp
 GameEngine/Source/GameLogic/ScriptEngine/ScriptEngine.cpp
 GameEngine/Source/GameLogic/ScriptEngine/Scripts.cpp
 GameEngine/Source/GameLogic/ScriptEngine/VictoryConditions.cpp
+GameEngine/Source/GameLogic/System/ApocalypseDirector.cpp
 GameEngine/Source/GameLogic/System/CRCSnapshotRing.cpp
 GameEngine/Source/GameLogic/System/CaveSystem.cpp
 GameEngine/Source/GameLogic/System/CrateSystem.cpp
 GameEngine/Source/GameLogic/System/Damage.cpp
+GameEngine/Source/GameLogic/System/DayNightCycle.cpp
 GameEngine/Source/GameLogic/System/FPUControl.cpp
 GameEngine/Source/GameLogic/System/GameLogic.cpp
 GameEngine/Source/GameLogic/System/GameLogicDispatch.cpp
@@ -2987,6 +3072,7 @@ GameEngineDevice/Include/W3DDevice/Common/W3DRadar.h
 GameEngineDevice/Include/W3DDevice/Common/W3DThingFactory.h
 GameEngineDevice/Include/W3DDevice/GameClient/BaseHeightMap.h
 GameEngineDevice/Include/W3DDevice/GameClient/BridgeTilt.h
+GameEngineDevice/Include/W3DDevice/GameClient/CloudShadowBake.h
 GameEngineDevice/Include/W3DDevice/GameClient/FireLights.h
 GameEngineDevice/Include/W3DDevice/GameClient/FlatHeightMap.h
 GameEngineDevice/Include/W3DDevice/GameClient/FoliagePlacement.h
@@ -3050,6 +3136,7 @@ GameEngineDevice/Include/W3DDevice/GameClient/W3DGameWindow.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DGameWindowManager.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DGranny.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DGrassBuffer.h
+GameEngineDevice/Include/W3DDevice/GameClient/W3DGroundMarkers.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DInGameUI.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DMirror.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DMouse.h
@@ -3057,6 +3144,7 @@ GameEngineDevice/Include/W3DDevice/GameClient/W3DParticleSys.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DPoly.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DProjectedShadow.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DPropBuffer.h
+GameEngineDevice/Include/W3DDevice/GameClient/W3DRagdoll.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DReachOverlay.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DRoadBuffer.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DScene.h
@@ -3206,6 +3294,7 @@ GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DOverlordTruckDraw.
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DPoliceCarDraw.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DProjectileStreamDraw.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DPropDraw.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DRagdoll.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DRopeDraw.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DScienceModelDraw.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DSupplyDraw.cpp
@@ -3278,6 +3367,7 @@ GameEngineDevice/Source/W3DDevice/GameClient/W3DFileSystem.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DGameClient.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DGranny.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DGrassBuffer.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/W3DGroundMarkers.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DInGameUI.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DModelPreview.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DMouse.cpp
@@ -3608,6 +3698,12 @@ Libraries/Source/WWVegas/WW3D2/dx11layout.cpp
 Libraries/Source/WWVegas/WW3D2/dx11layout.h
 Libraries/Source/WWVegas/WW3D2/dx11post.cpp
 Libraries/Source/WWVegas/WW3D2/dx11post.h
+Libraries/Source/WWVegas/WW3D2/dx11rayao.cpp
+Libraries/Source/WWVegas/WW3D2/dx11rayao.h
+Libraries/Source/WWVegas/WW3D2/dx11raygrid.cpp
+Libraries/Source/WWVegas/WW3D2/dx11raygrid.h
+Libraries/Source/WWVegas/WW3D2/dx11raylights.cpp
+Libraries/Source/WWVegas/WW3D2/dx11raylights.h
 Libraries/Source/WWVegas/WW3D2/dx11resource.cpp
 Libraries/Source/WWVegas/WW3D2/dx11resource.h
 Libraries/Source/WWVegas/WW3D2/dx11runtime.cpp
@@ -4570,6 +4666,7 @@ Tests/test_cinema.inc
 Tests/test_cinematic_camera.cpp
 Tests/test_cinematic_camera.inc
 Tests/test_clock.cpp
+Tests/test_cloud_shadow_bake.cpp
 Tests/test_compression.cpp
 Tests/test_crash_reporting.cpp
 Tests/test_d3d9device.h
@@ -4642,6 +4739,7 @@ Tests/test_modern_water_config.cpp
 Tests/test_msvc_float_casts.cpp
 Tests/test_observer_camera.inc
 Tests/test_online.cpp
+Tests/test_partition_collide.inc
 Tests/test_pathfind_slicing.inc
 Tests/test_pixelcentre.cpp
 Tests/test_posix_draw_resolve.cpp
@@ -5582,6 +5680,7 @@ Tools/fingerprint-check.sh
 Tools/fingerprint-manifest.sh
 Tools/fingerprint/build_fingerprint.cpp
 Tools/foliage_atlas.py
+Tools/gamemode_layout.py
 Tools/gametext.py
 Tools/gdi-font-metrics-header.py
 Tools/gdi-font-metrics.ps1
@@ -5593,6 +5692,7 @@ Tools/hdassets_layout.py
 Tools/hud_command_bar.py
 Tools/hud_direct_strike.py
 Tools/hud_direct_strike_theme.py
+Tools/hud_match_clock.py
 Tools/hud_sidebar.py
 Tools/include_case_check.py
 Tools/install-guard.sh

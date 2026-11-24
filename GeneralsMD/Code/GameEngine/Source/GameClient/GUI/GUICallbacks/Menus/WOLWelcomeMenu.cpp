@@ -49,6 +49,7 @@
 #include "GameNetwork/NetworkInterface.h"
 
 #include "GameClient/AnimateWindowManager.h"
+#include "GameClient/TankSkin.h"
 #include "GameClient/Display.h"
 #include "GameClient/WindowLayout.h"
 #include "GameClient/Gadget.h"
@@ -332,6 +333,9 @@ static Bool startAIMatch( const OnlineAIMatch &ai )
 	player.setPlayerTemplate( s_aiArmy );
 	player.setColor( -1 );
 	player.setStartPos( -1 );
+	// what the account wears, as the server last said: drawing only, the logic and its CRC never read it,
+	// and the server strips it from the replay it keeps of the match
+	player.setSkins( TankSkin_localLoadout() );
 
 	static const SlotState RUNG_STATES[ AISKILL_COUNT ] = { SLOT_EASY_AI, SLOT_MED_AI, SLOT_BRUTAL_AI };
 	const AISkillLevel rung = aiSkillOfRating( ai.aiRating );
@@ -870,7 +874,7 @@ static void refreshCards( void )
 	HubCard &qm = s_cards[ CARD_QUICK_MATCH ];
 	const UIStyle::RatingTier tier = UIStyle::playerTier( info );
 	qm.portrait = UIStyle::tierImage( tier, side );
-	qm.figure->setText( info.hasRating ? UIStyle::ratingText( info.exactRating ) : none );
+	qm.figure->setText( info.hasRating ? UIStyle::ladderText( info.shown(), info.hasElo ) : none );
 	qm.tier->setText( OnlineTierName( UIStyle::tierKey( tier ) ) );
 	// under five rated games the ladder places nobody: how far along instead (-1 is a count nobody sent)
 	if (info.hasRating && info.games >= 0 && info.games < UIStyle::RANKED_GAMES)
@@ -946,7 +950,7 @@ static void refreshRecent( void )
 		cell[ CELL_CHIP ]->setText( TheGameText->fetch( row.won ? "GUI:OnlineWinLabel" : "GUI:OnlineLossLabel" ) );
 		cell[ CELL_MODE ]->setText( UIStyle::fitKey( row.ai ? "GUI:OnlineHubMatchAI" : "GUI:OnlineQuickMatchLabel", body,
 			s_cellWidth[ CELL_MODE ] - pad ) );
-		cell[ CELL_RATING ]->setText( row.ai ? UIStyle::eloText( row.opponentRating ) : UIStyle::ratingText( row.opponentRating ) );
+		cell[ CELL_RATING ]->setText( UIStyle::ladderText( row.opponentRating, row.ai || row.hasElo ) );
 		Int ratingWidth, h;
 		cell[ CELL_RATING ]->getSize( &ratingWidth, &h );
 		UnicodeString opponent;
@@ -964,7 +968,7 @@ static void refreshRecent( void )
 		else
 			map = UnicodeString( MultiByteToWideCharSingleLine( row.map.str() ).c_str() );
 		cell[ CELL_MAP ]->setText( UIStyle::fitText( map, body, s_cellWidth[ CELL_MAP ] - pad, UnicodeString::TheEmptyString, map ) );
-		cell[ CELL_CHANGE ]->setText( UIStyle::ratingText( row.change, TRUE ) );
+		cell[ CELL_CHANGE ]->setText( UIStyle::ladderText( row.change, row.hasElo, TRUE ) );
 		cell[ CELL_AGE ]->setText( ageText( row.age ) );
 	}
 }

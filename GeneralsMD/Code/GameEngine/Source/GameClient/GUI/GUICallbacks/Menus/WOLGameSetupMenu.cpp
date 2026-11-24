@@ -239,6 +239,7 @@ static NameKeyType checkBoxLimitArmiesID = NAMEKEY_INVALID;
 static NameKeyType checkBoxUnitLimitID = NAMEKEY_INVALID;
 static NameKeyType checkBoxProRulesID = NAMEKEY_INVALID;
 static NameKeyType checkBoxStartShroudedID = NAMEKEY_INVALID;
+static NameKeyType checkBoxDayNightID = NAMEKEY_INVALID;
 static NameKeyType comboBoxIncomeSharingID = NAMEKEY_INVALID;
 static NameKeyType comboBoxTechRespawnID = NAMEKEY_INVALID;
 static NameKeyType comboBoxSupplyPileLimitID = NAMEKEY_INVALID;
@@ -262,6 +263,7 @@ static GameWindow *checkBoxLimitArmies = NULL;
 static GameWindow *checkBoxUnitLimit = NULL;
 static GameWindow *checkBoxProRules = NULL;
 static GameWindow *checkBoxStartShrouded = NULL;
+static GameWindow *checkBoxDayNight = NULL;
 static GameWindow *comboBoxIncomeSharing = NULL;
 static GameWindow *comboBoxTechRespawn = NULL;
 static GameWindow *comboBoxSupplyPileLimit = NULL;
@@ -392,7 +394,7 @@ static void savePlayerInfo( void )
 				pref.setPreferredColor(slot->getColor());
 				pref.setPreferredFaction(slot->getPlayerTemplate());
 				// a Direct Strike room's island and its switched-off rules are not the host's next Classic room
-				if (TheGameSpyGame->amIHost() && !IsDirectStrikeMap(TheGameSpyGame->getMap()))
+				if (TheGameSpyGame->amIHost() && !IsDirectStrikeMap(TheGameSpyGame->getMap()) && !IsApocalypseMap(TheGameSpyGame->getMap()))
 				{
 					pref.setPreferredMap(TheGameSpyGame->getMap());
           pref.setSuperweaponRestriction( TheGameSpyGame->getSuperweaponRestriction() );
@@ -401,6 +403,7 @@ static void savePlayerInfo( void )
           pref.setInt( "UnitLimit", TheGameSpyGame->getUnitLimit() ? 1 : 0 );
           pref.setInt( "ProRules", TheGameSpyGame->getProRules() ? 1 : 0 );
           pref.setInt( "StartShrouded", TheGameSpyGame->getStartShrouded() ? 1 : 0 );
+          pref.setInt( "DayNight", TheGameSpyGame->getDayNight() ? 1 : 0 );
           pref.setInt( "IncomeSharing", TheGameSpyGame->getIncomeSharing() );
           pref.setInt( "TechRespawn", TheGameSpyGame->getTechRespawn() );
           pref.setInt( "SupplyPileLimit", TheGameSpyGame->getSupplyPileLimit() );
@@ -1026,6 +1029,23 @@ static void handleStartShroudedSelection()
   }
 }
 
+static void handleDayNightSelection()
+{
+  GameInfo *myGame = TheGameSpyInfo->getCurrentStagingRoom();
+
+  if (myGame == NULL || checkBoxDayNight == NULL || myGame->getDayNight() == GadgetCheckBoxIsChecked( checkBoxDayNight ))
+    return;
+
+  myGame->setDayNight( GadgetCheckBoxIsChecked( checkBoxDayNight ) );
+  myGame->resetAccepted();
+
+  if (myGame->amIHost())
+  {
+    TheGameSpyInfo->setGameOptions();
+    WOLDisplaySlotList();// Update the accepted button UI
+  }
+}
+
 static void handleUnitLimitSelection()
 {
   GameInfo *myGame = TheGameSpyInfo->getCurrentStagingRoom();
@@ -1080,21 +1100,25 @@ static void handleSuperweaponSelection()
 }
 
 
-/* This room is a Direct Strike one: the host's Host button said so (OnlineHostDirectStrike), a joiner
+/* This room is a Direct Strike one: the host's Host button said so (TheHostGameMode), a joiner
 	 reads it off the host's lane map, which can arrive after his room opened (WOLDisplaySlotList). */
 static Bool s_directStrike = FALSE;
+/* And an Apocalypse one, the same way (TheHostGameMode, IsApocalypseMap): the classic room on a generated
+	 Apocalypse map, no map choice, four seats on starts 1..n (FitApocalypseRoom). */
+static Bool s_apocalypse = FALSE;
 
-/// The room's name over it, and the mode after it in a Direct Strike room, where nothing else names it.
+/// The room's name over it, and the mode after it in a Direct Strike or Apocalypse room.
 static void setRoomTitle( void )
 {
 	GameWindow *title = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, NAMEKEY("GameSpyGameOptionsMenu.wnd:StaticTextGameName") );
 	if (title == NULL || TheGameSpyGame == NULL)
 		return;
 	UnicodeString text = TheGameSpyGame->getGameName();
-	if (s_directStrike)
+	if (s_directStrike || s_apocalypse)
 	{
 		text.concat(u" - ");
-		text.concat(TheGameText->fetch("GUI:DirectStrikeLower"));
+		text.concat(s_directStrike ? ModeNameWithVersion("GUI:DirectStrikeLower", "GUI:DirectStrikeVersion")
+			: ModeNameWithVersion("GUI:ApocalypseLower", "GUI:ApocalypseVersion"));
 	}
 	GadgetStaticTextSetText(title, text);
 }
@@ -1109,7 +1133,22 @@ static void populateArmyBox( Int i, GameInfo *game, Bool allowObservers )
 /// A Direct Strike room keeps its island and puts the seats under the mode's rules instead.
 static Bool fitRandomMapToRoom(GameSpyStagingRoom *game)
 {
-	if (!game->amIHost() || !(s_directStrike ? FitDirectStrikeRoom(game) : FitRandomMapToRoom(game)))
+	if (!game->amIHost())
+		return FALSE;
+	Bool changed = FALSE;
+	if (s_directStrike)
+		changed = FitDirectStrikeRoom(game);
+	else if (s_apocalypse)
+	{
+		// seats closed past four, the map made again for the seats left, and those seats on starts 1..n,
+		// which a new map cleared
+		changed = FitApocalypseRoom(game);
+		changed = FitRandomMapToRoom(game) || changed;
+		changed = FitApocalypseRoom(game) || changed;
+	}
+	else
+		changed = FitRandomMapToRoom(game);
+	if (!changed)
 		return FALSE;
 	game->resetAccepted();
 	TheGameSpyInfo->setGameOptions();
@@ -1314,6 +1353,11 @@ void WOLDisplayGameOptions( void )
 		// a joiner has no cache entry for an island he builds from its name at load
 		GadgetStaticTextSetText(textEntryMapDisplay, TheGameText->fetch("GUI:DirectStrikeMap"));
 	}
+	else if (IsApocalypseMap(theGame->getMap()))
+	{
+		// nor for an Apocalypse map; the mode is its name
+		GadgetStaticTextSetText(textEntryMapDisplay, ModeNameWithVersion("GUI:ApocalypseLower", "GUI:ApocalypseVersion"));
+	}
 	else if (md && localSlot && localSlot->hasMap())
 	{
 		GadgetStaticTextSetText(textEntryMapDisplay, md->m_displayName);
@@ -1391,6 +1435,8 @@ void WOLDisplayGameOptions( void )
     UpdateProRulesCheckBox( checkBoxProRules, theGame, superweaponIsTheHostsToPick() );
   if ( checkBoxStartShrouded )
     UpdateStartShroudedCheckBox( checkBoxStartShrouded, theGame, superweaponIsTheHostsToPick() );
+  if ( checkBoxDayNight )
+    UpdateDayNightCheckBox( checkBoxDayNight, theGame, superweaponIsTheHostsToPick() );
   if ( comboBoxIncomeSharing )
     UpdateIncomeSharingComboBox( comboBoxIncomeSharing, theGame, superweaponIsTheHostsToPick() );
   if ( comboBoxTechRespawn )
@@ -1425,6 +1471,12 @@ void WOLDisplaySlotList( void )
 		setRoomTitle();
 		DEBUG_LOG(("ONLINE DIRECTSTRIKE joiner room map=%s\n", game->getMap().str()));
 	}
+	if (!s_apocalypse && !game->amIHost() && IsApocalypseMap(game->getMap()))
+	{
+		s_apocalypse = TRUE;
+		setRoomTitle();
+		DEBUG_LOG(("ONLINE APOCALYPSE joiner room map=%s\n", game->getMap().str()));
+	}
 
 	UpdateSlotList( game, comboBoxPlayer, comboBoxColor,
 		comboBoxPlayerTemplate, comboBoxTeam, buttonAccept, buttonStart, buttonMapStartPosition );
@@ -1435,6 +1487,9 @@ void WOLDisplaySlotList( void )
 	// room's, driven from the lobby's seat cards
 	if (s_directStrike)
 		LayoutDirectStrikeRoom(parentWOLGameSetup, "GameSpyGameOptionsMenu.wnd", game);
+	// the four seats and no more
+	if (s_apocalypse)
+		HideLobbySeatRowsFrom(parentWOLGameSetup, "GameSpyGameOptionsMenu.wnd", APOCALYPSE_SEATS);
 
 	WOLDisplayGameOptions();
 
@@ -1519,6 +1574,7 @@ void InitWOLGameGadgets( void )
   checkBoxUnitLimitID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckBoxUnitLimit"));
   checkBoxProRulesID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckBoxProRules"));
   checkBoxStartShroudedID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckBoxStartShrouded"));
+  checkBoxDayNightID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:CheckBoxDayNight"));
   comboBoxIncomeSharingID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:ComboBoxIncomeSharing"));
   comboBoxTechRespawnID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:ComboBoxTechRespawn"));
   comboBoxSupplyPileLimitID = TheNameKeyGenerator->nameToKey(AsciiString("GameSpyGameOptionsMenu.wnd:ComboBoxSupplyPileLimit"));
@@ -1563,6 +1619,10 @@ void InitWOLGameGadgets( void )
   DEBUG_ASSERTCRASH(checkBoxStartShrouded, ("Could not find the GameSpyGameOptionsMenu.wnd:CheckBoxStartShrouded" ));
   if ( checkBoxStartShrouded )
     UpdateStartShroudedCheckBox( checkBoxStartShrouded, TheGameSpyGame, superweaponIsTheHostsToPick() );
+  checkBoxDayNight = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, checkBoxDayNightID );
+  DEBUG_ASSERTCRASH(checkBoxDayNight, ("Could not find the GameSpyGameOptionsMenu.wnd:CheckBoxDayNight" ));
+  if ( checkBoxDayNight )
+    UpdateDayNightCheckBox( checkBoxDayNight, TheGameSpyGame, superweaponIsTheHostsToPick() );
   comboBoxIncomeSharing = TheWindowManager->winGetWindowFromId( parentWOLGameSetup, comboBoxIncomeSharingID );
   DEBUG_ASSERTCRASH(comboBoxIncomeSharing, ("Could not find the GameSpyGameOptionsMenu.wnd:ComboBoxIncomeSharing" ));
   if ( comboBoxIncomeSharing )
@@ -1749,6 +1809,7 @@ void DeinitWOLGameGadgets( void )
   checkBoxUnitLimit = NULL;
   checkBoxProRules = NULL;
   checkBoxStartShrouded = NULL;
+  checkBoxDayNight = NULL;
   comboBoxIncomeSharing = NULL;
   comboBoxTechRespawn = NULL;
   comboBoxSupplyPileLimit = NULL;
@@ -1846,7 +1907,8 @@ static void onlineStagingScript( void )
 		if (s_optionStep == 0)
 		{
 			const struct { const char *name; GameWindow *box; } boxes[] = {
-				{ "prorules", checkBoxProRules }, { "unitlimit", checkBoxUnitLimit }, { "hiddenmap", checkBoxStartShrouded } };
+				{ "prorules", checkBoxProRules }, { "unitlimit", checkBoxUnitLimit }, { "hiddenmap", checkBoxStartShrouded },
+				{ "daynight", checkBoxDayNight } };
 			for (Int i = 0; i < (Int)ARRAY_SIZE(boxes); ++i)
 			{
 				GameWindow *box = boxes[i].box;
@@ -1973,10 +2035,14 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 	launchGameNext = FALSE;
 
 	// before the gadgets, which fill the army and team boxes by the mode
-	s_directStrike = TheGameSpyInfo->amIHost() ? OnlineHostDirectStrike
+	s_directStrike = TheGameSpyInfo->amIHost() ? TheHostGameMode == HOST_MODE_DIRECT_STRIKE
 		: IsDirectStrikeMap( TheGameSpyInfo->getCurrentStagingRoom()->getMap() );
+	s_apocalypse = TheGameSpyInfo->amIHost() ? TheHostGameMode == HOST_MODE_APOCALYPSE
+		: IsApocalypseMap( TheGameSpyInfo->getCurrentStagingRoom()->getMap() );
 	if (s_directStrike && !TheGameSpyInfo->amIHost())
 		DEBUG_LOG(("ONLINE DIRECTSTRIKE joiner room map=%s\n", TheGameSpyInfo->getCurrentStagingRoom()->getMap().str()));
+	if (s_apocalypse && !TheGameSpyInfo->amIHost())
+		DEBUG_LOG(("ONLINE APOCALYPSE joiner room map=%s\n", TheGameSpyInfo->getCurrentStagingRoom()->getMap().str()));
 
 	//initialize the gadgets
 	EnableSlotListUpdates(FALSE);
@@ -2006,6 +2072,11 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 			hostMap = game->getMap();
 			DEBUG_LOG(("ONLINE DIRECTSTRIKE host room map=%s\n", hostMap.str()));
 		}
+		if (s_apocalypse && SetApocalypseMap(game, TRUE))
+		{
+			hostMap = game->getMap();
+			DEBUG_LOG(("ONLINE APOCALYPSE host room map=%s\n", hostMap.str()));
+		}
 		game->setMap(hostMap);
 
 		// Recorded stats games can never limit superweapons, limit armies, or have inflated starting cash.
@@ -2019,6 +2090,7 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		game->setProRules( isUsingStats || customPref.getInt( "ProRules", 1 ) != 0 );
 		// the Hidden Map box; a ranked Quick Match never comes through here and sets its own black start
 		game->setStartShrouded( !isUsingStats && customPref.getInt( "StartShrouded", 0 ) != 0 );
+		game->setDayNight( !isUsingStats && customPref.getInt( "DayNight", 0 ) != 0 );
 		game->setIncomeSharing( isUsingStats ? INCOME_SHARING_OFF : customPref.getInt( "IncomeSharing", INCOME_SHARING_OFF ) );
 		game->setTechRespawn( isUsingStats ? 0 : customPref.getInt( "TechRespawn", 0 ) );
 		game->setSupplyPileLimit( isUsingStats ? 0 : customPref.getInt( "SupplyPileLimit", 0 ) );
@@ -2057,7 +2129,17 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		}
 
 		if (s_directStrike)
+		{
 			FitDirectStrikeRoom(game);
+			// a Direct Strike room opens at 1.0x, off the online default, so it goes out as SP=100; the lobby's chip changes it
+			game->setGameSpeedPercent(RETAIL_GAME_SPEED_PERCENT);
+		}
+		if (s_apocalypse)
+		{
+			FitApocalypseRoom(game);
+			if (buttonSelectMap)
+				buttonSelectMap->winEnable( FALSE );	// the map is the mode's, made again for the seats on Start
+		}
 
 		WOLDisplaySlotList();
 		WOLDisplayGameOptions();
@@ -2186,6 +2268,8 @@ static void shutdownComplete( WindowLayout *layout )
 void WOLGameSetupMenuShutdown( WindowLayout *layout, void *userData )
 {
 	TheGameSpyInfo->unregisterTextWindow(listboxGameSetupChat);
+	// the room's mode ends with the room, by leaving it, a disconnect or a match; the next host is asked again
+	TheHostGameMode = HOST_MODE_CLASSIC;
 
 	if( WOLMapSelectLayout )
 	{
@@ -3041,7 +3125,9 @@ void WOLGameSetupMenuUpdate( WindowLayout * layout, void *userData)
 								}
 								else if (key == "StartPos")
 								{
-									if (val >= -1 && val < MAX_SLOTS && val != slot->getStartPos() && slot->getPlayerTemplate() != PLAYERTEMPLATE_OBSERVER)
+									// a Direct Strike seat is its start: a player moves only to an open seat (DirectStrikeSeatIsOpen)
+									if (val >= -1 && val < MAX_SLOTS && val != slot->getStartPos() && slot->getPlayerTemplate() != PLAYERTEMPLATE_OBSERVER
+										&& (!IsDirectStrikeMap(game->getMap()) || DirectStrikeSeatIsOpen(game, val)))
 									{
 										Bool startPosAvailable = TRUE;
 										if(val != -1)
@@ -3459,6 +3545,12 @@ WindowMsgHandledType WOLGameSetupMenuSystem( GameWindow *window, UnsignedInt msg
 				if ( controlID == checkBoxStartShroudedID )
 				{
 					handleStartShroudedSelection();
+					break;
+				}
+
+				if ( controlID == checkBoxDayNightID )
+				{
+					handleDayNightSelection();
 					break;
 				}
 

@@ -94,8 +94,9 @@ Bool OnlineGetCounts( Int &players, Int &games, Int &queue );
 Bool OnlineGetServerInfo( AsciiString &name, AsciiString &city, Int &pingMs );
 /* The code of the last login the server refused (auth.fail: badlogin, throttled, expired...), and its
 	 retry in seconds, 0 when it gave none.  Empty when the last login never reached a refusal (the
-	 connection failed), and cleared by the next login.  `file` gets the install file a "files" refusal names. */
-AsciiString OnlineGetLoginFailure( Int *retrySeconds, AsciiString *file = NULL, AsciiString *until = NULL );
+	 connection failed), and cleared by the next login.  `file` gets the install file a "files" refusal names,
+	 `until` a maintenance or ban end as UTC text, `reason` a ban's reason. */
+AsciiString OnlineGetLoginFailure( Int *retrySeconds, AsciiString *file = NULL, AsciiString *until = NULL, AsciiString *reason = NULL );
 
 /* The server's notice (notice{kind,en,tr,until}, after the welcome and whenever it changes), shown as a
 	 banner across the top of every screen.  en and tr are UTF-8 and until is as the server wrote it, usually
@@ -224,9 +225,12 @@ Bool OnlineIsSendingResults( void );
 struct OnlinePlayerInfo
 {
 	Int ping;
-	Bool hasRating;
-	Int rating;								///< exactRating rounded, for the screens that still print %d
-	Real exactRating;					///< the site's rating, two decimals (an older server sends it whole)
+	Bool hasRating;						///< a rating or an Elo arrived
+	Int rating;								///< shown() rounded, for the screens that print %d
+	Real exactRating;					///< the site's old-scale rating, two decimals (an older server sends it whole)
+	Bool hasElo;							///< the server sent the ladder's Elo beside the rating; an older one does not
+	Real elo;									///< the ladder's Elo, whole
+	Real shown( void ) const { return hasElo ? elo : exactRating; }	///< the figure the screens show
 	AsciiString tier;					///< the site's tier key ("major"); OnlineTierName says it in words
 	Int games;
 	Int wins;
@@ -246,16 +250,19 @@ Bool OnlineGetPlayerInfo( const AsciiString &nick, OnlinePlayerInfo &out );		///
 void OnlineRequestStats( const AsciiString &nick );		///< stats{nick}; the answer lands in OnlineGetPlayerInfo
 UnsignedInt OnlinePlayerInfoSerial( void );						///< moves on whenever a player's numbers change
 UnicodeString OnlineTierName( const AsciiString &tier );		///< GUI:OnlineTier_<key>, or the key itself
-UnicodeString OnlineRatingText( const OnlinePlayerInfo &info );	///< "Major, rating 21", "Rating 21", "Major", or empty
+UnicodeString OnlineRatingText( const OnlinePlayerInfo &info );	///< "Major, ELO 1213", "ELO 1213" (or an older server's "rating 21"), "Major", or empty
 
 /* The ladder, 20 rows a page: OnlineRequestLadder(offset) asks, OnlineGetLadder reads the last answer. */
 struct OnlineLadderRow
 {
 	Int rank;									///< 0 when the server sent none
 	AsciiString nick;
-	Bool hasRating;
-	Int rating;								///< exactRating rounded, for the screens that still print %d
-	Real exactRating;					///< two decimals
+	Bool hasRating;						///< a rating or an Elo arrived
+	Int rating;								///< shown() rounded, for the screens that print %d
+	Real exactRating;					///< the old scale, two decimals
+	Bool hasElo;							///< the row carried elo
+	Real elo;
+	Real shown( void ) const { return hasElo ? elo : exactRating; }	///< the figure the screens show
 	AsciiString tier;
 	Int wins;
 	Int losses;
@@ -351,8 +358,9 @@ struct OnlineHistoryRow
 	Int seconds;							///< the match's length
 	Real change;							///< the player's rating change
 	Int age;									///< seconds ago, when the server answered
+	Bool hasElo;							///< a Quick Match row with opponentElo: opponentRating and change are then Elo
 
-	OnlineHistoryRow() : ai( FALSE ), won( FALSE ), opponentRating( 0.0f ), seconds( 0 ), change( 0.0f ), age( 0 ) {}
+	OnlineHistoryRow() : ai( FALSE ), won( FALSE ), opponentRating( 0.0f ), seconds( 0 ), change( 0.0f ), age( 0 ), hasElo( FALSE ) {}
 };
 struct OnlineHistoryArmy
 {
@@ -468,8 +476,10 @@ OnlineRejoinState OnlineGetRejoin( RejoinInfo &out, AsciiString &refusal );
 void OnlineStartRejoin( const RejoinInfo &info );
 
 /* The server's verdict on the match the last game.start or qm.matched named: rated (delta, rating, or
-	 before and after, which give the same two) or unrated (reason).  FALSE until it arrives. */
-Bool OnlineGetMatchResult( Bool &rated, Real &delta, Real &rating, AsciiString &reason );
+	 before and after, which give the same two) or unrated (reason).  FALSE until it arrives.  With elo
+	 given, a verdict that carries eloAfter (a server with Elo) gives eloDelta and eloAfter instead and sets
+	 it TRUE; one without leaves the old scale's and sets it FALSE. */
+Bool OnlineGetMatchResult( Bool &rated, Real &delta, Real &rating, AsciiString &reason, Bool *elo = NULL );
 
 /* Play vs AI, a 1v1 skirmish the server rates on Elo (the card's aiRating, its aiElo).  Every AI figure
 	 here is an Elo: the bot's is ai.ready's botElo, the verdict's eloBefore and eloAfter; from a server
@@ -539,10 +549,10 @@ Bool OnlineGetAIVerdict( OnlineAIVerdict &out );		///< FALSE before the first th
 	 its match equals this. */
 AsciiString OnlineGetLastAIMatchId( void );
 
-/* The mode the custom lobby's Host button was answered with (AskGameMode): TRUE for Direct Strike.  It
-	 goes out in game.host, the host popup leaves Limit Armies out under it, and the staging room the host
-	 opens stands on a lane map from the start.  A joiner reads the mode off the host's map instead
-	 (IsDirectStrikeMap), and every game.opts the host sends names the mode and seed that map carries. */
-extern Bool OnlineHostDirectStrike;
+/* The mode the custom lobby's Host button was answered with is TheHostGameMode (GUIUtil.h).  It goes out
+	 in game.host, the host popup leaves Limit Armies out under Direct Strike, and the staging room the host
+	 opens stands on that mode's map from the start.  A joiner reads the mode off the host's map instead
+	 (IsDirectStrikeMap, IsApocalypseMap), and every game.opts the host sends names the mode and seed that
+	 map carries ("classic", "directstrike" or "apocalypse"), for the server's records and room list only. */
 
 #endif // _ONLINE_QUEUES_H_

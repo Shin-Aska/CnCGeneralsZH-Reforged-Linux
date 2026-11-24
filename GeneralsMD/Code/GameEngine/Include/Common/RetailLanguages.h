@@ -8,6 +8,6 @@
 // it is the preferred fallback when an install contains more than one language.
 namespace RetailLanguages
 {
-static const char *const names[] = { "english", "german", "french", "spanish", "italian",
+static const char *const names[] = { "english", "german", "german2", "french", "spanish", "italian",
 	"korean", "chinese", "brazilian", "polish", "russian" };
 }

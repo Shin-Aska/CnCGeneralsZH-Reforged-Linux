@@ -63,6 +63,8 @@
 #include "GameLogic/AI.h"
 #include "GameLogic/AIPlayer.h"
 #include "GameLogic/AIPathfind.h"
+#include "GameLogic/ApocalypseDirector.h"
+#include "GameLogic/DayNightCycle.h"
 #include "GameLogic/ExperienceTracker.h"
 #include "GameLogic/FiringTracker.h"
 #include "GameLogic/GameLogic.h"
@@ -260,6 +262,9 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 #endif
 	//Modules have not been created yet!
 	m_modulesReady = false;
+
+	m_notedPos = *getPosition();
+	m_notedAngle = getOrientation();
 
 	// Force the thing template to use the most overridden version of itself - jkmcd
 	// Note that after this, the object will be using m_template, which forces the usage of the 
@@ -2009,8 +2014,15 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
   	m_drawable->setTransformMatrix( this->getTransformMatrix() );
 	}
 
-	Bool posDiff = isPosDifferent(oldPos, getPosition());
-	Bool angDiff = isAngleDifferent(oldAngle, getOrientation());
+	// Against the transform last reacted to, not the one just before this move: a unit creeping or
+	// turning under the threshold every tick otherwise never re-registers its cells, and the drift
+	// grows without bound.
+	Bool posDiff = isPosDifferent(&m_notedPos, getPosition());
+	Bool angDiff = isAngleDifferent(m_notedAngle, getOrientation());
+	if (posDiff)
+		m_notedPos = *getPosition();
+	if (angDiff)
+		m_notedAngle = getOrientation();
 
 	if (posDiff || angDiff)
 	{
@@ -3110,6 +3122,7 @@ void Object::setLayer(PathfindLayerEnum layer)
 		if (m_physics)
 			m_physics->wakeIfDormant();
 		m_layer = layer;
+		invalidateAltitudeCache();	// the height above ground is measured from the layer
 		TheAI->pathfinder()->updatePos(this, getPosition());
 	}
 }
@@ -3200,7 +3213,8 @@ void Object::friend_notifyOfNewMapBoundary(void)
 {
 	// A rider of an enclosing container stays out of the world the way OpenContain took it out:
 	// registering it put a garrison's occupants back in reach of every splash weapon.
-	const Bool enclosed = m_containedBy && m_containedBy->getContain()->isEnclosingContainerFor( this );
+	const Bool enclosed = m_containedBy && m_containedBy->getContain()
+		&& m_containedBy->getContain()->isEnclosingContainerFor( this );
 	if( !enclosed )
 		ThePartitionManager->registerObject(this);
 	TheRadar->addObject(this);
@@ -3377,19 +3391,24 @@ void Object::scoreTheKill( const Object *victim )
 	Player* victimController = victim->getControllingPlayer();
 	// if the other player is not a playable side (i.e. they are civilian, observer, whatever)
 	// we shouldn't count the kill.
-	if (victimController->isPlayableSide() == FALSE)
+	// An Apocalypse zombie is the one civilian that counts: the killer's player gets the kill on the
+	// score screen and the general's points for it, but no cash bounty (thousands walk in a match, an
+	// income nobody designed), nothing goes on the civilians' own books, and the unit takes no
+	// veterancy, as before.
+	const Bool zombie = TheApocalypseDirector->isZombie( victim );
+	if (victimController->isPlayableSide() == FALSE && !zombie)
 	{
 		return;
 	}
 
-	
+
 	if ( victim->isKindOf( KINDOF_IGNORED_IN_GUI ) )
 		return;
 
 
 	Player* controller = getControllingPlayer();
 
-	if (victimController)
+	if (victimController && !zombie)
 	{
 		victimController->getScoreKeeper()->addObjectLost(victim);
 		victimController->onUnitLost(victim);
@@ -3412,8 +3431,12 @@ void Object::scoreTheKill( const Object *victim )
 	{
 		controller->getScoreKeeper()->addObjectDestroyed(victim);
 		controller->addSkillPointsForKill(this, victim);
-		controller->doBountyForKill(this, victim);
+		if (!zombie)
+			controller->doBountyForKill(this, victim);
 	}
+
+	if (zombie)
+		return;
 
 	/* Now handle experience, if we can gain any.
 
@@ -3501,7 +3524,11 @@ void Object::friend_bindToDrawable( Drawable *draw )
 		{
 			if (TheGlobalData->m_forceModelsToFollowTimeOfDay)
 			{
-				set.set(MODELCONDITION_NIGHT, (TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT) ? 1 : 0);
+				// the map's hour, or under the day and night cycle this object's lights at this frame
+				// (DayNight_update turns them later); a function of the match's settings, the ObjectID and
+				// the frame, since the logic reads bones from this state
+				const Bool night = DayNight_isOn() ? DayNight_objectLightsOn(this, TheGameLogic->getFrame()) : DayNight_mapNightCondition();
+				set.set(MODELCONDITION_NIGHT, night ? 1 : 0);
 			}
 
 			if (TheGlobalData->m_forceModelsToFollowWeather)
@@ -3677,15 +3704,19 @@ void Object::onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLevel ne
 		getControllingPlayer()->getPlayerIndex(), getTemplate()->getName().str(),
 		TheVeterancyNames[oldLevel], TheVeterancyNames[newLevel], getExperienceTracker()->getCurrentExperience()));
 
+	// The body scales its max health to the new level first: a MaxHealthUpgrade that
+	// updateUpgradeModules applies here already multiplies its health by the new level's bonus, so
+	// scaling after it counted the bonus twice (a unit veteran at creation, built after a talent
+	// health card, had 1.44 times the card's health).
+	BodyModuleInterface* body = getBodyModule();
+	if (body)
+		body->onVeterancyLevelChanged( oldLevel, newLevel, provideFeedback );
+
 	updateUpgradeModules();
 
 	const UpgradeTemplate* up = TheUpgradeCenter->findVeterancyUpgrade(newLevel);
 	if (up)
 		giveUpgrade(up);
-
-	BodyModuleInterface* body = getBodyModule();
-	if (body)
-		body->onVeterancyLevelChanged( oldLevel, newLevel, provideFeedback );
 
 	// Whether the promotion shows is simply whether this watcher can see the unit.  The rule used
 	// to be spelled out here as "mine, or not stealthed, or detected, or disguised", which reads
@@ -4201,7 +4232,9 @@ void Object::updateObjValuesFromMapProperties(Dict* properties)
         drawable->clearModelConditionState(MODELCONDITION_NIGHT);
         break;
       case 2:
-        drawable->setModelConditionState(MODELCONDITION_NIGHT);
+        // under the day and night cycle a map maker's lit-at-night object follows the cycle, which opens at noon
+        if (!DayNight_isOn())
+          drawable->setModelConditionState(MODELCONDITION_NIGHT);
         break;
       default:
         break;
@@ -4659,13 +4692,14 @@ static void xferModule( Xfer *xfer, BehaviorModule *module, const Object *obj )
 	* 16: the auras gathered since its last turn of the once-a-second pass
 	* 17: the rank auras gone; versions 14 to 16 are read and thrown away
 	* 18: the hotkey squad a group panel reinforcement is walking to
+	* 19: the position and angle the partition last reacted to
 	*/
 //-------------------------------------------------------------------------------------------------
 void Object::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 18;
+	const XferVersion currentVersion = 19;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -5153,6 +5187,19 @@ void Object::xfer( Xfer *xfer )
 		xfer->xferInt( &m_reinforcementSquad );
 		xfer->xferCoord3D( &m_reinforcementDestination );
 		xfer->xferBool( &m_reinforcementRetargeted );
+	}
+
+	// what the partition last reacted to decides when it next re-registers, so a load carries on
+	// from the saved one; an older save takes the loaded transform, the one its partition is built at
+	if( version >= 19 )
+	{
+		xfer->xferCoord3D( &m_notedPos );
+		xfer->xferReal( &m_notedAngle );
+	}
+	else if( xfer->getXferMode() == XFER_LOAD )
+	{
+		m_notedPos = *getPosition();
+		m_notedAngle = getOrientation();
 	}
 
 }  // end xfer
@@ -5778,6 +5825,9 @@ void Object::look()
 			Real shroudClearingRange = getShroudClearingRange();
 			if( !isKindOf( KINDOF_STRUCTURE ) && !isKindOf( KINDOF_DOZER ) && !isSpotter() )
 				shroudClearingRange = Object_armedShroudClearingRange( shroudClearingRange, getLargestWeaponRange() );
+			// night clears the fog less far (DayNightCycle.h); a reveal ability (INERT) opens its whole circle
+			if( !isKindOf( KINDOF_INERT ) )
+				shroudClearingRange *= DayNight_sightScaleFor( getID(), TheGameLogic->getFrame() );
 			if( isSightJammed() )
 				shroudClearingRange = min( shroudClearingRange, JAMMED_SHROUD_CLEARING_RANGE );
 

@@ -939,6 +939,22 @@ TOOLTIP:HitFlash
 "A unit or building that takes damage lights up red for a moment, so you see what is being shot at."
 END
 
+GUI:DamageNumbers
+"Damage Numbers"
+END
+
+TOOLTIP:DamageNumbers
+"The damage a hit does rises over the unit in red."
+END
+
+GUI:IdleWorkerCamera
+"Jump to Idle Worker"
+END
+
+TOOLTIP:IdleWorkerCamera
+"The idle worker button and key move the camera to the worker."
+END
+
 GUI:ArchiveReplays
 "Archive Replays"
 END
@@ -1424,6 +1440,14 @@ END
 
 GUI:StartShrouded
 "Hidden Map"
+END
+
+GUI:DayNight
+"Day/Night"
+END
+
+TOOLTIP:DayNight
+"Night falls after every ten minutes of day, and at night every unit sees a fifth less far."
 END
 
 TOOLTIP:StartShrouded
@@ -2065,8 +2089,12 @@ GUI:ShadowQuality2
 "High"
 END
 
+GUI:ShadowQuality3
+"Ray Traced"
+END
+
 TOOLTIP:ShadowQuality
-"How sharp unit and building shadows are. High takes about 64 MB of video memory, Low frees memory on a weak card. Off under Classic Graphics. Applies when you press Accept."
+"How sharp unit and building shadows are. High takes about 64 MB of video memory, Low frees memory on a weak card. Ray Traced follows every pixel's line to the sun past the real shape of each tank and building, so their shadows stay sharp at any zoom; it costs up to 1.6 ms a frame and is still experimental. Ray Traced requires Direct3D 11. Off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:VolumetricSmoke
@@ -2213,12 +2241,40 @@ TOOLTIP:HeatHaze
 "The air shimmers over fires, along laser beams and behind missile exhaust. Off under Classic Graphics. Applies when you press Accept."
 END
 
+GUI:SunShafts
+"Sun Shafts"
+END
+
+GUI:SunShafts0
+"Off"
+END
+
+GUI:SunShafts1
+"Low"
+END
+
+GUI:SunShafts2
+"High"
+END
+
+TOOLTIP:SunShafts
+"Low sunlight falls in bands through the dust between buildings and trees, and the air glows a little toward the sun. Strongest at morning and evening. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+END
+
 GUI:GroundFoliage
 "Ground Foliage"
 END
 
 TOOLTIP:GroundFoliage
 "Grass, bushes, ferns and stones grow on the ground and sway in the breeze with the trees. Units can walk through the foliage. Works with Direct3D 11 on Windows and SDL GPU on Linux and macOS. Requires full terrain detail with Classic Graphics off. Applies when you press Accept."
+END
+
+GUI:Ragdoll
+"Ragdoll Deaths"
+END
+
+TOOLTIP:Ragdoll
+"A soldier who dies goes limp and falls the way the shot or the blast pushed him, instead of playing his death animation. Looks only: where the body lies and when it goes are the same either way, and other players see their own setting. Off under Classic Graphics. Applies to the next death when you press Accept."
 END
 
 GUI:StructureCollapse
@@ -4898,6 +4954,18 @@ GUI:OnlineLoginBanned
 "This account is banned."
 END
 
+GUI:OnlineLoginBannedReason
+"This account is banned: %ls"
+END
+
+GUI:OnlineLoginBannedUntil
+"This account is banned until %ls."
+END
+
+GUI:OnlineLoginBannedUntilReason
+"This account is banned until %ls: %ls"
+END
+
 GUI:OnlineMaintenance
 "Online play is down for maintenance. Try again later."
 END
@@ -5014,6 +5082,15 @@ END
 
 GUI:OnlineRatingTier
 "%ls, rating %d"
+END
+
+// the same from a server that sends the ladder's Elo (the old two lines stay for one that does not)
+GUI:OnlineElo
+"ELO %d"
+END
+
+GUI:OnlineEloTier
+"%ls, ELO %d"
 END
 
 GUI:OnlineLadderPlace
@@ -5239,7 +5316,7 @@ GUI:OnlineLadderPlayer
 END
 
 GUI:OnlineLadderRating
-"Rating"
+"ELO"
 END
 
 GUI:OnlineLadderTier
@@ -5268,6 +5345,10 @@ END
 
 GUI:OnlineRatedResult
 "Rating %+.1f -> %d"
+END
+
+GUI:OnlineEloResult
+"ELO %+d -> %d"
 END
 
 GUI:OnlineUnrated
@@ -6074,7 +6155,7 @@ SCIENCE:DemolitionTalent10A
 END
 
 CONTROLBAR:ToolTipDemolitionTalent10A
-"Each Scud Storm missile hits 20 percent harder, 720 at the centre instead of 600."
+"Each Scud Storm missile hits 10 percent harder, 660 at the centre instead of 600."
 END
 
 SCIENCE:DemolitionTalent10B
@@ -6168,15 +6249,15 @@ GUI:OnlineTabCustom
 END
 
 GUI:OnlineAIShort
-"AI"
+"Bot ELO"
 END
 
 GUI:OnlineLadderRatingLabel
-"Ladder rating"
+"ELO"
 END
 
 GUI:OnlineAIRatingLabel
-"AI rating"
+"Bot ELO"
 END
 
 GUI:OnlineGamesLabel
@@ -6699,12 +6780,12 @@ END
 
 // the load screen's next tip (it counts GUI:LoadTip<n> until one is missing)
 GUI:LoadTip11
-"Play vs AI online keeps its own AI rating and never touches your ladder rating."
+"Play vs AI online keeps its own Bot ELO and never touches your ladder ELO."
 END
 
 // online screens, second pass: the Quick Match page on generated maps, the lobby and hub states
 GUI:OnlineLadderShort
-"Ladder"
+"ELO"
 END
 
 GUI:QMQueueHere
@@ -7475,6 +7556,22 @@ GUI:DirectStrikeLower
 "Direct Strike"
 END
 
+GUI:DirectStrikeVersion
+"v1.0"
+END
+
+GUI:Apocalypse
+"APOCALYPSE"
+END
+
+GUI:ApocalypseVersion
+"v1.0"
+END
+
+TOOLTIP:Apocalypse
+"Hold out together against endless waves of the dead, up to four players."
+END
+
 TOOLTIP:DirectStrike
 "Buy units onto your plot. Every 30 seconds one player of each team sends a copy of his plot down the lane, and the first team to break the other's fortress wins. Up to 3 against 3, on a new island every match."
 END
@@ -7501,6 +7598,26 @@ END
 
 GUI:GameModeDirectStrike
 "DIRECT STRIKE"
+END
+
+GUI:GameModeApocalypse
+"APOCALYPSE"
+END
+
+GUI:GameModeClassicFact
+"Any map"
+END
+
+GUI:GameModeDirectStrikeFact
+"Up to 6 players"
+END
+
+GUI:GameModeApocalypseFact
+"Up to 4, co-op"
+END
+
+GUI:ApocalypseLower
+"Apocalypse"
 END
 
 GUI:DirectStrikeIslandNote
@@ -7619,6 +7736,31 @@ GUI:LaneEndRematch
 "Rematch"
 END
 
+GUI:LaneEndLobby
+"Lobby"
+END
+
 GUI:LaneEndReplay
 "Watch replay"
+END
+
+GUI:QMMapNotBuilt
+"Your game could not build this match's map, so the match was called off."
+END
+
+OBJECT:ApocalypseZombie
+"Zombie"
+END
+
+OBJECT:ApocalypseZombieRunner
+"Runner Zombie"
+END
+
+OBJECT:ApocalypseZombieBrute
+"Brute Zombie"
+END
+
+// EA's text asked for DirectX 8.1; the device is refused for other reasons now (driver, a held screen).
+ERROR:D3DFailureMessage
+"The graphics card did not start.\n\nUpdate the graphics driver. Close overlays and other fullscreen programs. Do not start the game over remote desktop or on a locked screen. Restart the PC, or start the game with -win."
 END

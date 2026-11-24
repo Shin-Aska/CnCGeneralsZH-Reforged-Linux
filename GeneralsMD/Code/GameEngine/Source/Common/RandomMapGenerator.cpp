@@ -832,10 +832,16 @@ static const Int RMG_STYLE_COUNT = sizeof(theStyles) / sizeof(theStyles[0]);
 	clampSettings pins both; the seed picks only its look. */
 static const Int RMG_STYLE_LANE = RMG_STYLE_COUNT + 1;
 
+/** The Apocalypse map (RMGLayout::buildApocalypse), a second style past the table: "-randommap <seed>
+	<players> [size] apocalypse". Any player count; the seed picks the look and the gates' bearing. */
+static const Int RMG_STYLE_APOCALYPSE = RMG_STYLE_COUNT + 2;
+
 static const char *rmgStyleName( Int style )
 {
 	if( style == RMG_STYLE_LANE )
 		return "lane";
+	if( style == RMG_STYLE_APOCALYPSE )
+		return "apocalypse";
 	return style > 0 && style <= RMG_STYLE_COUNT ? theStyles[style - 1].m_name : "";
 }
 
@@ -1242,6 +1248,7 @@ public:
 
 private:
 	void buildLane( void );
+	void buildApocalypse( void );
 	void placeBowlStarts( void );
 	Real bowlRimAt( Real unitX, Real unitY ) const;
 	Real bowlHeight( Real cellX, Real cellY, Real noise ) const;
@@ -9768,9 +9775,12 @@ void RMGLayout::clearLockedGround( void )
 	seat 2's below it and seat 3's above, RMG_LANE_PLOT_PITCH cells apart. A plot's edge towards the
 	lane is its front, and the director lays the wave copy out with that edge forward. Every unit
 	stands on it, jets included; the air zones that once lay behind each plot are gone (the owner's
-	rule of 2026-11-21), and the plot is twice as deep for it, 12 slots across by 16 back. It grew
-	along the lane rather than across so the wave copy keeps its 24 cells on the 45-cell lane and
-	goes round the fortress as before, and a deep plot fills the side camera's wide frame.
+	rule of 2026-11-21), and the plot is 192 slots for it. On 2026-11-21 it grew along the lane, 12
+	slots across by 16 back; the owner turned it upright on 2026-11-22, 16 across by 12 back, 24 cells
+	along the lane by 32 across. The wave copy is 32 cells wide now on the 45-cell lane, so its middle
+	seven or eight columns meet the 14-cell fortress head on and go round it through the 15.5 cells
+	either side, where the outer columns already walk. Behind each column a strip RMG_LANE_DERRICK_CLEAR
+	cells deep stays clear of props: the client stands a player's income derricks there (LaneHud).
 
 	The lane and the plots are flat at RMG_LANE_GROUND, and nothing walls them in: the director holds
 	a plot's units where they were bought and sends a wave straight down its lines, so the terrain
@@ -9827,13 +9837,14 @@ static const char *const RMG_LANE_MIDDLE_TEMPLATE = NULL;	///< a structure in th
 #define RMG_LANE_MIDDLE_SIDES	16
 #define RMG_LANE_PATH_STEP		15.0f	///< cells between two waypoints of a lane path
 #define RMG_LANE_PLOT_GAP		14		///< cells of green between a lane's end and the front of its team's plots
-#define RMG_LANE_PLOT_ALONG		32		///< a plot's cells along the lane, front to back: 16 slots of LANEWAR_SLOT_SIZE
-#define RMG_LANE_PLOT_ACROSS	24		///< and across it, the width of its front: 12 slots
-#define RMG_LANE_PLOT_PITCH		34		///< cells between the middles of two neighbouring plots of a column
+#define RMG_LANE_PLOT_ALONG		24		///< a plot's cells along the lane, front to back: 12 slots of LANEWAR_SLOT_SIZE (32, 16 slots, on 2026-11-21)
+#define RMG_LANE_PLOT_ACROSS	32		///< and across it, the width of its front: 16 slots (24, 12 slots, on 2026-11-21)
+#define RMG_LANE_PLOT_PITCH		42		///< cells between the middles of two neighbouring plots of a column: 10 of green between them, as at 24 across and 34
+#define RMG_LANE_DERRICK_CLEAR	7		///< cells behind a plot column's back edge no prop stands in, room for the client's income derricks (a 46 by 42 TechOilDerrick 1 cell off the edge reaches 5.6)
 #define RMG_LANE_WEAR_FORTRESS	8.0f	///< cells past a fortress's footprint the ground round it is worn, at most
 #define RMG_LANE_WEAR_TOWER		5.0f	///< and past a tower's
 #define RMG_LANE_WEAR_FRINGE	0.35f	///< the share of that past which the worn ground only freckles the bank
-#define RMG_LANE_SEA_END		95		///< cells from the back of a plot column to the playable edge: green, beach and sea (an odd height keeps the lane's 45 in the middle); 111 before the plot grew 16 cells deeper, so the map stays 642 by 361
+#define RMG_LANE_SEA_END		103		///< cells from the back of a plot column to the playable edge: green, beach and sea (an odd height keeps the lane's 45 in the middle); 111 before the plot grew 16 cells deeper, 95 until it turned upright 8 cells shallower, so the map stays 642 by 361
 #define RMG_LANE_GROUND			64		///< height bytes of the lane, the plots and the level ring round them
 #define RMG_LANE_FLAT_RING		3		///< cells of level ground round all of those
 #define RMG_LANE_RING_WANDER	4.0f	///< and up to this many more on a slow noise field, so the hills' foot is no ruled line
@@ -9845,7 +9856,7 @@ static const char *const RMG_LANE_MIDDLE_TEMPLATE = NULL;	///< a structure in th
 #define RMG_LANE_CORE_SIDE		9.0f	///< cells the island's core stands off the plots' outer edges, across the lane
 #define RMG_LANE_CORE_ROUND		50.0f	///< cells, the core's rounded ends across the island
 #define RMG_LANE_END_ROUND		55.0f	///< and along it, so an end is a half ellipse round its plot column
-#define RMG_LANE_TIP_REACH		20.0f	///< the reach straight off an end at most, which keeps 50 cells of sea past the tip (26 while the plot column stood 10 cells further in)
+#define RMG_LANE_TIP_REACH		20.0f	///< the reach straight off an end at most, which keeps 50 cells of sea past the tip (26 while the plot column stood 10 cells further in; the upright plot's column ends 8 cells further in again, about 59 of sea)
 #define RMG_LANE_REACH_MEAN		14.0f	///< cells from the core to the coast on the seed's thinnest island, on average
 #define RMG_LANE_REACH_SEED		14.0f	///< and how much more a seed may add to that
 #define RMG_LANE_REACH_SWING	34.0f	///< cells the coast wanders either side on the slow field, the island's shape
@@ -10317,6 +10328,12 @@ void RMGLayout::buildLane( void )
 			const UnsignedInt hash = hashCell( seed + 51003U, x, y );
 			const Real roll = (Real)( hash % 1024U ) / 1024.0f;
 			const Real cellX = (Real)( x - RMG_BORDER_CELLS ) + 0.5f, cellY = (Real)( y - RMG_BORDER_CELLS ) + 0.5f;
+			// the strip behind each plot column where the client stands the income derricks
+			const Real columnBackA = (Real)shape.m_plotX0[0], columnBackB = (Real)( shape.m_plotX0[1] + RMG_LANE_PLOT_ALONG );
+			if( cellY > (Real)shape.m_plotY0[1] && cellY < (Real)( shape.m_plotY0[2] + RMG_LANE_PLOT_ACROSS )
+					&& ( ( cellX < columnBackA && cellX > columnBackA - RMG_LANE_DERRICK_CLEAR )
+						|| ( cellX > columnBackB && cellX < columnBackB + RMG_LANE_DERRICK_CLEAR ) ) )
+				continue;
 			const Bool longSide = cellX > (Real)shape.m_laneX0 && cellX < (Real)shape.m_laneX1;
 			const Real patch = fractalNoise( m_perm, (Real)x * 0.05f + 7.1f, (Real)y * 0.05f + 3.9f, 3 ) + ( longSide ? 0.1f : -0.15f );
 			const char *templateName = NULL;
@@ -10430,6 +10447,621 @@ void RMGLayout::buildLane( void )
 }
 
 //-----------------------------------------------------------------------------
+// The Apocalypse map
+//-----------------------------------------------------------------------------
+
+/* Apocalypse plays on this map: two to four seats start together in a sunk basin in the middle and
+	the dead walk in out of the fog without end (ApocalypseDirector.h). The map is always the
+	generator's thirty-two seat normal size. The basin is flat at RMG_APOC_GROUND, one lobe a seat round
+	a shared heart, its rim an escarpment of uneven height and width. One pass a seat and one or two on
+	the seams cut it, each a canyon, a valley or a wide valley bending as it goes out, so whatever comes
+	in comes through a pass the players can hold. Past the rim lies RMG_APOC_WILDERNESS cells of
+	wilderness: hills, a dry riverbed, rocky ground, woods in clumps, and a worn trail with no tree or
+	stone on it winding down every pass's line into the fog, so the dead never get stuck in a wood on
+	their way in. The fog takes the rest of the map, and the dead rise in its inner edge.
+
+	Each start stands on its lobe's axis with a supply dock out along it; the heart holds a dock and
+	a derrick on every seam, and a small supply pile lies outside each pass beside its trail, worth a
+	sortie. The names the director looks up:
+
+	Apocalypse_Centre               waypoint, the middle, where every new zombie walks
+	Apocalypse_Spawn_1 to _N        waypoints, one in the fog on each pass's line, RMG_APOC_SPAWN_PAST
+	                                past the clear area: where its wave rises
+	Apocalypse_Clear                trigger area, the outline the fog leaves: everything between it and
+	                                the playable edge is shrouded for good and deadly to anything but
+	                                the dead */
+#define RMG_APOC_GROUND			60		///< height bytes of the clearing
+/* The basin's size, set so a seat's lobe holds a whole late-game base with room over: America's,
+	the largest, is about 1900 cells of footprint (Command Center, six power plants, two each of
+	barracks, war factory and airfield, two supply centers, the strategy center, the uplink, a
+	supply drop zone and a few defences, Geometry boxes in FactionBuilding.ini), 2900 with half again
+	for lanes, against about 4000 flat cells a seat at four seats here (the log's "flat ground" line). */
+#define RMG_APOC_START_PER_SEAT	7.0f	///< cells of start ring radius a seat, so a lobe stays as wide as a base
+#define RMG_APOC_START_LEAST	80.0f	///< and never nearer the middle than this: the heart lies between the starts
+#define RMG_APOC_DOCK_OUT		20.0f	///< cells from a start to its dock, straight out along its lobe
+#define RMG_APOC_WALL_OUT		48.0f	///< cells from a start to the rim at its lobe's tip
+#define RMG_APOC_HEART			40.0f	///< cells of shared heart round the middle, which every lobe opens onto
+#define RMG_APOC_SEAM_PAD		16.0f	///< cells the rim keeps off the heart where two lobes meet
+#define RMG_APOC_WALL_FACE		2.0f	///< cells each face of the wall takes
+#define RMG_APOC_WALL_TOP		3.0f	///< cells across its top
+#define RMG_APOC_FACE_MOST		6.0f	///< cells the face spreads over where it runs broad; the thickness above still holds it
+#define RMG_APOC_FACE_STEEP		19.0f	///< bytes a cell the face rises at the least: 11.9 world units, past the pathfinder's 9.8
+#define RMG_APOC_FACE_SMOOTHED	3.0f	///< cells the face rises over at the least once the smoothing has spread a narrow crag
+#define RMG_APOC_SMOOTH_PAST	3.0f	///< cells past the rim's thickness the smoothing reaches
+#define RMG_APOC_PASS_CLIMB		7.0f	///< bytes a cell a pass ramp climbs on average, so its steepest stretch stays under a cliff
+#define RMG_APOC_WALL_HEIGHT	40.0f	///< bytes it stands over the clearing, 25 world units: a cliff on both faces
+#define RMG_APOC_WALL_WOBBLE	3.0f	///< cells its line wanders in and out
+#define RMG_APOC_GATE_HALF		7.0f	///< cells from a gate's middle to each of its posts
+#define RMG_APOC_WILDERNESS		64.0f	///< cells of open land past the rim's outer foot before the fog: about 70 game seconds of a walker's march
+#define RMG_APOC_RING_LEAST		24.0f	///< cells of fog the map keeps at the least past the clear area
+#define RMG_APOC_CLEAR_POINTS	96		///< bearings the clear area's outline is drawn on
+#define RMG_APOC_CLEAR_SPREAD	2		///< bearings either side whose rim a bearing keeps the wilderness from as well
+#define RMG_APOC_CLEAR_EXTRA	110.0f	///< cells the outline runs out past the wilderness at the most, over high ground
+#define RMG_APOC_SPAWN_PAST		14.0f	///< cells into the fog a pass's spawn stands
+#define RMG_APOC_HILLS			22.0f	///< bytes the belt's hills rise at most
+#define RMG_APOC_SWELL_FREQ		0.008f	///< the broad swells' field, cells: a hill or a hollow every sixty cells or so
+#define RMG_APOC_HILL_REACH		24.0f	///< cells over which they come up off the wall
+#define RMG_APOC_RIVERBED		12.0f	///< bytes the dry riverbed lies under the land round it
+#define RMG_APOC_RIVER_WIDTH	0.025f	///< how near nought its noise line runs inside the bed
+#define RMG_APOC_FLAT_SPAN		1.0f	///< world units a cell's corners span at most to count as flat ground to build on in the log
+#define RMG_APOC_FOG_FRINGE		16.0f	///< cells the woods run on into the fog at the most
+#define RMG_APOC_ROCKY_SPAN		7.0f	///< world units a cell's corners span from which a slope shows rock
+#define RMG_APOC_BARE_TOPS		150.0f	///< bytes over the basin from which the high ground's tops lie bare
+#define RMG_APOC_PILE_OUT		14.0f	///< cells from the wall's outer foot to a gate's pile
+#define RMG_APOC_PILE_ASIDE		10.0f	///< and off its trail
+#define RMG_APOC_SEATS_MOST		4		///< co-op seats at most (clampSettings): a lobe each
+#define RMG_APOC_GATES_MOST		( RMG_APOC_SEATS_MOST + 2 )
+#define RMG_APOC_PASS_RAMP		14.0f	///< cells a pass climbs over out of the basin, about 3 bytes a cell at the rim's height
+#define RMG_APOC_RIM_SWELL		0.10f	///< the rim's radius swells and draws in by this share on a slow noise field, a lobe fatter or leaner
+#define RMG_APOC_RIM_BAYS		0.07f	///< and by this share again on a quicker one: bays and peninsulas along a lobe's side
+#define RMG_APOC_RIM_CRAGS		1.5f	///< cells it frets in and out on a quicker field, its turns still a few cells long
+#define RMG_APOC_KNOB_FREQ		0.11f	///< the field that throws rock knobs off the rim's inner foot
+#define RMG_APOC_KNOB_LEAST		0.45f	///< how high it has to be for a knob
+#define RMG_APOC_KNOB_REACH		7.0f	///< cells into the basin a knob reaches at the most
+#define RMG_APOC_SCREE			10.0f	///< bytes of scree slope at the foot of the rim at the most, all a byte of it walkable
+#define RMG_APOC_SCREE_FOOT		6.0f	///< cells into the basin it runs at the most
+#define RMG_APOC_LOBE_TURN		0.16f	///< share of the even spacing a lobe's bearing is turned off it either way
+#define RMG_APOC_LOBE_LEAST		0.88f	///< a lobe's reach, a share of wallRing, at the least
+#define RMG_APOC_LOBE_MOST		1.15f	///< and at the most
+#define RMG_APOC_PROPS_MOST		3200	///< trees and stones on the whole map at most, inside the tree buffer's 4000 with room to spare
+#define RMG_APOC_VALLEY			3.0f	///< pass widths either side of a pass's line over which the land outside sinks into its valley
+#define RMG_APOC_PASS_BEND		0.22f	///< radians a pass's line bends either way as it goes out
+
+static Real rmgApocalypseStartRing( Int players )
+{
+	return std::max( RMG_APOC_START_LEAST, RMG_APOC_START_PER_SEAT * (Real)players );
+}
+
+/** Passes through the rim, one spawn each: one at every seat's lobe, its front, and one or two more from
+	the seed on the seams between two lobes, which two neighbours have to hold together. */
+static Int rmgApocalypseGates( Int players, UnsignedInt seed )
+{
+	return players + 1 + (Int)( hashCell( seed + 61007U, 0, 0 ) % 2U );
+}
+
+static Real rmgApocalypseWallThickness( void )
+{
+	return 2.0f * RMG_APOC_WALL_FACE + RMG_APOC_WALL_TOP;
+}
+
+void RMGLayout::buildApocalypse( void )
+{
+	m_style = NULL;
+	m_styleScale = 1.0f;
+	m_skeleton = FALSE;
+	m_type = &theMapTypes[RMG_MAP_PLAINS];
+	m_biome = &theBiomes[rmgBiomeFor( m_settings.m_seed )];
+	// the director runs its own night over the map's hour, so the hour is never the map's own night
+	m_timeOfDay = rmgTimeOfDayFor( m_settings.m_seed );
+	if( m_timeOfDay == TIME_OF_DAY_NIGHT )
+		m_timeOfDay = TIME_OF_DAY_AFTERNOON;
+	m_snowy = rmgSnowsOn( m_settings.m_seed );
+	const UnsignedInt seed = (UnsignedInt)m_settings.m_seed;
+	seedPermutation( m_settings.m_seed, m_perm );
+
+	const Int players = m_settings.m_numPlayers, gates = rmgApocalypseGates( players, seed );
+	const Real half = 0.5f * (Real)m_settings.m_playableCells;
+	m_width = m_settings.m_playableCells + 2 * RMG_BORDER_CELLS;
+	m_height = m_width;
+	m_waterHeight = 0.0f;		// no water anywhere
+	m_playable = TRUE;
+	m_starts.clear();
+	m_objects.clear();
+	m_waypointLinks.clear();
+	m_lakes.clear();
+	m_areas.clear();
+	m_sites.clear();
+	m_routeLock.clear();
+	const Int cells = m_width * m_height;
+	m_inLake.assign( cells, 0 );
+
+	const Real startRing = rmgApocalypseStartRing( players );
+	const Real wallRing = startRing + RMG_APOC_WALL_OUT, thick = rmgApocalypseWallThickness();
+	// the farthest the rim's inner foot ever runs from the middle
+	const Real rimMost = wallRing * RMG_APOC_LOBE_MOST * ( 1.0f + RMG_APOC_RIM_SWELL + RMG_APOC_RIM_BAYS ) + RMG_APOC_WALL_WOBBLE + RMG_APOC_RIM_CRAGS;
+	const Real turn = 2.0f * PI * hashUnit( seed + 61001U, 0, 0 );
+	/* Co-op: the basin is a heart in the middle with one lobe a seat.  The lobes are not one shape turned
+		round: each is turned off its even bearing, and runs longer or shorter, a long lobe narrower and a
+		short one wider so each holds about the same ground (a sector's area goes as its reach squared
+		times its angle).  The rim runs out to a lobe's reach at its tip and draws in to the heart's edge
+		where two lobes meet, at their seam.
+
+		The passes: one at every lobe's tip, that seat's front, and the rest (rmgApocalypseGates) on seams
+		the seed picks, which open straight onto the heart between two seats.  Each is a canyon, a valley
+		or a wide one and bends as it goes out on a slow noise field, so none is a ruled spoke. */
+	Real lobeAngle[RMG_APOC_SEATS_MOST], lobeX[RMG_APOC_SEATS_MOST], lobeY[RMG_APOC_SEATS_MOST];
+	Real lobeReach[RMG_APOC_SEATS_MOST], lobeSpan[RMG_APOC_SEATS_MOST];
+	const Real spacing = 2.0f * PI / (Real)players;
+	for( Int i = 0; i < players; i++ )
+	{
+		lobeAngle[i] = turn + spacing * ( (Real)i + RMG_APOC_LOBE_TURN * ( 2.0f * hashUnit( seed + 61017U, i, 0 ) - 1.0f ) );
+		lobeX[i] = Cos( lobeAngle[i] );
+		lobeY[i] = Sin( lobeAngle[i] );
+		const Real stretch = RMG_APOC_LOBE_LEAST + ( RMG_APOC_LOBE_MOST - RMG_APOC_LOBE_LEAST ) * hashUnit( seed + 61019U, i, 0 );
+		lobeReach[i] = wallRing * stretch;
+		lobeSpan[i] = Cos( 0.46f * spacing / ( stretch * stretch ) );		// a lobe's edge, as the cosine off its axis
+	}
+	// the bearing half way round from lobe i to the next, where two seats' ground meets
+	auto seamAngle = [&]( Int i ) -> Real
+	{
+		const Real next = i + 1 < players ? lobeAngle[i + 1] : lobeAngle[0] + 2.0f * PI;
+		return 0.5f * ( lobeAngle[i] + next );
+	};
+	const Real seamRim = RMG_APOC_HEART + RMG_APOC_SEAM_PAD;
+	Real passAngle[RMG_APOC_GATES_MOST], passHalf[RMG_APOC_GATES_MOST];
+	static const Real PASS_HALVES[3] = { 4.5f, 7.0f, 11.0f };	// cells: a canyon, a valley, a wide valley
+	{
+		Bool seamTaken[RMG_APOC_SEATS_MOST] = { FALSE };
+		for( Int g = 0; g < gates; g++ )
+		{
+			if( g < players )
+			{
+				// a front comes in where the land outside its lobe lies lowest, within a fifth of the
+				// lobe's spacing of its axis, so a pass follows a valley and not a ruled bearing
+				const Real axis = lobeAngle[g];
+				Real best = axis, lowest = 1.0e9f;
+				for( Int k = -4; k <= 4; k++ )
+				{
+					const Real a = axis + 0.2f * spacing * (Real)k / 4.0f;
+					const Real probeX = half + ( lobeReach[g] + 20.0f ) * Cos( a ) + RMG_BORDER_CELLS;
+					const Real probeY = half + ( lobeReach[g] + 20.0f ) * Sin( a ) + RMG_BORDER_CELLS;
+					const Real land = fractalNoise( m_perm, probeX * RMG_APOC_SWELL_FREQ + 31.7f, probeY * RMG_APOC_SWELL_FREQ + 17.3f, 2 );
+					if( land < lowest )
+					{
+						lowest = land;
+						best = a;
+					}
+				}
+				passAngle[g] = best;
+			}
+			else
+			{
+				Int seam = (Int)( hashCell( seed + 61013U, g, 0 ) % (UnsignedInt)players );
+				while( seamTaken[seam] )
+					seam = ( seam + 1 ) % players;
+				seamTaken[seam] = TRUE;
+				passAngle[g] = seamAngle( seam );
+			}
+			passHalf[g] = PASS_HALVES[ hashCell( seed + 61011U, g, 0 ) % 3U ];
+		}
+	}
+	auto passBearing = [&]( Int g, Real r ) -> Real
+	{
+		return passAngle[g] + RMG_APOC_PASS_BEND * fractalNoise( m_perm, r * 0.018f + 7.3f * (Real)g + 3.1f, 41.9f + 2.3f * (Real)g, 2 );
+	};
+
+	// cells past the rim's inner foot, from the middle at (dx, dy): out to the lobe's tip on a lobe's
+	// axis, in to the heart's edge at a seam, swelling a little on a slow field and fretting on a quick one
+	auto pastWall = [&]( Real dx, Real dy ) -> Real
+	{
+		const Real r = sqrtf( dx * dx + dy * dy );
+		const Real ux = r > 0.0f ? dx / r : 1.0f, uy = r > 0.0f ? dy / r : 0.0f;
+		// never drawn in over a seat's dock and the knobs' reach past it, however lean the noise makes the lobe
+		const Real dockClear = startRing + RMG_APOC_DOCK_OUT + RMG_APOC_KNOB_REACH + 12.0f;
+		Real reach = seamRim, floor = seamRim;
+		for( Int i = 0; i < players; i++ )
+		{
+			const Real lobe = fadeCurve( rmgUnit( ( ux * lobeX[i] + uy * lobeY[i] - lobeSpan[i] ) / ( 1.0f - lobeSpan[i] ) ) );
+			reach = std::max( reach, seamRim + ( lobeReach[i] - seamRim ) * lobe );
+			floor = std::max( floor, seamRim + ( dockClear - seamRim ) * lobe );
+		}
+		const Real rim = std::max( reach
+			* ( 1.0f + RMG_APOC_RIM_SWELL * fractalNoise( m_perm, ux * 1.6f + 17.1f, uy * 1.6f + 5.3f, 3 )
+				+ RMG_APOC_RIM_BAYS * fractalNoise( m_perm, ux * 4.3f + 71.9f, uy * 4.3f + 33.1f, 2 ) ), floor );
+		return r - rim - RMG_APOC_WALL_WOBBLE * fractalNoise( m_perm, ux * 9.1f + 23.9f, uy * 9.1f + 8.7f, 2 )
+			- RMG_APOC_RIM_CRAGS * fractalNoise( m_perm, dx * 0.13f + 3.7f, dy * 0.13f + 91.3f, 1 );
+	};
+	// the pass whose bent line out of the middle (dx, dy) lies nearest, and how far across from it; -1 for none ahead
+	auto gateOf = [&]( Real dx, Real dy, Real *across ) -> Int
+	{
+		const Real r = sqrtf( dx * dx + dy * dy );
+		Int best = -1;
+		Real least = 1.0e9f;
+		for( Int g = 0; g < gates; g++ )
+		{
+			const Real bearing = passBearing( g, r );
+			const Real gx = Cos( bearing ), gy = Sin( bearing );
+			if( dx * gx + dy * gy <= 0.0f )
+				continue;
+			const Real off = fabsf( dx * gy - dy * gx );
+			if( off < least )
+			{
+				least = off;
+				best = g;
+			}
+		}
+		*across = least;
+		return best;
+	};
+	// the rim stands everywhere but in a pass, which widens as it goes out like a valley mouth
+	auto inWall = [&]( Real d, Int gate, Real across ) -> Bool
+	{
+		return d > 0.0f && d < thick && !( gate >= 0 && across < passHalf[gate] * ( 0.8f + 0.6f * d / thick ) );
+	};
+	// one for the dry riverbed's floor at cell (x, y), falling to nought on its banks: the line where a slow field crosses nought
+	auto riverbedAt = [&]( Int x, Int y ) -> Real
+	{
+		const Real line = fractalNoise( m_perm, (Real)x * 0.0045f + 3.3f, (Real)y * 0.0045f + 71.1f, 1 );
+		return fadeCurve( 1.0f - rmgUnit( fabsf( line ) / RMG_APOC_RIVER_WIDTH ) );
+	};
+
+	// the clearing flat, the wall up out of it, the belt's hills coming up past the wall
+	m_heights.assign( cells, (UnsignedByte)RMG_APOC_GROUND );
+	std::vector<Real> heights( cells, (Real)RMG_APOC_GROUND );
+	std::vector<Real> rimDistance( cells, -1.0e9f );
+	for( Int y = 0; y < m_height; y++ )
+	{
+		for( Int x = 0; x < m_width; x++ )
+		{
+			const Real dx = (Real)( x - RMG_BORDER_CELLS ) - half, dy = (Real)( y - RMG_BORDER_CELLS ) - half;
+			const Real d = pastWall( dx, dy );
+			rimDistance[cellIndex( x, y )] = d;
+			if( d <= -std::max( RMG_APOC_KNOB_REACH, RMG_APOC_SCREE_FOOT ) )
+				continue;
+			Real across;
+			const Int gate = gateOf( dx, dy, &across );
+			Real height = (Real)RMG_APOC_GROUND;
+			/* The basin is sunk below the land round it: the rim is the high ground's edge, one escarpment
+				and no wall standing on flat ground, its height coming and going along it.  A pass is a ramp
+				up out of the basin, its sides the same escarpment, so it reads as a canyon or a valley cut
+				into the high ground. */
+			const Real ridge = 1.1f + 0.6f * ( 0.5f + 0.5f * fractalNoise( m_perm, (Real)x * 0.06f + 51.3f, (Real)y * 0.06f + 29.1f, 2 ) );
+			const Real scree = RMG_APOC_SCREE * rmgUnit( 0.5f + fractalNoise( m_perm, (Real)x * 0.11f + 13.7f, (Real)y * 0.11f + 77.1f, 2 ) );
+			/* The face is an escarpment of its own width: a crag a cell and a half across in places, a
+				broad steep slope six across elsewhere.  It rises RMG_APOC_FACE_STEEP bytes a cell over at
+				least RMG_APOC_FACE_SMOOTHED cells, so the smoothing below, which spreads a narrow crag by a
+				cell each side, still leaves no stretch of it walkable. */
+			const Real face = RMG_APOC_WALL_FACE + ( RMG_APOC_FACE_MOST - RMG_APOC_WALL_FACE )
+				* fadeCurve( rmgUnit( 0.5f + 1.2f * fractalNoise( m_perm, (Real)x * 0.045f + 19.9f, (Real)y * 0.045f + 58.3f, 2 ) ) );
+			const Real rise = std::max( RMG_APOC_WALL_HEIGHT * ridge, RMG_APOC_FACE_STEEP * std::max( face, RMG_APOC_FACE_SMOOTHED ) + scree );
+			const Real ramp = std::max( RMG_APOC_PASS_RAMP, rise / RMG_APOC_PASS_CLIMB );
+			const Bool passMouth = gate >= 0 && across < passHalf[gate] * 1.6f;
+			if( d <= 0.0f )
+			{
+				/* At the rim's inner foot: rounded rock knobs thrown off it on a slow field, else a scree
+					slope up to the face, so the face stands on broken ground and not on a ruled line; never
+					in a pass's mouth, which stays open. */
+				if( passMouth )
+					continue;
+				const Real knob = fractalNoise( m_perm, (Real)x * RMG_APOC_KNOB_FREQ + 9.1f, (Real)y * RMG_APOC_KNOB_FREQ + 47.3f, 2 );
+				const Real knobReach = RMG_APOC_KNOB_REACH * rmgUnit( ( knob - RMG_APOC_KNOB_LEAST ) / 0.25f );
+				const Real foot = RMG_APOC_SCREE_FOOT * ( 0.5f + 0.5f * rmgUnit( 0.5f + knob ) );
+				height += std::max( 0.8f * rise * fadeCurve( rmgUnit( ( d + knobReach ) / 2.0f ) ),
+					scree * fadeCurve( rmgUnit( ( d + foot ) / foot ) ) );
+				heights[cellIndex( x, y )] = height;
+				continue;
+			}
+			const Bool inPass = gate >= 0 && across < passHalf[gate] * ( 0.8f + 0.6f * rmgUnit( d / RMG_APOC_PASS_RAMP ) );
+			if( inPass )
+				height += rise * fadeCurve( rmgUnit( d / ramp ) );
+			else
+			{
+				const Real foot = passMouth ? 0.0f : scree;
+				height += foot + ( rise - foot ) * rmgUnit( d / face );
+			}
+			/* Past the rim the high ground rolls on: broad swells on the same field the fronts' passes were
+				taken from the low ground of, a few long ridges on a slower one, every pass's line sunk into a
+				valley that the trail runs down, and a dry riverbed winding across the wilderness. */
+			const Real swell = 0.5f + 0.5f * fractalNoise( m_perm, (Real)x * RMG_APOC_SWELL_FREQ + 31.7f, (Real)y * RMG_APOC_SWELL_FREQ + 17.3f, 2 );
+			const Real ridges = 1.0f - fabsf( fractalNoise( m_perm, (Real)x * 0.016f + 66.1f, (Real)y * 0.016f + 12.7f, 1 ) );
+			const Real valley = gate >= 0 ? 0.2f + 0.8f * fadeCurve( rmgUnit( across / ( passHalf[gate] * RMG_APOC_VALLEY ) ) ) : 1.0f;
+			const Real hill = ( 0.9f * swell + 0.1f * ridges ) * valley;
+			const Real past = fadeCurve( rmgUnit( ( d - thick ) / RMG_APOC_HILL_REACH ) );
+			height += RMG_APOC_HILLS * hill * past;
+			height -= RMG_APOC_RIVERBED * riverbedAt( x, y ) * past;
+			heights[cellIndex( x, y )] = height;
+		}
+	}
+
+	/* Smooth the rim: a pass of a three by three mean over every cell near it, so the escarpment's foot
+		and brow and a pass's sides run as curves and not as steps cell by cell. */
+	{
+		const std::vector<Real> sharp( heights );
+		for( Int y = 1; y + 1 < m_height; y++ )
+		{
+			for( Int x = 1; x + 1 < m_width; x++ )
+			{
+				const Real d = rimDistance[cellIndex( x, y )];
+				if( d < -( RMG_APOC_KNOB_REACH + 3.0f ) || d > thick + RMG_APOC_SMOOTH_PAST )
+					continue;
+				Real sum = 0.0f;
+				for( Int oy = -1; oy <= 1; oy++ )
+					for( Int ox = -1; ox <= 1; ox++ )
+						sum += sharp[cellIndex( x + ox, y + oy )];
+				heights[cellIndex( x, y )] = sum / 9.0f;
+			}
+		}
+	}
+	for( Int i = 0; i < cells; i++ )
+		m_heights[i] = (UnsignedByte)(Int)( std::max( 0.0f, std::min( 255.0f, heights[i] ) ) + 0.5f );
+
+	Int waypointID = 1;
+	auto addWaypoint = [&]( const AsciiString& name, Real cellX, Real cellY )
+	{
+		RMGObject waypoint;
+		waypoint.m_templateName = "*Waypoints/Waypoint";
+		waypoint.m_uniqueID = name;
+		waypoint.m_worldX = cellX * MAP_XY_FACTOR;
+		waypoint.m_worldY = cellY * MAP_XY_FACTOR;
+		waypoint.m_angle = 0.0f;
+		waypoint.m_waypointID = waypointID++;
+		waypoint.m_flags = 0;
+		m_objects.push_back( waypoint );
+	};
+
+	AsciiString name;
+	for( Int i = 0; i < players; i++ )
+	{
+		// on its own lobe's axis, the dock behind it towards the lobe's tip
+		const Real angle = lobeAngle[i];
+		const Real ux = lobeX[i], uy = lobeY[i];
+		const RMGPoint start = { half + startRing * ux, half + startRing * uy };
+		m_starts.push_back( start );
+		name.format( "Player_%d_Start", i + 1 );
+		addWaypoint( name, start.m_cellX, start.m_cellY );
+		name.format( "SupplyDock %d", i + 1 );
+		addObject( "SupplyDock", name.str(), half + ( startRing + RMG_APOC_DOCK_OUT ) * ux,
+			half + ( startRing + RMG_APOC_DOCK_OUT ) * uy, angle + PI );
+	}
+	// the shared heart: a dock in the middle for whoever holds it and a derrick at every seam's mouth
+	addObject( "SupplyDock", "SupplyDock Heart", half, half, 0.0f );
+	for( Int i = 0; i < players; i++ )
+	{
+		const Real angle = seamAngle( i );
+		name.format( "Derrick %d", i + 1 );
+		addObject( "TechOilDerrick", name.str(), half + 0.6f * RMG_APOC_HEART * Cos( angle ), half + 0.6f * RMG_APOC_HEART * Sin( angle ), angle );
+	}
+
+	/* What the fog leaves clear: no square but a closed outline round the basin, its radius on each of
+		RMG_APOC_CLEAR_POINTS bearings.  On every bearing it stands at least RMG_APOC_WILDERNESS past the
+		farthest the basin and its rim reach there or on the bearings beside it, so every lobe and pass
+		keeps its march; past that it runs out over high ground and draws in over low, so the fog
+		reaches in as tongues down the valleys and holds back off the ridges. */
+	Real clearRadius[RMG_APOC_CLEAR_POINTS];
+	{
+		Real least[RMG_APOC_CLEAR_POINTS];
+		for( Int k = 0; k < RMG_APOC_CLEAR_POINTS; k++ )
+		{
+			const Real bearing = 2.0f * PI * (Real)k / (Real)RMG_APOC_CLEAR_POINTS;
+			const Real ux = Cos( bearing ), uy = Sin( bearing );
+			Real rimOut = 0.0f;
+			for( Real r = 0.0f; r < half; r += 2.0f )
+				if( pastWall( r * ux, r * uy ) <= thick )
+					rimOut = r;
+			least[k] = rimOut + RMG_APOC_WILDERNESS;
+		}
+		for( Int k = 0; k < RMG_APOC_CLEAR_POINTS; k++ )
+		{
+			Real lo = 0.0f;
+			for( Int o = -RMG_APOC_CLEAR_SPREAD; o <= RMG_APOC_CLEAR_SPREAD; o++ )
+				lo = std::max( lo, least[( k + o + RMG_APOC_CLEAR_POINTS ) % RMG_APOC_CLEAR_POINTS] );
+			const Real bearing = 2.0f * PI * (Real)k / (Real)RMG_APOC_CLEAR_POINTS;
+			const Real ux = Cos( bearing ), uy = Sin( bearing );
+			const Real px = half + lo * ux + RMG_BORDER_CELLS, py = half + lo * uy + RMG_BORDER_CELLS;
+			const Real land = 0.5f + 0.5f * fractalNoise( m_perm, px * RMG_APOC_SWELL_FREQ + 31.7f, py * RMG_APOC_SWELL_FREQ + 17.3f, 3 );
+			const Real lobe = 0.5f + 0.5f * fractalNoise( m_perm, ux * 2.2f + 13.3f, uy * 2.2f + 87.9f, 2 );
+			const Real out = RMG_APOC_CLEAR_EXTRA * fadeCurve( rmgUnit( 0.6f * land + 0.6f * lobe - 0.1f ) );
+			clearRadius[k] = std::min( lo + out, half - RMG_APOC_RING_LEAST );
+		}
+	}
+	// the outline's radius on any bearing, between its two nearest points
+	auto clearAt = [&]( Real bearing ) -> Real
+	{
+		const Real turns = bearing / ( 2.0f * PI );
+		const Real at = ( turns - floorf( turns ) ) * (Real)RMG_APOC_CLEAR_POINTS;
+		const Int k = (Int)at % RMG_APOC_CLEAR_POINTS;
+		const Real t = at - floorf( at );
+		return clearRadius[k] + ( clearRadius[( k + 1 ) % RMG_APOC_CLEAR_POINTS] - clearRadius[k] ) * t;
+	};
+	{
+		RMGArea clear;
+		clear.m_name = "Apocalypse_Clear";
+		for( Int k = 0; k < RMG_APOC_CLEAR_POINTS; k++ )
+		{
+			const Real bearing = 2.0f * PI * (Real)k / (Real)RMG_APOC_CLEAR_POINTS;
+			const RMGPoint point = { half + clearRadius[k] * Cos( bearing ), half + clearRadius[k] * Sin( bearing ) };
+			clear.m_polygon.push_back( point );
+		}
+		m_areas.push_back( clear );
+	}
+	addWaypoint( AsciiString( "Apocalypse_Centre" ), half, half );
+	for( Int g = 0; g < gates; g++ )
+	{
+		// down the pass's bent line to RMG_APOC_SPAWN_PAST into the fog
+		Real spawnX = half, spawnY = half;
+		for( Real r = wallRing; r < 2.0f * half; r += 2.0f )
+		{
+			const Real bearing = passBearing( g, r );
+			spawnX = half + r * Cos( bearing );
+			spawnY = half + r * Sin( bearing );
+			if( r >= clearAt( bearing ) + RMG_APOC_SPAWN_PAST
+				|| spawnX < RMG_APOC_SPAWN_PAST || spawnY < RMG_APOC_SPAWN_PAST
+				|| spawnX > 2.0f * half - RMG_APOC_SPAWN_PAST || spawnY > 2.0f * half - RMG_APOC_SPAWN_PAST )
+				break;
+		}
+		name.format( "Apocalypse_Spawn_%d", g + 1 );
+		addWaypoint( name, spawnX, spawnY );
+
+		const Real out = rimMost + thick + RMG_APOC_PILE_OUT;
+		const Real bearing = passBearing( g, out );
+		const Real ux = Cos( bearing ), uy = Sin( bearing );
+		const Real aside = ( g & 1 ) ? -( RMG_APOC_PILE_ASIDE + passHalf[g] ) : RMG_APOC_PILE_ASIDE + passHalf[g];
+		const Real pileX = half + out * ux - aside * uy, pileY = half + out * uy + aside * ux;
+		flattenPad( pileX, pileY, RMG_PILE_PAD, RMG_PILE_BLEND );
+		reserveSite( pileX, pileY, RMG_PILE_PAD + 2.0f );
+		name.format( "SupplyPile %d", g + 1 );
+		addObject( "SupplyPileSmall", name.str(), pileX, pileY, 0.0f );
+	}
+
+	/* The ground by place, height and slope: the basin's own ground with a worn patch in the heart and
+		scree at the rim's foot, the escarpment and every steep slope in rock, rocky patches on the
+		steeper hillsides, the riverbed's dry sand, bare dirt on the high tops and down each pass's trail,
+		and the wilderness's grass broken by patches of the second class. */
+	m_terrain.assign( cells, (UnsignedByte)RMG_TERRAIN_GRASS );
+	m_passable.assign( cells, 0 );
+	for( Int y = 0; y + 1 < m_height; y++ )
+	{
+		for( Int x = 0; x + 1 < m_width; x++ )
+		{
+			const Int i = cellIndex( x, y );
+			const Real dx = (Real)( x - RMG_BORDER_CELLS ) + 0.5f - half, dy = (Real)( y - RMG_BORDER_CELLS ) + 0.5f - half;
+			const Real d = rimDistance[i];
+			Real across;
+			const Int gate = gateOf( dx, dy, &across );
+			const Real wander = fractalNoise( m_perm, (Real)x * 0.09f + 5.3f, (Real)y * 0.09f + 61.7f, 2 );
+			const Real span = cellSpanWorld( x, y );
+			const Real rise = heights[i] - (Real)RMG_APOC_GROUND;
+			UnsignedByte terrainClass = RMG_TERRAIN_GRASS;
+			if( d <= 0.0f )
+			{
+				if( sqrtf( dx * dx + dy * dy ) < 12.0f + 4.0f * wander )
+					terrainClass = RMG_TERRAIN_DIRT;
+				else if( rise > 3.0f + 2.0f * wander )
+					terrainClass = span > RMG_APOC_ROCKY_SPAN ? RMG_TERRAIN_ROCK : RMG_TERRAIN_DIRT;
+			}
+			else if( gate >= 0 && across < 2.5f + 1.5f * wander )
+				terrainClass = RMG_TERRAIN_DIRT;
+			else if( riverbedAt( x, y ) > 0.25f + 0.2f * wander )
+				terrainClass = RMG_TERRAIN_SAND;
+			else if( span > RMG_APOC_ROCKY_SPAN + 2.0f * wander
+				|| ( span > 0.6f * RMG_APOC_ROCKY_SPAN && fractalNoise( m_perm, (Real)x * 0.05f + 23.3f, (Real)y * 0.05f + 9.7f, 2 ) > 0.45f ) )
+				terrainClass = RMG_TERRAIN_ROCK;
+			else if( rise > RMG_APOC_BARE_TOPS + 10.0f * wander )
+				terrainClass = RMG_TERRAIN_DIRT;
+			else if( fractalNoise( m_perm, (Real)x * 0.05f + 87.3f, (Real)y * 0.05f + 45.6f, 3 ) > 0.3f )
+				terrainClass = RMG_TERRAIN_SAND;
+			const Bool cliff = span > RMG_CLIFF_WORLD_SPAN;
+			if( cliff || inWall( d, gate, across ) )
+				terrainClass = RMG_TERRAIN_ROCK;
+			m_terrain[i] = terrainClass;
+			m_passable[i] = insidePlayable( x, y ) && !cliff ? 1 : 0;
+		}
+	}
+
+	// how much flat ground each seat's lobe and the heart give to build on, for the log
+	{
+		Int heartFlat = 0, seatFlat[RMG_APOC_SEATS_MOST] = { 0 };
+		for( Int y = 0; y + 1 < m_height; y++ )
+		{
+			for( Int x = 0; x + 1 < m_width; x++ )
+			{
+				const Int i = cellIndex( x, y );
+				if( rimDistance[i] > -2.0f || !m_passable[i] || cellSpanWorld( x, y ) > RMG_APOC_FLAT_SPAN )
+					continue;
+				const Real dx = (Real)( x - RMG_BORDER_CELLS ) - half, dy = (Real)( y - RMG_BORDER_CELLS ) - half;
+				if( dx * dx + dy * dy < RMG_APOC_HEART * RMG_APOC_HEART )
+				{
+					++heartFlat;
+					continue;
+				}
+				Int seat = 0;
+				for( Int s = 1; s < players; s++ )
+					if( dx * lobeX[s] + dy * lobeY[s] > dx * lobeX[seat] + dy * lobeY[seat] )
+						seat = s;
+				++seatFlat[seat];
+			}
+		}
+		DEBUG_LOG(( "random map: apocalypse flat ground in cells, heart %d, seats %d %d %d %d\n",
+			heartFlat, seatFlat[0], seatFlat[1], seatFlat[2], seatFlat[3] ));
+	}
+
+	// trees and stones in the belt only, never on a trail, a cliff or a pile's pad
+	const Real woods = ( 0.12f + 0.12f * hashUnit( seed + 61003U, 0, 0 ) ) * m_biome->m_treeShare;
+	const Real strays = 0.006f * m_biome->m_treeShare;
+	const Real stones = 0.004f + 0.006f * hashUnit( seed + 61003U, 0, 1 );
+	Int propID = 1;
+	AsciiString uniqueID;
+	/* Two walks over the same cells: the first counts the trees and stones the belt would hold, the second
+		plants them thinned evenly to RMG_APOC_PROPS_MOST.  Planted row by row past the tree buffer's room, the
+		last rows' trees drew as white blobs, a band across the south of the map. */
+	enum { PROP_NONE, PROP_TREE, PROP_ROCK };
+	// what the woods put on a cell of the belt, the same on both walks
+	auto propAt = [&]( Int x, Int y ) -> Int
+	{
+		if( !m_passable[cellIndex( x, y )] )
+			return PROP_NONE;
+		const Real dx = (Real)( x - RMG_BORDER_CELLS ) + 0.5f - half, dy = (Real)( y - RMG_BORDER_CELLS ) + 0.5f - half;
+		// the woods run on a little way into the fog, ending on a ragged line and not on its square edge
+		const Real fringe = RMG_APOC_FOG_FRINGE * ( 0.5f + 0.5f * fractalNoise( m_perm, (Real)x * 0.04f + 77.7f, (Real)y * 0.04f + 1.9f, 2 ) );
+		const Real reach = clearAt( ATan2( dy, dx ) ) + fringe;
+		if( dx * dx + dy * dy > reach * reach )
+			return PROP_NONE;
+		const Real outside = rimDistance[cellIndex( x, y )] - thick;
+		if( outside < 3.0f )
+			return PROP_NONE;
+		Real across;
+		const Int pass = gateOf( dx, dy, &across );
+		if( pass >= 0 && across < passHalf[pass] + 3.0f )
+			return PROP_NONE;
+		const Real roll = (Real)( hashCell( seed + 61005U, x, y ) % 1024U ) / 1024.0f;
+		/* Woods stand in clumps: thick under the rim's outer face in uneven bands, on the banks of the
+			dry riverbed, along each pass valley's sides and wherever a slow field gathers them, with a
+			stray tree or two between.  Stones lie in heaps under the rim and on the rocky ground. */
+		const Real clump = fractalNoise( m_perm, (Real)x * 0.05f + 7.1f, (Real)y * 0.05f + 3.9f, 3 );
+		const Real underRim = 1.0f - rmgUnit( ( outside - 3.0f ) / 22.0f );
+		const Real band = fractalNoise( m_perm, (Real)x * 0.09f + 61.3f, (Real)y * 0.09f + 14.9f, 2 );
+		const Real bed = riverbedAt( x, y );
+		const Bool bank = bed > 0.0f && bed < 0.25f;
+		const Bool valleySide = pass >= 0 && across < passHalf[pass] * RMG_APOC_VALLEY * 1.3f && band > 0.0f;
+		const Bool wooded = clump > 0.25f || ( underRim > 0.0f && band > -0.15f ) || bank || valleySide;
+		const Real treeChance = ( wooded ? woods : strays ) * ( 1.0f + 2.0f * underRim + ( clump > 0.4f ? 1.0f : 0.0f ) );
+		if( bed < 0.25f && roll < treeChance )
+			return PROP_TREE;
+		const Bool rocky = m_terrain[cellIndex( x, y )] == RMG_TERRAIN_ROCK;
+		return roll > 1.0f - stones * ( 1.0f + 4.0f * underRim + ( rocky ? 6.0f : 0.0f ) ) ? PROP_ROCK : PROP_NONE;
+	};
+	const Int lo = RMG_BORDER_CELLS, hi = RMG_BORDER_CELLS + m_settings.m_playableCells;
+	Int propsWanted = 0;
+	for( Int y = lo; y < hi; y++ )
+		for( Int x = lo; x < hi; x++ )
+			propsWanted += propAt( x, y ) != PROP_NONE ? 1 : 0;
+	const UnsignedInt keep = propsWanted <= RMG_APOC_PROPS_MOST ? 4096U
+		: (UnsignedInt)( 4096.0f * (Real)RMG_APOC_PROPS_MOST / (Real)propsWanted );
+	for( Int y = lo; y < hi; y++ )
+	{
+		for( Int x = lo; x < hi; x++ )
+		{
+			const Int prop = propAt( x, y );
+			if( prop == PROP_NONE || hashCell( seed + 61015U, x, y ) % 4096U >= keep )
+				continue;
+			const UnsignedInt hash = hashCell( seed + 61005U, x, y );
+			const Real cellX = (Real)( x - RMG_BORDER_CELLS ) + 0.5f, cellY = (Real)( y - RMG_BORDER_CELLS ) + 0.5f;
+			if( !siteIsClear( cellX, cellY, 0.5f ) )
+				continue;
+			const char *templateName = prop == PROP_TREE ? m_biome->m_trees[( hash >> 10 ) % (UnsignedInt)RMG_BIOME_TREES]
+				: m_biome->m_rocks[( hash >> 10 ) % (UnsignedInt)RMG_BIOME_ROCKS];
+			// no tree in blossom at the end of the world: the dogwood's white flowers read as snow from above
+			if( strcmp( templateName, "TreeDogwood1" ) == 0 )
+				templateName = m_biome->m_trees[0];
+			uniqueID.format( "Prop %d", propID++ );
+			addObject( templateName, uniqueID.str(), cellX, cellY, (Real)( ( hash >> 14 ) % 8U ) * PI * 0.25f );
+		}
+	}
+
+	buildBlends();
+}
+
+//-----------------------------------------------------------------------------
 // The whole layout
 //-----------------------------------------------------------------------------
 
@@ -10457,6 +11089,12 @@ void RMGLayout::build( const RandomMapSettings& settings, Bool skeleton )
 	if( m_settings.m_style == RMG_STYLE_LANE )
 	{
 		buildLane();
+		restoreFPMode( callersFPMode );
+		return;
+	}
+	if( m_settings.m_style == RMG_STYLE_APOCALYPSE )
+	{
+		buildApocalypse();
 		restoreFPMode( callersFPMode );
 		return;
 	}
@@ -10489,6 +11127,9 @@ void RMGLayout::build( const RandomMapSettings& settings, Bool skeleton )
 	m_skeleton = skeleton;
 	if( m_skeleton && !m_style )
 		m_type = &theMapTypes[RMG_MAP_PLAINS];
+	// night hides a massif's relief and a template's copied ground; both play by afternoon instead
+	if( m_timeOfDay == TIME_OF_DAY_NIGHT && ( m_skeleton || m_type == &theMapTypes[RMG_MAP_MASSIF] ) )
+		m_timeOfDay = TIME_OF_DAY_AFTERNOON;
 
 	m_width = m_settings.m_playableCells + 2 * RMG_BORDER_CELLS;
 	m_height = m_width;
@@ -11049,8 +11690,21 @@ void RandomMapGenerator::clampSettings( RandomMapSettings& settings )
 	if( settings.m_numPlayers < MIN_PLAYERS ) settings.m_numPlayers = MIN_PLAYERS;
 	if( settings.m_numPlayers > MAX_PLAYERS ) settings.m_numPlayers = MAX_PLAYERS;
 
-	if( settings.m_style < 0 || settings.m_style > RMG_STYLE_LANE )
+	if( settings.m_style < 0 || settings.m_style > RMG_STYLE_APOCALYPSE )
 		settings.m_style = 0;
+
+	// the ground grows with the seats: never smaller than the walled clearing and a belt round it
+	if( settings.m_style == RMG_STYLE_APOCALYPSE )
+	{
+		if( settings.m_numPlayers > RMG_APOC_SEATS_MOST )
+			settings.m_numPlayers = RMG_APOC_SEATS_MOST;
+		settings.m_template.clear();
+		settings.m_templateCRC = 0;
+		// always the generator's biggest normal map, a thirty-two seat one, whatever the seats: the room
+		// past the basin is wilderness between the heart and the fog. A size asked for is not taken.
+		settings.m_playableCells = cellsFor( RANDOM_MAP_SIZE_NORMAL, MAX_PLAYERS );
+		return;
+	}
 
 	// one ground whatever the size or seat count asked for; the seed picks its look
 	if( settings.m_style == RMG_STYLE_LANE )
@@ -11126,7 +11780,7 @@ void RandomMapGenerator::clampSettings( RandomMapSettings& settings )
 
 Int RandomMapGenerator::styleNamed( const char *name )
 {
-	for( Int style = 1; style <= RMG_STYLE_LANE; style++ )
+	for( Int style = 1; style <= RMG_STYLE_APOCALYPSE; style++ )
 	{
 		if( AsciiString( name ).compareNoCase( rmgStyleName( style ) ) == 0 )
 			return style;
@@ -11958,7 +12612,8 @@ static const char *rulesFor( const AsciiString& path, Int *sizeOut )
 		folder.removeLastChar();
 
 	RandomMapSettings settings;
-	if( !settingsFromGeneratedPath( folder, settings ) || ( settings.m_style != 0 && settings.m_style != RMG_STYLE_LANE ) )
+	if( !settingsFromGeneratedPath( folder, settings )
+			|| ( settings.m_style != 0 && settings.m_style != RMG_STYLE_LANE && settings.m_style != RMG_STYLE_APOCALYPSE ) )
 		return NULL;
 	if( settings.m_style == RMG_STYLE_LANE && rmgLaneTwilight( settings.m_seed ) )
 		return NULL;

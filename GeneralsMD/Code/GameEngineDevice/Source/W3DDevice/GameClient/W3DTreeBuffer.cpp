@@ -81,6 +81,7 @@ enum
 #include "GameClient/TreeWaterSway.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/TerrainLogic.h"
+#include "Lib/Clock.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameClient/ClientRandomValue.h"
@@ -1464,6 +1465,7 @@ W3DTreeBuffer::W3DTreeBuffer(void)
 {
 	memset(this, sizeof(W3DTreeBuffer), 0);
 	m_initialized = false;
+	m_lightRefill = false;
 	Int i;
 	for	(i=0; i<MAX_BUFFERS; i++) {
 		m_vertexTree[i] = NULL;
@@ -1615,6 +1617,11 @@ void W3DTreeBuffer::allocateTreeBuffers(void)
 		m_curNumTreeVertices[i]=0;
 		m_curNumTreeIndices[i]=0;
 	}
+	// The buffers are new and empty.  After a device reset (BaseHeightMapRenderObjClass's
+	// ReAcquireResources) nothing else asks for a refill: with the camera still, no tree changes
+	// visibility, so the map stood without its trees and bushes until the view moved.
+	m_anythingChanged = true;
+	m_sunCullValid = FALSE;
 
 		//shader decleration
 	// DX8_FVF_XYZNDUV1
@@ -2648,8 +2655,15 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 		m_anythingChanged = true;
 	}
 	if (m_anythingChanged) {
+		const UnsignedInt fillStart = Clock_Milliseconds();
 		loadTreesInVertexAndIndexBuffers(pDynamicLightsIterator);
 		m_anythingChanged = false;
+		if (m_lightRefill) {
+			// the day and night cycle steps the trees on its coarse steps only; this is what one costs
+			m_lightRefill = false;
+			DEBUG_LOG(("TREE LIGHT REFILL: %d trees in %d ms at frame %d\n", m_numTrees,
+								 (Int)(Clock_Milliseconds() - fillStart), TheGameLogic ? TheGameLogic->getFrame() : 0));
+		}
 	} else if (m_anyPushChanged) {
 		m_anyPushChanged = false;
 		updateVertexBuffer();

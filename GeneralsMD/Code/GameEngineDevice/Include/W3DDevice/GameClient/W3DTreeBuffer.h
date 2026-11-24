@@ -244,6 +244,8 @@ public:
 	/// Called when the view changes, and sort key needs to be recalculated.
 	/// Normally sortKey gets calculated when a tree becomes visible.
 	void doFullUpdate(void) {m_updateAllKeys = true;};
+	/// The light changed: the next fill bakes the trees' vertex colour again (it bakes only when something changed).
+	void lightingChanged(void) {m_anythingChanged = true; m_lightRefill = true;};
 	void setIsTerrain(void) {m_isTerrainPass = true;}; ///< Terrain calls this to tell trees to draw.
 	Bool needToDraw(void) {return m_isTerrainPass;};
 
@@ -314,6 +316,7 @@ private:
 	TTree	m_trees[MAX_TREES];			///< The tree buffer.  All trees are stored here.
 	Int			m_numTrees;						///< Number of trees in m_trees.
 	Bool		m_anythingChanged;	///< Set to true if visibility or sorting changed.
+	Bool		m_lightRefill;			///< the next fill is for a change of light: its cost goes in the log (TREE LIGHT REFILL)
 	Bool		m_anyPushChanged;		///< Set to true if push aside is active.
 	Bool		m_updateAllKeys;  ///< Set to true when the view changes.
 	Bool		m_initialized;		///< True if the subsystem initialized.

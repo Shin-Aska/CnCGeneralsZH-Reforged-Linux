@@ -241,8 +241,10 @@ UpdateSleepTime DeliverPayloadAIUpdate::update( void )
 					// lock it just till the weapon is empty or the attack is "done"
 					getObject()->setWeaponLock( m_data.m_strafingWeaponSlot, LOCKED_TEMPORARILY );
 					getObject()->fireCurrentWeapon( &strafePoint );
-					// once per retail frame, or the strafe trail is twice as dense as at 30 Hz
-					if( TheGameLogic->getFrame() % LOGICFRAMES_PER_RETAIL_FRAME == 0 )
+					// once per retail frame of game time (1 or 2 a tick at 150, 1 at 100), so the trail is as
+					// dense along the run as at retail's 30 Hz; FX is client-only, nothing here reaches the CRC
+					const UnsignedInt now = TheGameLogic->getFrame();
+					for( UnsignedInt fx = ConvertFramesToRetail( now + 1 ) - ConvertFramesToRetail( now ); fx > 0; --fx )
 						FXList::doFXPos( m_data.m_strafeFX, &strafePoint );
 				}
 			}
@@ -275,8 +277,11 @@ void DeliverPayloadAIUpdate::deliverPayload(
 	m_data			= *data;
 	
 	m_deliveryDecal.clear();
-	m_data.m_deliveryDecalTemplate.createRadiusDecal(*targetPos, 
-		m_data.m_deliveryDecalRadius, getObject()->getControllingPlayer(), m_deliveryDecal);
+	// the client's ground marker follows the plane instead (W3DGroundMarkers); the decal is the
+	// client's alone, no CRC and no save carries it, so which one is drawn decides nothing here
+	if( !InGameUI::groundMarkersOn() )
+		m_data.m_deliveryDecalTemplate.createRadiusDecal(*targetPos,
+			m_data.m_deliveryDecalRadius, getObject()->getControllingPlayer(), m_deliveryDecal);
 
 	if( m_data.m_diveStartDistance <= 0.0f )
 	{

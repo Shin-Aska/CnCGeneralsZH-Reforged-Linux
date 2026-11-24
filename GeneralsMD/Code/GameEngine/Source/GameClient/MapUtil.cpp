@@ -111,7 +111,7 @@ static void addFileToCRC( CRC &theCRC, File *fp )
 static const char *const MAP_RULES_FILES[] = { "map.ini", "solo.ini" };
 static const Int MAP_RULES_FILE_COUNT = sizeof( MAP_RULES_FILES ) / sizeof( MAP_RULES_FILES[0] );
 
-static AsciiString mapRulesPath( const AsciiString &fname, Int rulesIndex )
+static AsciiString mapFolderFile( const AsciiString &fname, const char *leaf )
 {
 	// the map's folder, cut the way startNewGame cuts it
 	char folder[_MAX_PATH];
@@ -123,8 +123,29 @@ static AsciiString mapRulesPath( const AsciiString &fname, Int rulesIndex )
 	*separator = 0;
 
 	AsciiString path;
-	path.format( "%s\\%s", folder, MAP_RULES_FILES[rulesIndex] );
+	path.format( "%s\\%s", folder, leaf );
 	return path;
+}
+
+static AsciiString mapRulesPath( const AsciiString &fname, Int rulesIndex )
+{
+	return mapFolderFile( fname, MAP_RULES_FILES[rulesIndex] );
+}
+
+/** A user map's MAP:<name> lives in the map.str beside it, not in the game's tables.  It is read only
+	* when the tag does not already resolve, so a shipped map, or the map a match has loaded, keeps its
+	* tables. */
+static UnicodeString fetchMapName( const AsciiString &fname, const AsciiString &tag )
+{
+	Bool exists = FALSE;
+	UnicodeString name = TheGameText->fetch( tag, &exists );
+	const AsciiString strFile = mapFolderFile( fname, "map.str" );
+	if (exists || !TheFileSystem->doesFileExist( strFile.str() ))
+		return name;
+	TheGameText->initMapStringFile( strFile );
+	name = TheGameText->fetch( tag );
+	TheGameText->reset();
+	return name;
 }
 
 static Bool hasMapRules( const AsciiString &fname )
@@ -856,8 +877,8 @@ Bool MapCache::addMap( AsciiString dirName, AsciiString fname, FileInfo *fileInf
 			}
 			else
 			{
-				// official maps with name tags
-				(*this)[lowerFname].m_displayName = TheGameText->fetch(md.m_nameLookupTag);
+				// maps with name tags, official or with their own map.str
+				(*this)[lowerFname].m_displayName = fetchMapName(fname, md.m_nameLookupTag);
 				if (md.m_numPlayers >= 2)
 				{
 					UnicodeString extension;
@@ -937,13 +958,8 @@ Bool MapCache::addMap( AsciiString dirName, AsciiString fname, FileInfo *fileInf
 	}
 	else
 	{
-		AsciiString stringFileName;
-		stringFileName.format("%s\\%s", dirName.str(), fname.str());
-		for (Int i=0; i<4; ++i)
-			stringFileName.removeLastChar();
-		stringFileName.concat("\\map.str");
-		TheGameText->initMapStringFile(stringFileName);
-		md.m_displayName = TheGameText->fetch(munkee);
+		// fname is already the whole path; dirName joined to it named a folder that is never there
+		md.m_displayName = fetchMapName(fname, munkee);
 		if (md.m_numPlayers >= 2)
 		{
 			UnicodeString extension;
@@ -1246,10 +1262,14 @@ AsciiString getDefaultMap( Bool isMultiplayer )
 		return AsciiString::TheEmptyString;
 	TheMapCache->updateCache();
 
+	/* A staged generated map is in the cache under the user data folder's full path, which sorts ahead of
+		 every "maps\..." one; the first multiplayer entry was then the Apocalypse or Direct Strike map a mode
+		 room had just made, and a classic room with no remembered map opened on it.  The default is a map on
+		 disk, never a generated one. */
 	MapCache::iterator it = TheMapCache->begin();
 	while (it != TheMapCache->end())
 	{
-		if (isMultiplayer == it->second.m_isMultiplayer)
+		if (isMultiplayer == it->second.m_isMultiplayer && !isGeneratedMapPath(it->first))
 		{
 			return it->first;
 		}
@@ -1424,6 +1444,27 @@ Image *getMapPreviewImage( AsciiString mapName )
 		AsciiString mapPreviewDir;
 		mapPreviewDir.format(MAP_PREVIEW_DIR_PATH, TheGlobalData->getPath_UserData().str());
 		TheFileSystem->createDirectory(mapPreviewDir);
+
+		// A generated map's name carries its seed and seat count and changes with every seat change in
+		// a room, so its preview copies piled up here from run to run (618 of them, 29 MB, on
+		// 2026-11-23) and nothing ever removed one. Its preview is built in memory whenever it is asked
+		// for, so once a run, before the first copy, the old ones go; this run's are made again on demand.
+		static Bool s_generatedPreviewsPurged = FALSE;
+		if (!s_generatedPreviewsPurged)
+		{
+			s_generatedPreviewsPurged = TRUE;
+			std::vector<AsciiString> stale;
+			TheLocalFileSystem->getFilesInDirectory(mapPreviewDir, AsciiString("*rmg_v*.tga"), stale);
+			Int removed = 0;
+			for (size_t i = 0; i < stale.size(); ++i)
+			{
+				AsciiString path = mapPreviewDir;
+				path.concat(stale[i]);
+				if (TheLocalFileSystem->deleteFile(path.str()))
+					++removed;
+			}
+			DEBUG_LOG(("MAPPREVIEWS: removed %d of %d generated map previews\n", removed, (Int)stale.size()));
+		}
 
 		mapPreviewDir.concat(name);
 

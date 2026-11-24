@@ -53,6 +53,7 @@
 #include "Common/JobSystem.h"
 #include "Common/LogicThread.h"
 #include "GameLogic/GameLogic.h"
+#include "GameLogic/DayNightCycle.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/Module/LifetimeUpdate.h"
@@ -117,6 +118,7 @@ static UnsignedInt gpuCapacityAsked( void )
 /// and its particles rest on the terrain (ParticleBounce) instead of falling through it.
 static const UnsignedInt PARTICLE_GPU_ALIVE = 1;
 static const UnsignedInt PARTICLE_GPU_GROUND_CLAMPED = 2;
+static const UnsignedInt PARTICLE_GPU_SMOKE = 4;		///< smoke or dust: takes the smoke tint (smokeTintFor)
 
 #ifdef DEBUG_LOGGING
 extern Real TheParticleFillMS;
@@ -813,6 +815,35 @@ struct BillboardFillJob
 	Bool																			glowAfterShade;
 };
 
+/** The manager's smoke tint, or on a night map with the cycle off the cycle's own full night: smoke
+	* and dust are unlit, and nothing else darkens them, so Dark Night's dust glowed tan on moonlit
+	* ground.  The cycle (DayNight_mapNightCondition is false under it) and the Apocalypse set the
+	* tint themselves, and a tint they set is never plain white at night.  Classic keeps retail's. */
+static RGBColor managerSmokeTint( void )
+{
+	RGBColor tint = TheParticleSystemManager->getSmokeTint();
+	if (tint.red == 1.0f && tint.green == 1.0f && tint.blue == 1.0f
+		&& !TheGlobalData->m_classicGraphics && DayNight_mapNightCondition())
+	{
+		// ponytail: NIGHT_SMOKE in DayNightCycle.cpp, copied; move it to DayNightCycle.h if it changes
+		tint.red = 0.42f;
+		tint.green = 0.48f;
+		tint.blue = 0.66f;
+	}
+	return tint;
+}
+
+/** The tint the manager puts over smoke and dust (ParticleSystemManager::setSmokeTint), white for
+	* anything that glows: additive systems and emissive alpha ones keep their own colour. */
+static RGBColor smokeTintFor( ParticleSystem *sys )
+{
+	RGBColor tint;
+	tint.red = tint.green = tint.blue = 1.0f;
+	if (TheParticleSystemManager != NULL && sys->getShaderType() == ParticleSystemInfo::ALPHA && !sys->getTemplate()->isEmissive())
+		tint = managerSmokeTint();
+	return tint;
+}
+
 /// systems a pool thread claims at once; a system is a few hundred particles, so one claim a system
 /// would spend more on the interlocked claim than the work is worth
 static const Int BILLBOARD_FILLS_PER_CLAIM = 4;
@@ -843,6 +874,7 @@ static void fillBillboards( Int index, void *context )
 	const Int lightCount = pickSmokeLights( fill.system, job->lights, job->lightCount, lights );
 	const ParticleSystemInfo::ParticleShaderType shaderType = fill.system->getShaderType();
 	const UnsignedInt flipbookLog2 = fill.system->getTemplate()->getFlipbookGridLog2();
+	const RGBColor tint = smokeTintFor( fill.system );
 
 	for (Particle *p = fill.system->getFirstParticle(); p; p = p->m_systemNext)
 	{
@@ -879,6 +911,9 @@ static void fillBillboards( Int index, void *context )
 		Real alpha = p->getAlpha();
 		if (fill.fade < 1.0f)
 			stealthFadeParticle( shaderType, fill.fade, red, green, blue, alpha );
+		red *= tint.red;
+		green *= tint.green;
+		blue *= tint.blue;
 		const unsigned packed = DX8Wrapper::Convert_Color_Clamp( Vector4( red, green, blue, alpha ) );
 		// The orientation table's index wraps, as it did on Windows (Platform/MsvcFloatCasts.h).
 		const uint8 orientation = floatToByteAsMsvc( p->getAngle() * 255.0f / (2.0f * PI) );
@@ -3221,6 +3256,7 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 			( sys->getPriority() == AREA_EFFECT && sys->m_isGroundAligned != FALSE ) ? 1 : 0;
 		SmokeLight lights[ SMOKE_LIGHTS_PER_SYSTEM ];
 		const Int lightCount = pickSmokeLights( sys, fillJob.lights, fillJob.lightCount, lights );
+		const RGBColor tint = smokeTintFor( sys );
 
 
 
@@ -3263,6 +3299,9 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 				lightSmoke( pos, RGBAArray[count].W, lights, lightCount, RGBAArray[count].X, RGBAArray[count].Y, RGBAArray[count].Z );
 			if (fade < 1.0f)
 				stealthFadeParticle( sys->getShaderType(), fade, RGBAArray[count].X, RGBAArray[count].Y, RGBAArray[count].Z, RGBAArray[count].W );
+			RGBAArray[count].X *= tint.red;
+			RGBAArray[count].Y *= tint.green;
+			RGBAArray[count].Z *= tint.blue;
 
 			angleArray[count] = floatToByteAsMsvc( p->getAngle() * 255.0f / (2.0f * PI) );
 
@@ -3543,7 +3582,8 @@ UnsignedInt W3DParticleSystemManager::gpuSlotFor( ParticleSystem *system )
 		entry.m_drift[ 0 ] = drift.x;
 		entry.m_drift[ 1 ] = drift.y;
 		entry.m_textureSlice = slice;
-		entry.m_flags = PARTICLE_GPU_ALIVE | ( system->isGpuGroundClamped() ? PARTICLE_GPU_GROUND_CLAMPED : 0u );
+		entry.m_flags = PARTICLE_GPU_ALIVE | ( system->isGpuGroundClamped() ? PARTICLE_GPU_GROUND_CLAMPED : 0u )
+			| ( system->getShaderType() == ParticleSystemInfo::ALPHA && !system->getTemplate()->isEmissive() ? PARTICLE_GPU_SMOKE : 0u );
 		// the fade is taken at the sync point (refreshGpuSystems), which runs before the next draw
 		m_gpuFades[ slot ] = 1.0f;
 		m_gpuFadesDirty = TRUE;
@@ -3838,6 +3878,11 @@ void W3DParticleSystemManager::drawGpuParticles( RenderInfoClass &rinfo )
 		++m_gpuTail;
 	const UnsignedInt range = (UnsignedInt)( m_gpuWritten - m_gpuTail );
 
+	{
+		const RGBColor smoke = managerSmokeTint();
+		const float tint[ 3 ] = { smoke.red, smoke.green, smoke.blue };
+		GpuParticles::Set_Smoke_Tint( tint );
+	}
 	GpuParticles::Evaluate( (UnsignedInt)( m_gpuTail % m_gpuCapacity ), range, now, TheSmoothMotionAlpha );
 
 	const HazardCloud::Camera cloud = cloudCamera( rinfo.Camera );

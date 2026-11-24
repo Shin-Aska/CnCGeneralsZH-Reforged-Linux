@@ -29,7 +29,8 @@
 // squads.  Nothing here writes the logic: a purchase, a sale, a tier, an upgrade, a move and an
 // ability switch go out as MSG_LANEWAR_ORDER and LaneWarDirector checks each again (whyNotPlace is
 // the same test the ghost is tinted by).  The one thing written outside the HUD is a client flag on
-// each plot unit's drawable, so the board draws no health bar or pips over its pieces.
+// each plot unit's drawable, so the board draws no health bar or pips over its pieces, and the
+// income derricks behind each plot, drawables with no Object made from the income levels.
 //
 // Art: hud-artist's v4 pieces (experiments/proofs/2026-11-20/lane-hud-art/README-v4.md in the
 // wrapper), and the look every Direct Strike screen shares, come from DirectStrikeTheme: the pieces by
@@ -457,15 +458,24 @@ static Bool overHud( const ICoord2D *mouse )
 	return s_clusterUnit != INVALID_ID && s_chipCount > 0 && inside( s_clusterRow, mouse );
 }
 
-/// the four corners of a block of slots on screen, FALSE when one is off it
-static Bool blockOnScreen( Int grid, Int col, Int row, Int size, ICoord2D corner[ 4 ] )
+/// a block's middle on the ground of the local seat's grid, and half its side
+static Bool blockPlace( Int grid, Int col, Int row, Int size, Coord2D *centre, Real *half )
 {
 	Coord2D lo, hi;
 	if( !TheLaneWarDirector->getGridBounds( s_team, s_seat, grid, &lo, &hi ) )
 		return FALSE;
-	const Real front = TheLaneWarDirector->towardEnemy( s_team );
-	const Coord2D centre = LaneWar_slotPlace( lo.x, lo.y, hi.x, hi.y, front, col, row, size );
-	const Real half = 0.5f * size * LANEWAR_SLOT_SIZE;
+	*centre = LaneWar_slotPlace( lo.x, lo.y, hi.x, hi.y, TheLaneWarDirector->towardEnemy( s_team ), col, row, size );
+	*half = 0.5f * size * LANEWAR_SLOT_SIZE;
+	return TRUE;
+}
+
+/// the four corners of a block of slots on screen, FALSE when one is off it
+static Bool blockOnScreen( Int grid, Int col, Int row, Int size, ICoord2D corner[ 4 ] )
+{
+	Coord2D centre;
+	Real half;
+	if( !blockPlace( grid, col, row, size, &centre, &half ) )
+		return FALSE;
 	const Real dx[ 4 ] = { -half, half, half, -half }, dy[ 4 ] = { -half, -half, half, half };
 	for( Int i = 0; i < 4; ++i )
 	{
@@ -554,6 +564,12 @@ static Int secondsToTick( void )
 	const UnsignedInt frame = TheGameLogic->getFrame();
 	const UnsignedInt next = TheLaneWarDirector->getNextTickFrame();
 	return next > frame ? (Int)( ( next - frame + LOGICFRAMES_PER_SECOND - 1 ) / LOGICFRAMES_PER_SECOND ) : 0;
+}
+
+/// wall seconds one spawn tick lasts at the match's speed (45 at 1.5x, 67.5 at 1.0x, rounded up)
+static Int tickSeconds( void )
+{
+	return (Int)( ( LANEWAR_TICK_FRAMES + LOGICFRAMES_PER_SECOND - 1 ) / LOGICFRAMES_PER_SECOND );
 }
 
 struct StripFrame
@@ -861,8 +877,8 @@ static void drawYourWave( void )
 	}
 	if( ahead < 0 || seats == 0 )
 		return;
-	const Int left = secondsToTick() + ahead * LANEWAR_TICK_SECONDS;
-	const Real share = min( 1.0f, (Real)left / (Real)( seats * LANEWAR_TICK_SECONDS ) );
+	const Int left = secondsToTick() + ahead * tickSeconds();
+	const Real share = min( 1.0f, (Real)left / (Real)( seats * tickSeconds() ) );
 	const Int cx = b.x + pxs( 22 ), cy = b.y + pxs( 33 );
 	const Color own = playerColor( s_team, s_seat );
 	const Real r = 9.5f * s_layout.scale, width = max( 2.0f, 3.0f * s_layout.scale );
@@ -899,7 +915,7 @@ static void drawWaveBar( void )
 	if( art( LANE_BAR_CHIP ) == NULL )
 		TheDisplay->drawFillRect( groove.x, groove.y, groove.w, groove.h, GameMakeColor( 34, 40, 48, 255 ) );
 	const LaneHudBox fills = LaneHud_box( groove.x + 1, groove.y + 1, groove.w - 2, groove.h - 2 );
-	const Real f = min( 1.0f, (Real)secondsToTick() / (Real)LANEWAR_TICK_SECONDS );
+	const Real f = min( 1.0f, (Real)secondsToTick() / (Real)tickSeconds() );
 	const Int tick = (Int)TheLaneWarDirector->getTickCount();
 	const Int half = fills.w / 2;
 	for( Int side = 0; side < 2; ++side )
@@ -1433,6 +1449,20 @@ void LaneHud_abilitiesPanelSetOpen( Bool open )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The block the armed card or the picked up unit would take, for the ground wash under it
+	* (W3DInGameUI::drawLanePlotGrids): its middle, half its side, and whether it may go there.  FALSE
+	* while nothing is held over the plot.  Read in the terrain pass from what preDraw worked out. */
+//-------------------------------------------------------------------------------------------------
+Bool LaneHud_heldFootprint( Coord2D *centre, Real *half, Bool *legal )
+{
+	if( !s_showing || !s_target.on || !s_target.onPlot
+			|| !blockPlace( s_target.grid, s_target.col, s_target.row, s_target.size, centre, half ) )
+		return FALSE;
+	*legal = s_target.legal;
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
 // What rides the pointer: a dragged card, the target block over the world, and a plot unit carried
 // over the hand with what selling it brings back
 //-------------------------------------------------------------------------------------------------
@@ -1753,8 +1783,116 @@ static void destroyGhost( void )
 	s_ghostOf = NULL;
 }
 
+//-------------------------------------------------------------------------------------------------
+/** The owner's rule of 2026-11-22: every income level a player has bought stands as an oil derrick in
+	* one evenly spaced row just behind his plot's back edge, for everyone, watchers and replays
+	* included.  Only a picture: a drawable of the retail TechOilDerrick with no Object, so it pays
+	* nothing, cannot be selected, shot or captured, blocks nobody and is in no CRC.  It is not saved
+	* (DRAWABLE_STATUS_NO_SAVE); the income level is director state every client agrees on and a save
+	* carries, so the row is put back from it every frame.  The generator keeps props off that strip
+	* (RMG_LANE_DERRICK_CLEAR). */
+//-------------------------------------------------------------------------------------------------
+namespace
+{
+	DrawableID s_derrick[ LANEWAR_TEAMS ][ LANEWAR_SEATS ][ LANEWAR_INCOME_TIERS ];
+	Bool s_derricksOut = FALSE;
+	const Real DERRICK_GAP = 10.0f;					///< world units between the plot's back edge and a derrick's footprint
+	const Real DERRICK_HALF_DEPTH = 23.0f;	///< half of TechOilDerrick's 46 by 42 footprint, along the lane
+}
+
+/// the derrick an id names, or NULL when the id is stale: a load or a new match wiped the client's drawables
+static Drawable *derrickAt( DrawableID id, const ThingTemplate *thing )
+{
+	Drawable *draw = id != INVALID_DRAWABLE_ID ? TheGameClient->findDrawableByID( id ) : NULL;
+	return draw != NULL && draw->getObject() == NULL && draw->getTemplate() == thing ? draw : NULL;
+}
+
+/// every derrick away, and every id forgotten
+static void destroyDerricks( void )
+{
+	if( !s_derricksOut )
+		return;
+	const ThingTemplate *thing = TheThingFactory->findTemplate( "TechOilDerrick", FALSE );
+	for( Int t = 0; t < LANEWAR_TEAMS; ++t )
+		for( Int s = 0; s < LANEWAR_SEATS; ++s )
+			for( Int n = 0; n < LANEWAR_INCOME_TIERS; ++n )
+			{
+				Drawable *draw = derrickAt( s_derrick[ t ][ s ][ n ], thing );
+				if( draw != NULL )
+					TheGameClient->destroyDrawable( draw );
+				s_derrick[ t ][ s ][ n ] = INVALID_DRAWABLE_ID;
+			}
+	s_derricksOut = FALSE;
+}
+
+/** Each seat's derricks to its income level: n from 0 at the player's left as he faces the lane, the
+	* slotPlace convention, across the plot's width in quarters.  Every stale id goes in a first pass,
+	* before anything is made, so an id a wipe left behind can never name a derrick made this frame. */
+static void syncDerricks( void )
+{
+	const ThingTemplate *thing = TheThingFactory->findTemplate( "TechOilDerrick", FALSE );
+	if( thing == NULL )
+		return;
+	s_derricksOut = TRUE;
+	Int level[ LANEWAR_TEAMS ][ LANEWAR_SEATS ];
+	Coord2D lo[ LANEWAR_TEAMS ][ LANEWAR_SEATS ] = {}, hi[ LANEWAR_TEAMS ][ LANEWAR_SEATS ] = {};
+	for( Int t = 0; t < LANEWAR_TEAMS; ++t )
+		for( Int s = 0; s < LANEWAR_SEATS; ++s )
+		{
+			level[ t ][ s ] = TheLaneWarDirector->getSeatPlayer( t, s ) >= 0 && TheLaneWarDirector->getPlotBounds( t, s, &lo[ t ][ s ], &hi[ t ][ s ] )
+				? TheLaneWarDirector->getIncomeLevel( t, s ) : 0;
+			for( Int n = 0; n < LANEWAR_INCOME_TIERS; ++n )
+			{
+				DrawableID &id = s_derrick[ t ][ s ][ n ];
+				Drawable *draw = derrickAt( id, thing );
+				if( draw != NULL && n >= level[ t ][ s ] )
+				{
+					TheGameClient->destroyDrawable( draw );
+					draw = NULL;
+				}
+				if( draw == NULL )
+					id = INVALID_DRAWABLE_ID;
+			}
+		}
+
+	for( Int t = 0; t < LANEWAR_TEAMS; ++t )
+	{
+		const Real front = TheLaneWarDirector->towardEnemy( t );
+		for( Int s = 0; s < LANEWAR_SEATS; ++s )
+			for( Int n = 0; n < level[ t ][ s ] && n < LANEWAR_INCOME_TIERS; ++n )
+			{
+				DrawableID &id = s_derrick[ t ][ s ][ n ];
+				if( id != INVALID_DRAWABLE_ID )
+					continue;
+				Drawable *draw = TheThingFactory->newDrawable( thing, DRAWABLE_STATUS_NO_SAVE );
+				if( draw == NULL )
+					continue;
+				Player *owner = ThePlayerList->getNthPlayer( TheLaneWarDirector->getSeatPlayer( t, s ) );
+				if( owner != NULL )
+					draw->setIndicatorColor( owner->getPlayerColor() );
+				// the template's SELECTABLE gives its model the pick ray's selectable type; taken off, a click
+				// on the derrick goes through to what stands behind it, as on open ground
+				draw->setSelectable( FALSE );
+				const Real back = front > 0.0f ? lo[ t ][ s ].x : hi[ t ][ s ].x;
+				const Real left = front > 0.0f ? hi[ t ][ s ].y : lo[ t ][ s ].y;
+				Coord3D at;
+				at.x = back - front * ( DERRICK_GAP + DERRICK_HALF_DEPTH );
+				at.y = left - front * ( (Real)n + 0.5f ) * ( hi[ t ][ s ].y - lo[ t ][ s ].y ) / (Real)LANEWAR_INCOME_TIERS;
+				at.z = TheTerrainLogic->getGroundHeight( at.x, at.y );
+				draw->setPosition( &at );
+				draw->setOrientation( front > 0.0f ? 0.0f : PI );
+				id = draw->getID();
+			}
+	}
+}
+
 void LaneHud_preDraw( void )
 {
+	if( TheLaneWarDirector != NULL && TheLaneWarDirector->isActive() && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
+		syncDerricks();
+	else
+		destroyDerricks();
+
 	s_target.on = FALSE;
 	s_garrisonIndex = -1;
 	if( !refreshShowing() )

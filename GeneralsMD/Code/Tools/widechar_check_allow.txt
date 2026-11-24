@@ -10,6 +10,7 @@ GameEngine/Include/Common/EarlyCommandLine.h	*	reads GetCommandLineW's wchar_t c
 GameEngine/Source/Common/System/Debug.cpp	L"	-headless and -logPrefix, passed to EarlyCommandLine.h's wchar_t reader
 GameEngine/Source/Common/System/JobSystem.cpp	L"	-jobthreads, passed to EarlyCommandLine.h's wchar_t reader
 GameEngine/Source/Common/System/LogicThread.cpp	L"	-logicthread, passed to EarlyCommandLine.h's wchar_t reader
+GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DRagdoll.cpp	L"	-ragdoll, passed to EarlyCommandLine.h's wchar_t process command-line reader
 Tests/test_gameengine.cpp	L"	an_option_read_before_the_parser_exists_is_read_on_word_boundaries tests EarlyCommandLine.h's wchar_t reader
 Tests/test_gameengine.cpp	wchar_t	the same EarlyCommandLine.h test's command line
 Tests/test_early_command_line.cpp	L"	option names passed to EarlyCommandLine.h's wchar_t reader, the test's subject

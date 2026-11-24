@@ -307,6 +307,9 @@ Bool LANAPI::StartAutomatedGame( AsciiString mapName, Int seed, const UnsignedIn
 	// a Direct Strike island is seated the way its lobby seats it: seat parity is the team, the seat the start
 	if (IsDirectStrikeMap( mapName ))
 		FitDirectStrikeRoom( game );
+	// and an Apocalypse one the way its room seats it: on starts 1..n in seat order, every copy alike
+	if (IsApocalypseMap( mapName ))
+		FitApocalypseRoom( game );
 
 	m_currentGame = game;
 	addGame( game );
@@ -368,14 +371,15 @@ void LANAPI::OnGameStart( void )
 		pref["PlayerTemplate"] = PlayerTemplatePreference(m_currentGame->getLANSlot( m_currentGame->getLocalSlotNum() )->getPlayerTemplate());
 		option.format("%d", m_currentGame->getLANSlot( m_currentGame->getLocalSlotNum() )->getColor());
 		pref["Color"] = option;
-		// a Direct Strike room's island and its switched-off rules are not the host's next classic room
-		if (m_currentGame->amIHost() && !IsDirectStrikeMap(m_currentGame->getMap()))
+		// a Direct Strike or Apocalypse room's map and its switched-off rules are not the host's next classic room
+		if (m_currentGame->amIHost() && !IsDirectStrikeMap(m_currentGame->getMap()) && !IsApocalypseMap(m_currentGame->getMap()))
     {
     	pref["Map"] = AsciiStringToQuotedPrintable(m_currentGame->getMap());
       pref.setSuperweaponRestriction( m_currentGame->getSuperweaponRestriction() );
       pref.setInt( "UnitLimit", m_currentGame->getUnitLimit() ? 1 : 0 );
       pref.setInt( "ProRules", m_currentGame->getProRules() ? 1 : 0 );
       pref.setInt( "StartShrouded", m_currentGame->getStartShrouded() ? 1 : 0 );
+      pref.setInt( "DayNight", m_currentGame->getDayNight() ? 1 : 0 );
       pref.setInt( "IncomeSharing", m_currentGame->getIncomeSharing() );
       pref.setInt( "TechRespawn", m_currentGame->getTechRespawn() );
       pref.setInt( "SupplyPileLimit", m_currentGame->getSupplyPileLimit() );
@@ -594,7 +598,9 @@ void LANAPI::OnGameOptions( UnsignedInt playerIP, Int playerSlot, AsciiString op
 				else if (key == "StartPos" && slot->getPlayerTemplate() != PLAYERTEMPLATE_OBSERVER)
 				{
 						
-					if (val >= -1 && val < MAX_SLOTS && val != slot->getStartPos())
+					// a Direct Strike seat is its start: a player moves only to an open seat (DirectStrikeSeatIsOpen)
+					if (val >= -1 && val < MAX_SLOTS && val != slot->getStartPos()
+						&& (!IsDirectStrikeMap(m_currentGame->getMap()) || DirectStrikeSeatIsOpen(m_currentGame, val)))
 					{
 						Bool startPosAvailable = TRUE;
 						if(val != -1)
@@ -775,7 +781,7 @@ void LANAPI::OnPlayerLeave( UnicodeString player )
 			pref["PlayerTemplate"] = PlayerTemplatePreference(m_currentGame->getLANSlot( m_currentGame->getLocalSlotNum() )->getPlayerTemplate());
 			option.format("%d", m_currentGame->getLANSlot( m_currentGame->getLocalSlotNum() )->getColor());
 			pref["Color"] = option;
-			if (m_currentGame->amIHost() && !IsDirectStrikeMap(m_currentGame->getMap()))
+			if (m_currentGame->amIHost() && !IsDirectStrikeMap(m_currentGame->getMap()) && !IsApocalypseMap(m_currentGame->getMap()))
 				pref["Map"] = AsciiStringToQuotedPrintable(m_currentGame->getMap());
 			pref.write();
 		}

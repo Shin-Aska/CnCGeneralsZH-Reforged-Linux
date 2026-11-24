@@ -158,6 +158,8 @@ OPTION_BOOL_ACCESSORS( m_showNetBox )
 OPTION_INT_ACCESSORS( m_minimapSize )
 OPTION_BOOL_ACCESSORS( m_showEmptyBuildingPips )
 OPTION_BOOL_ACCESSORS( m_hitFlash )
+OPTION_BOOL_ACCESSORS( m_damageNumbers )
+OPTION_BOOL_ACCESSORS( m_idleWorkerCamera )
 OPTION_BOOL_ACCESSORS( m_useShadowVolumesForSkins )
 OPTION_BOOL_ACCESSORS( m_shadowsForProjectiles )
 OPTION_BOOL_ACCESSORS( m_shadowsForProps )
@@ -172,10 +174,12 @@ OPTION_BOOL_ACCESSORS( m_teamGlow )
 OPTION_BOOL_ACCESSORS( m_waterFoam )
 OPTION_BOOL_ACCESSORS( m_underwaterClarity )
 OPTION_BOOL_ACCESSORS( m_groundFoliage )
+OPTION_BOOL_ACCESSORS( m_ragdoll )
 OPTION_BOOL_ACCESSORS( m_groundMarks )
 OPTION_BOOL_ACCESSORS( m_firelight )
 OPTION_BOOL_ACCESSORS( m_hemiAmbient )
 OPTION_BOOL_ACCESSORS( m_ambientOcclusion )
+OPTION_INT_ACCESSORS( m_sunShafts )
 OPTION_BOOL_ACCESSORS( m_weatherEffects )
 OPTION_BOOL_ACCESSORS( m_waterSplashes )
 OPTION_BOOL_ACCESSORS( m_atmosphere )
@@ -707,6 +711,20 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_hitFlash, set_m_hitFlash },
 
+	// The damage a hit did rises over the struck unit or building as a red figure, on the money text's
+	// floating line (Drawable::updateDrawable gathers the body's health drop).  Off by default.  Client
+	// only, like Hit Flash, and drawn only on ground the screen's player sees clear.
+	{ "DamageNumbers",						OPT_WND( "CheckDamageNumbers" ), "GUI:DamageNumbers",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_damageNumbers, set_m_damageNumbers },
+
+	// The idle worker key and buttons centre the camera on the worker they pick, every press, on every
+	// layout (InGameUI::selectNextIdleWorker reads it).  On by default: that is the original game, and
+	// off is the fork's camera-stays-put, which Classic's bar still overrides.  Client only, no quality row.
+	{ "IdleWorkerCamera",					OPT_WND( "CheckIdleWorkerCamera" ), "GUI:IdleWorkerCamera",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_idleWorkerCamera, set_m_idleWorkerCamera },
+
 	// Which language the words are in.  English is the string table the game shipped with, and every
 	// other entry is a translation laid over it, so a line the translation lacks stays English.  The
 	// table is built once while the game starts: a new language is on screen from the next launch.
@@ -798,6 +816,16 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_groundFoliage, set_m_groundFoliage },
 
+	// A dying soldier goes limp and falls by the last hit instead of playing his death animation.
+	// W3DRagdoll asks at each death, so a switch mid-match reaches the next one and a body already
+	// falling finishes.  Client only: the logic never reads it, and the dead object is the same with
+	// it on or off.  Off under Classic graphics; -ragdoll turns it on for a run over both.  Either
+	// renderer.  On Options > Display beside Ground Foliage.  No quality slider row: it is a taste,
+	// a few microseconds of CPU a body, not a picture's price.
+	{ "Ragdoll",									OPT_WND( "CheckRagdoll" ), "GUI:Ragdoll",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_ragdoll, set_m_ragdoll },
+
 	// Craters and a building's stain on the terrain, fading over minutes, and darker treads.  The
 	// shared scorch buffer draws them on Linux SDL GPU and Windows DX11. Off under Classic graphics.
 	// On Options > Effects; accepting a change applies it to the current match.
@@ -823,6 +851,14 @@ const OptionDef TheOptionCatalog[] =
 	{ "AmbientOcclusion",					OPT_WND( "CheckAmbientOcclusion" ), "GUI:AmbientOcclusion",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_ambientOcclusion, set_m_ambientOcclusion },
+
+	// Sunlight caught in a low dust layer between buildings and trees, and a glare toward the sun's
+	// bearing, marched against the sun's shadow map.  W3DShaderManager pushes it every frame, and no sim
+	// reads it.  Off under Classic graphics and -d3d9, which draw no sun map.  On Options > Display, under
+	// Picture: every column of Graphics and Effects is full.
+	{ "SunShafts",								OPT_WND( "ComboBoxSunShafts" ), "GUI:SunShafts",
+		OPTION_ENUM, APPLY_LIVE, 0, SUN_SHAFTS_LEVEL_COUNT - 1,
+		get_m_sunShafts, set_m_sunShafts },
 
 	// Rain, blowing sand or snow by the map's ground, and a wind on trees and smoke.  Read every frame, and
 	// no sim reads it, so two players may differ.  Off under Classic graphics and -d3d9.  On Options > Effects.
@@ -998,6 +1034,9 @@ const GraphicsQualityRow TheGraphicsQualityTable[] =
 	{ "CheckHeatHaze",					0.25f, {    0,    0,    0,    0,    0,    0,    0,    0,    1,    1,    1 } },
 	{ "CheckAmbientOcclusion",	0.3f,  {    0,    0,    0,    0,    0,    0,    0,    0,    1,    1,    1 } },
 	{ "CheckMapLight",					0.35f, {    0,    0,    0,    0,    0,    0,    0,    0,    1,    1,    1 } },
+	// about 0.4 ms GPU at 1920x1080 in the filmed rounds of 2026-11-22, from the DX11 GPU frame
+	// lines on against off; Low above High, High at Ultra, and nothing without the sun's map from step 5
+	{ "ComboBoxSunShafts",			0.4f,  {    0,    0,    0,    0,    0,    0,    0,    0,    1,    1,    2 } },
 	{ "CheckFirelight",					0.4f,  {    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    1 } },
 	// 0.79 and 0.33 ms in the two pairs on 2026-11-01, the widest spread in the table
 	{ "CheckGroundMarks",				0.55f, {    0,    0,    0,    0,    0,    0,    0,    0,    0,    1,    1 } },

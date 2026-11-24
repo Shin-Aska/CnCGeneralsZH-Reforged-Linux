@@ -99,11 +99,14 @@
 #include "GameLogic/CrateSystem.h"
 #include "GameLogic/FPUControl.h"
 #include "GameLogic/GameLogic.h"
+#include "GameLogic/ApocalypseDirector.h"
+#include "GameLogic/DayNightCycle.h"
 #include "GameLogic/LaneWarDirector.h"
 #include "GameLogic/LaneWarStats.h"
 #include "GameLogic/Locomotor.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/AIUpdate.h"
+#include "GameLogic/Module/DeliverPayloadAIUpdate.h"
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Module/CreateModule.h"
 #include "GameLogic/Module/DestroyModule.h"
@@ -360,6 +363,7 @@ GameLogic::GameLogic( void )
 	m_incomeSharing = INCOME_SHARING_OFF;
 	m_techRespawnDelay = 0;
 	m_supplyPileLimit = 0;
+	m_dayNight = FALSE;
 	m_loadedRandomPending = FALSE;
 	m_loadedSleepyPending = FALSE;
 	m_gamePaused = FALSE;
@@ -558,6 +562,9 @@ void GameLogic::reset( void )
 	m_controlBarOverrides.clear();
 	TheLaneWarDirector->reset();
 	TheLaneWarStats->reset();
+	TheApocalypseDirector->reset();
+	m_dayNight = FALSE;	// a load sets it from the save before its objects, a new game from its options
+	DayNight_resetPicture();	// the shadow's darkness back; the next map keeps its own light
 
 	// a load that failed part way must not hand its stream or heap order to the next one
 	m_loadedRandomPending = FALSE;
@@ -1507,6 +1514,10 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
       m_incomeSharing = TheGameInfo->getIncomeSharing();
       m_techRespawnDelay = TheGameInfo->getTechRespawn() * 60 * LOGICFRAMES_PER_GAME_SECOND;
       m_supplyPileLimit = TheGameInfo->getSupplyPileLimit();
+      /* Only the game's own options decide it: the lobby box, or a network game's and a replay's DN
+         from the host's string.  -daynight reaches it as TheSkirmishGameInfo's box for an
+         -autoskirmish run and nowhere else, so it is dead in a network game. */
+      m_dayNight = TheGameInfo->getDayNight();
     }
     else
     {
@@ -1517,6 +1528,7 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
       m_incomeSharing = INCOME_SHARING_OFF;
       m_techRespawnDelay = 0;
       m_supplyPileLimit = 0;
+      m_dayNight = FALSE;
     }
 
     /* Pro Rules hold in the modes people play each other in, when the lobby's check box is ticked,
@@ -2152,6 +2164,16 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 		}
 	}
 
+	/* The cycle off before the map's own objects are made on a map that carries either mode's marker, the
+		 ones the directors' newMap first looks for below: a drawable made while the cycle reads on takes no
+		 NIGHT state (Drawable's time of day, Object's objectTime 2), so a night Apocalypse or Lane War map
+		 with the box ticked kept its placed objects on day models after the latch below turned it off.
+		 The waypoints and trigger areas are the map file's, read by TerrainLogic::loadMap. */
+	if (!loadingSaveGame && m_dayNight
+			&& (TheTerrainLogic->getTriggerAreaByName( "LaneWar_MiddleArea" ) != NULL
+					|| TheTerrainLogic->getWaypointByName( "Apocalypse_Centre" ) != NULL))
+		m_dayNight = FALSE;
+
 	#ifdef DUMP_PERF_STATS
 	GetPrecisionTimer(&endTime64);
 	sprintf(Buf,"Before loading objects=%f\n",((double)(endTime64-startTime64)/(double)(freq64)*1000.0));
@@ -2338,6 +2360,17 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	TheLaneWarDirector->newMap( loadingSaveGame );
 	if (TheLaneWarDirector->isActive())
 		TheVictoryConditions->setVictoryConditions(VICTORY_LANEWAR);
+
+	// an Apocalypse map turns that mode on (ApocalypseDirector.h): the seats lose together, the dead never
+	TheApocalypseDirector->newMap( loadingSaveGame );
+	if (TheApocalypseDirector->isActive())
+		TheVictoryConditions->setVictoryConditions(VICTORY_NOUNITS | VICTORY_NOBUILDINGS | VICTORY_APOCALYPSE);
+
+	/* The day and night cycle stands down under both modes, which run their own light through the same
+		 tables.  Settled once here, so DayNight_isOn reads one saved Bool and nothing a load fills in
+		 later; the objects placed so far looked on frame 0, which is day either way. */
+	if (!loadingSaveGame)
+		m_dayNight = m_dayNight && !TheLaneWarDirector->isActive() && !TheApocalypseDirector->isActive();
 
 	progressCount = LOAD_PROGRESS_LOOP_INITIAL_NETWORK_BUILDINGS;
 	// place initial network buildings/units
@@ -3026,6 +3059,20 @@ void GameLogic::processDestroyList( void )
 
 		currentObject->removeFromList(&m_objList);//remove from object list
 
+		/* Nobody may still name a container that is about to be freed.  The container's onDelete lets
+			 go of everyone on its list, but a rider can name it without being on it (a Helix's portable,
+			 a list parked while the damage went out, a save whose two halves disagree), and that rider's
+			 own destruction or the next map-border change then read the freed container: the reset and
+			 setActiveBoundary crashes.  Only a pointer that would dangle is touched. */
+		if( currentObject->getContain() )
+		{
+			for( Object *rider = m_objList; rider; rider = rider->getNextObject() )
+			{
+				if( rider->getContainedBy() == currentObject )
+					rider->friend_setContainedBy( NULL );
+			}
+		}
+
 		// remove object from lookup table
 		removeObjectFromLookupTable( currentObject );
 
@@ -3379,16 +3426,16 @@ void GameLogic::writeMismatchDump( Int numPlayers, UnsignedInt crcFrame )
 	fprintf( fp, "\n" );
 
 	fprintf( fp, "Diff this section against another player's file; the first differing running CRC is the object that diverged.\n\n" );
-	fprintf( fp, "%6s %8s %10s %12s %12s %12s %10s  %s\n",
-		"index", "objectID", "runningCRC", "x", "y", "z", "health", "template" );
+	fprintf( fp, "%6s %8s %10s %12s %12s %12s %10s %10s %10s %10s %7s  %s\n",
+		"index", "objectID", "runningCRC", "x", "y", "z", "health", "vx", "vy", "vz", "payload", "template" );
 
 	for( size_t i = 0; i < snap->m_objects.size(); ++i )
 	{
 		const CRCObjectEntry &e = snap->m_objects[i];
 		Object *obj = findObjectByID( (ObjectID)e.m_id );
 		const char *templateName = obj ? obj->getTemplate()->getName().str() : "<destroyed since>";
-		fprintf( fp, "%6d %8d 0x%8.8X %12.4f %12.4f %12.4f %10.3f  %s\n",
-			i, e.m_id, e.m_runningCRC, e.m_x, e.m_y, e.m_z, e.m_health, templateName );
+		fprintf( fp, "%6d %8d 0x%8.8X %12.4f %12.4f %12.4f %10.3f %10.4f %10.4f %10.4f %7d  %s\n",
+			i, e.m_id, e.m_runningCRC, e.m_x, e.m_y, e.m_z, e.m_health, e.m_vx, e.m_vy, e.m_vz, e.m_payloadState, templateName );
 	}
 
 	fprintf( fp, "\nOther retained CRC frames:\n" );
@@ -5471,7 +5518,25 @@ void GameLogic::update( void )
 	unitTimings();
 #endif
 
+#if defined(_WIN32)
+	/* FP_MODE_FIELDS pins rounding only, so whether a DLL or driver left FTZ or DAZ set on one thread
+		 and not the other is read here, once per thread: the map's load tick runs on the main thread and
+		 every tick after it on the logic thread.  "left" is the word as the tick found it, "set" after
+		 setFPMode's _fpreset. */
+	static thread_local Bool s_loggedDenormalMode = FALSE;
+	const UnsignedInt denormalLeft = _controlfp( 0, 0 ) & _MCW_DN;
+#endif
+
 	setFPMode();
+
+#if defined(_WIN32)
+	if( !s_loggedDenormalMode )
+	{
+		s_loggedDenormalMode = TRUE;
+		DEBUG_LOG(( "FPMODE frame %u on the %s thread: _MCW_DN left 0x%X, set 0x%X (0 keeps denormals)\n", m_frame,
+			LogicThread::t_isLogicThread ? "logic" : "main", denormalLeft, _controlfp( 0, 0 ) & _MCW_DN ));
+	}
+#endif
 
 	/* The water grid's mesh motion, which isUnderwater reads, steps here, once per logic frame (T1c,
 		 defect 17).  EA stepped it on the client pass, gated on the logic frame having changed; with one
@@ -5615,6 +5680,9 @@ void GameLogic::update( void )
 	// Lane War, after both so a unit put on a plot this frame is held this frame
 	TheLaneWarDirector->update();
 	TheLaneWarStats->update();
+	TheApocalypseDirector->update();
+	// the day and night cycle's re-looks after a sight step (DayNightCycle.h)
+	DayNight_update();
 
 	// Note - TerrainLogic update needs to happen after ScriptEngine update, but before object updates.  jba.
 	// This way changes in bridges are noted in the script engine before being cleared in TerrainLogic->update
@@ -6227,6 +6295,13 @@ UnsignedInt GameLogic::getCRC( Int mode, AsciiString deepCRCFileName )
 			BodyModuleInterface *body = obj->getBodyModule();
 			m_crcSnapshots.addObject( (UnsignedInt)obj->getID(), xferCRC->getCRC(),
 																pos->x, pos->y, pos->z, body->getHealth() );
+			// read only, for the dump's rows; neither goes into the CRC
+			static const NameKeyType key_DeliverPayloadAIUpdate = NAMEKEY( "DeliverPayloadAIUpdate" );
+			const PhysicsBehavior *physics = obj->getPhysics();
+			const Coord3D *vel = physics ? physics->getVelocity() : NULL;
+			const DeliverPayloadAIUpdate *payload = (const DeliverPayloadAIUpdate *)obj->findUpdateModule( key_DeliverPayloadAIUpdate );
+			m_crcSnapshots.setLastObjectMotion( vel ? vel->x : 0.0f, vel ? vel->y : 0.0f, vel ? vel->z : 0.0f,
+																					payload ? payload->getDeliverPayloadStateID() : -1 );
 		}
 	}
 	// the rest only observe the running CRC: each section's end goes in the ring as well (CRCSection)
@@ -6310,6 +6385,13 @@ UnsignedInt GameLogic::getCRC( Int mode, AsciiString deepCRCFileName )
 		marker = "MARKER:TheLaneWarStats";
 		xferCRC->xferAsciiString(&marker);
 		xferCRC->xferSnapshot( TheLaneWarStats );
+	}
+	// only on an Apocalypse map, the same way
+	if (TheApocalypseDirector->isActive())
+	{
+		marker = "MARKER:TheApocalypseDirector";
+		xferCRC->xferAsciiString(&marker);
+		xferCRC->xferSnapshot( TheApocalypseDirector );
 	}
 	if (recordSnapshot)
 		m_crcSnapshots.setSectionCRC( CRC_SECTION_SCRIPTS, xferCRC->getCRC() );
@@ -6933,18 +7015,27 @@ void GameLogic::prepareLogicForObjectLoad( void )
 	* 19: xfer the AI groups and the AI's group and formation counters (AI::xferGroups)
 	* 20: xfer TheLaneWarDirector
 	* 21: xfer TheLaneWarStats
+	* 22: xfer TheApocalypseDirector
+	* 23: xfer m_dayNight
 	*/
 // ------------------------------------------------------------------------------------------------
 void GameLogic::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 21;
+	const XferVersion currentVersion = 23;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
 	// logic frame number
 	xfer->xferUnsignedInt( &m_frame );
+
+	// the day and night cycle, before the objects: an object that looks again while it loads takes the
+	// scale of the saved frame, as it did in the game that was saved
+	if ( version >= 23 )
+		xfer->xferBool( &m_dayNight );
+	else if ( xfer->getXferMode() == XFER_LOAD )
+		m_dayNight = FALSE;	// a save from before the cycle plays on in daylight
 
 	//
 	// note that we do not do the id counter here, we did it in the game state block because
@@ -7429,6 +7520,12 @@ void GameLogic::xfer( Xfer *xfer )
     xfer->xferSnapshot( TheLaneWarStats );
   else if ( xfer->getXferMode() == XFER_LOAD )
     TheLaneWarStats->reset();	// a lane save from before the record starts counting from the load
+
+  if ( version >= 22 )
+    xfer->xferSnapshot( TheApocalypseDirector );
+  else if ( xfer->getXferMode() == XFER_LOAD )
+    TheApocalypseDirector->reset();	// a save from before the mode plays as it was made
+
 }  // end xfer
 
 // ------------------------------------------------------------------------------------------------

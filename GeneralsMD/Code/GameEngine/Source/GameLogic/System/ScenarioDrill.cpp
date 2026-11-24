@@ -303,6 +303,8 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_LANEUNITUPGRADE;
 	else if (token == "lanecash")
 		*action = SCENARIO_ACTION_LANECASH;
+	else if (token == "groupqueue")
+		*action = SCENARIO_ACTION_GROUPQUEUE;
 	else
 		return FALSE;
 
@@ -428,6 +430,7 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_LANEGARRISON:	return SCENARIO_TOKENS_ATTACK + 1;
 		case SCENARIO_ACTION_LANEUNITUPGRADE:	return SCENARIO_TOKENS_ATTACK + 1;
 		case SCENARIO_ACTION_LANECASH:		return SCENARIO_TOKENS_STOP;
+		case SCENARIO_ACTION_GROUPQUEUE:	return SCENARIO_TOKENS_MOVE;
 	}
 	return SCENARIO_TOKENS_STOP;
 }
@@ -451,6 +454,7 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 	if (!parseActionType( tokens[ 1 ], &actionType ))
 		return SCENARIO_PARSE_BAD_ACTION;
 
+	// "civilian" acts for PlyrCivilian, the Apocalypse map's dead among them
 	Int slot = 0;
 	AsciiString capturePlayerName;
 	const char *ownerToken = tokens[2].str();
@@ -463,6 +467,8 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 			return SCENARIO_PARSE_BAD_SLOT;
 		capturePlayerName = ownerToken + 7;
 	}
+	else if (tokens[ 2 ] == SCENARIO_CIVILIAN_TOKEN)
+		slot = SCENARIO_CIVILIAN_SLOT;
 	else if (!parseWholeNumber( tokens[ 2 ], &slot ))
 		return SCENARIO_PARSE_BAD_SLOT;
 
@@ -487,6 +493,7 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 	switch (actionType)
 	{
 		case SCENARIO_ACTION_TOPUP:
+		case SCENARIO_ACTION_GROUPQUEUE:
 			if (!parseWholeNumber( tokens[ 4 ], &action->count ) || action->count < 1)
 				return SCENARIO_PARSE_BAD_COUNT;
 			break;
@@ -1763,10 +1770,18 @@ static Bool executeTally( const ScenarioAction &action, Player *player )
 	// and how fast the slowest and the fastest of them are moving: an Angry Mob's men keep one pace
 	Real slowest = 1.0e9f;
 	Real fastest = 0.0f;
+	// and their ranks and the experience behind them: the engine logs no promotion, so a rule that
+	// stops veterancy (Direct Strike's) is read here
+	Int ranks[ LEVEL_COUNT ] = { 0 };
+	Int experience = 0;
 	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 	{
 		if (obj->getControllingPlayer() != player || obj->isEffectivelyDead() || !selectorMatches( action.selector, obj ))
 			continue;
+
+		++ranks[ obj->getVeterancyLevel() ];
+		if (obj->getExperienceTracker())
+			experience += obj->getExperienceTracker()->getCurrentExperience();
 
 		if (alive < SPREAD_MAX)
 			spot[ alive ] = *obj->getPosition();
@@ -1785,6 +1800,9 @@ static Bool executeTally( const ScenarioAction &action, Player *player )
 	DEBUG_LOG(("HEADLESS TALLY: frame %d slot %d '%s': %d alive, health %.0f of %.0f, worth %d, %d inside, money %d\n",
 						 action.frame, action.slot, action.selector.str(), alive, health, maxHealth, worth, inside,
 						 player->getMoney()->countMoney()));
+	DEBUG_LOG(("HEADLESS RANKS: frame %d slot %d '%s': regular %d veteran %d elite %d heroic %d, experience %d\n",
+						 action.frame, action.slot, action.selector.str(), ranks[ LEVEL_REGULAR ], ranks[ LEVEL_VETERAN ],
+						 ranks[ LEVEL_ELITE ], ranks[ LEVEL_HEROIC ], experience));
 	if (alive >= 2 && alive <= SPREAD_MAX)
 	{
 		// each unit's distance to its nearest neighbour on the ground: the closest pair and the mean
@@ -2149,7 +2167,7 @@ static Bool executePurchase( const ScenarioAction &action, Player *player )
 
 	GameMessage *msg = newInstance( GameMessage )( GameMessage::MSG_PURCHASE_SCIENCE );
 	msg->friend_setPlayerIndex( player->getPlayerIndex() );
-	msg->appendIntegerArgument( science );
+	msg->appendIntegerArgument( TheScienceStore->getScienceMessageID( science ) );
 	TheGameLogic->logicMessageDispatcher( msg, NULL );
 	msg->deleteInstance();
 
@@ -2262,10 +2280,53 @@ static void updateLaneMarches( UnsignedInt now )
 	}
 }
 
+/** health's work on one object: the rank first, since a rank's health bonus moves the maximum the
+	  share is taken of, then the share. */
+static void setScenarioHealth( const ScenarioAction &action, Object *obj )
+{
+	BodyModuleInterface *body = obj->getBodyModule();
+	if (body == NULL)
+		return;
+	if (action.targetSlot >= 0 && obj->getExperienceTracker())
+		obj->getExperienceTracker()->setVeterancyLevel( (VeterancyLevel)action.targetSlot, FALSE );
+	body->internalChangeHealth( body->getMaxHealth() * action.count / 100.0f - body->getHealth() );
+	DEBUG_LOG(("SCENARIO: frame %d health slot %d '%s' %d rank %d: %.0f of %.0f\n", action.frame, action.slot,
+						 obj->getTemplate()->getName().str(), obj->getID(), (Int)obj->getVeterancyLevel(), body->getHealth(), body->getMaxHealth()));
+}
+
+/** health on what takes no order (a Command Center, a wall: no AI, so no group can hold it), set here
+	  before the group is gathered.  TRUE when nothing that does take orders matches, so no group is
+	  made: a match with orderable units makes the same group it always did. */
+static Bool setHealthOfStructures( const ScenarioAction &action, Player *player, Int *set )
+{
+	Bool orderable = FALSE;
+	*set = 0;
+	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	{
+		if (obj->getControllingPlayer() != player || obj->isEffectivelyDead() || !selectorMatches( action.selector, obj ))
+			continue;
+		if (obj->getAIUpdateInterface() != NULL)
+		{
+			orderable = TRUE;
+			continue;
+		}
+		setScenarioHealth( action, obj );
+		++*set;
+	}
+	return !orderable;
+}
+
 static Bool executeOrder( const ScenarioAction &action, Player *player, const Coord3D &dest )
 {
 	if (action.action == SCENARIO_ACTION_SHIFTUPGRADE)
 		return executeShiftUpgrade( action, player );
+	Int structures = 0;
+	if (action.action == SCENARIO_ACTION_HEALTH && setHealthOfStructures( action, player, &structures ))
+	{
+		if (structures == 0)
+			DEBUG_LOG(("SCENARIO: frame %d: slot %d owns nothing matching '%s'\n", action.frame, action.slot, action.selector.str()));
+		return structures > 0;
+	}
 
 	AIGroup *group = TheAI->createGroup();
 	const Int taken = gatherIntoGroup( player, action.selector, group );
@@ -2434,19 +2495,12 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 
 		case SCENARIO_ACTION_HEALTH:
 		{
-			// the rank first: a rank's health bonus moves the maximum the share is taken of
 			const VecObjectID &ids = group->getAllIDs();
 			for (VecObjectID::const_iterator it = ids.begin(); it != ids.end(); ++it)
 			{
 				Object *obj = TheGameLogic->findObjectByID( *it );
-				BodyModuleInterface *body = obj ? obj->getBodyModule() : NULL;
-				if (body == NULL)
-					continue;
-				if (action.targetSlot >= 0 && obj->getExperienceTracker())
-					obj->getExperienceTracker()->setVeterancyLevel( (VeterancyLevel)action.targetSlot, FALSE );
-				body->internalChangeHealth( body->getMaxHealth() * action.count / 100.0f - body->getHealth() );
-				DEBUG_LOG(("SCENARIO: frame %d health slot %d '%s' %d rank %d: %.0f of %.0f\n", action.frame, action.slot,
-									 obj->getTemplate()->getName().str(), obj->getID(), (Int)obj->getVeterancyLevel(), body->getHealth(), body->getMaxHealth()));
+				if (obj)
+					setScenarioHealth( action, obj );
 			}
 			break;
 		}
@@ -2457,6 +2511,7 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 		case SCENARIO_ACTION_POWER:
 		case SCENARIO_ACTION_PRODUCE:
 		case SCENARIO_ACTION_REPEAT:
+		case SCENARIO_ACTION_GROUPQUEUE:
 		case SCENARIO_ACTION_GIVEMONEY:
 		case SCENARIO_ACTION_TALLY:
 		case SCENARIO_ACTION_RESPOND:
@@ -2617,6 +2672,31 @@ static Bool executeRepeat( const ScenarioAction &action, Player *player )
 
 	DEBUG_LOG(("SCENARIO: frame %d repeat slot %d '%s' %d '%s' %s\n", action.frame, action.slot,
 						 action.selector.str(), building->getID(), action.targetSelector.str(), action.name.str()));
+	return TRUE;
+}
+
+/** A command bar unit tab's click, count times: MSG_QUEUE_UNIT_FOR_GROUP with squad -1 onto the message
+	  stream, as ControlBarCommand sends it, so the dispatcher picks the factory with the shortest queue,
+	  the replay records it and a network match sends it on.  Only the local player can click. */
+static Bool executeGroupQueue( const ScenarioAction &action, Player *player )
+{
+	const ThingTemplate *made = TheThingFactory->findTemplate( action.selector );
+	if (player != ThePlayerList->getLocalPlayer() || made == NULL)
+	{
+		DEBUG_LOG(("SCENARIO: frame %d groupqueue: slot %d is not the local player, or '%s' is no template\n",
+							 action.frame, action.slot, action.selector.str()));
+		return FALSE;
+	}
+
+	for (Int i = 0; i < action.count; ++i)
+	{
+		GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_QUEUE_UNIT_FOR_GROUP );
+		msg->appendIntegerArgument( made->getTemplateID() );
+		msg->appendIntegerArgument( -1 );
+	}
+
+	DEBUG_LOG(("SCENARIO: frame %d groupqueue slot %d '%s' x%d squad -1\n", action.frame, action.slot,
+						 action.selector.str(), action.count));
 	return TRUE;
 }
 
@@ -2887,6 +2967,9 @@ Bool ScenarioDrill_execute( const ScenarioAction &action )
 
 	if (action.action == SCENARIO_ACTION_REPEAT)
 		return executeRepeat( action, player );
+
+	if (action.action == SCENARIO_ACTION_GROUPQUEUE)
+		return executeGroupQueue( action, player );
 
 	if (action.action == SCENARIO_ACTION_GIVEMONEY)
 		return executeGiveMoney( action, player );

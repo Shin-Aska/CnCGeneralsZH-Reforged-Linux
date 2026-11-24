@@ -25,8 +25,10 @@ std::string Sdl(Program program) {
     replace(text,"FADE_MAX",fadeMax.c_str());
     // The CPU birth record's alpha words start at68. Scalar HLSL declarations
     // express that ABI explicitly without relying on relaxed uint2 alignment.
-    // DX11 packs float+float3 padding in one register. Scalar padding preserves
-    // those bytes while satisfying strict Vulkan1.0 std140 member alignment.
+    // DX11 packs Smooth+SmokeTint in one register. Scalars keep the native
+    // upload's tint at bytes20/24/28 under strict Vulkan1.0 std140 alignment.
+    replace(text,"float3 SmokeTint;","float SmokeTint0; float SmokeTint1; float SmokeTint2;");
+    replace(text,"colour *= SmokeTint;","colour *= float3(SmokeTint0, SmokeTint1, SmokeTint2);");
     replace(text,"float3 Unused;","float Unused0; float Unused1; float Unused2;");
     replace(text,"uint2 AlphaKeys;","uint AlphaKeys0; uint AlphaKeys1;");
     replace(text,"spawn.AlphaKeys.x","spawn.AlphaKeys0");replace(text,"spawn.AlphaKeys.y","spawn.AlphaKeys1");

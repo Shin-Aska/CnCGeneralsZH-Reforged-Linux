@@ -154,6 +154,12 @@ public:
 		Int m_depth;
 	};
 
+	/** TRUE where a lazily filled logic cache is to be worked out and not stored: under a CachePeek, and
+		anywhere inside the render's overlap window (the main thread and the main pool's workers it forks
+		there, which a CachePeek on the main thread does not reach). The logic thread and its own workers
+		are never inside the window, so the tick stores as it always did. */
+	static Bool isCachePeek() { return s_cachePeekDepth > 0 || LogicThread::isInsideWindow(); }
+
 	Bool isAboveTerrain() const { return getHeightAboveTerrain() > 0.0f; }
 	Bool isAboveTerrainOrWater() const { return getHeightAboveTerrainOrWater() > 0.0f; }
 
@@ -173,6 +179,9 @@ protected:
 
 	// Virtual method since objects can be on bridges and need to calculate heigh above terrain differently.
 	virtual Real calculateHeightAboveTerrain(void) const;		// Calculates the actual height above terrain.  Doesn't use cache.
+
+	// The altitude cache measures from the layer's surface, so a layer change without a move must drop it.
+	void invalidateAltitudeCache() const { m_cacheFlags &= ~(VALID_ALTITUDE_TERRAIN | VALID_ALTITUDE_SEALEVEL); }	///< keeps the dir flag, as a move does
 
 	virtual Object *asObjectMeth() { return NULL; }
 	virtual Drawable *asDrawableMeth() { return NULL; }

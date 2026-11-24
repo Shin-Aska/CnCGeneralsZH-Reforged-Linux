@@ -1028,6 +1028,9 @@ void W3DTerrainVisual::addProp(const ThingTemplate *tTemplate, const Coord3D *po
 	{
 		state.set(MODELCONDITION_SNOW);
 	}
+	// EA's test, on purpose: a prop is made once at the map's load and takes the map's own hour, also
+	// under the day and night cycle.  Of the 151 prop templates only SearchLight has a NIGHT state,
+	// so props do not follow the cycle (TODO, Day and Night > Picture).
 	if (TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT)
 	{
 		state.set(MODELCONDITION_NIGHT);

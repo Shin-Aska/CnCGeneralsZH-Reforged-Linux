@@ -218,7 +218,7 @@ namespace
 		{ "ChinaTankECM",												2, FALSE },
 		{ "ChinaVehicleInfernoCannon",					2, FALSE },
 		{ "ChinaVehicleListeningOutpost",				2, FALSE },
-		{ "ChinaVehicleHelix",									2, FALSE },
+		{ "ChinaVehicleHelix",									3, FALSE },	// tier 2's dearest, so no tier has one unit (2026-11-23)
 		{ "ChinaInfantryHacker",								2, FALSE },
 		{ "ChinaJetMIG",												2, FALSE },
 		{ "ChinaTankOverlord",									3, FALSE },
@@ -237,13 +237,13 @@ namespace
 		{ "GLAVehicleCombatBikeTerrorist",			1, FALSE },
 		{ "GLATankScorpion",										1, FALSE },
 		{ "GLAVehicleQuadCannon",								1, FALSE },
-		{ "GLAVehicleToxinTruck",								1, FALSE },
-		{ "GLAInfantryAngryMobNexus",						2, FALSE },
+		{ "GLAVehicleToxinTruck",								2, FALSE },	// up from 1, and the two dearest of tier 2 to tier 3
+		{ "GLAInfantryAngryMobNexus",						2, FALSE },	// beside the Scud: 8, 5 and 3 (2026-11-23)
 		{ "GLAInfantryHijacker",								2, FALSE },
 		{ "GLATankMarauder",										2, FALSE },
 		{ "GLAVehicleRocketBuggy",							2, FALSE },
-		{ "GLAVehicleBombTruck",								2, FALSE },
-		{ "GLAVehicleBattleBus",								2, FALSE },
+		{ "GLAVehicleBombTruck",								3, FALSE },
+		{ "GLAVehicleBattleBus",								3, FALSE },
 		{ "GLAVehicleScudLauncher",							3, FALSE },
 		{ "GLAInfantryJarmenKell",							0, TRUE },
 	};
@@ -415,8 +415,11 @@ Int LaneWar_roster( const Player *player, LaneWarRosterItem *out, Int maxItems )
 	return count;
 }
 
+static const ThingTemplate *plotTemplateOf( const ThingTemplate *tmpl );
+
 Bool LaneWar_isHero( const Player *player, const ThingTemplate *tmpl )
 {
+	tmpl = plotTemplateOf( tmpl );	// a wave copy made from the unit's Direct Strike copy is still him
 	LaneWarRosterItem roster[ LANEWAR_ROSTER_MAX ];
 	const Int count = LaneWar_roster( player, roster, LANEWAR_ROSTER_MAX );
 	for( Int i = 0; i < count; ++i )
@@ -446,6 +449,76 @@ Int LaneWar_upgrades( const Player *player, const UpgradeTemplate **out, Int max
 			out[ count++ ] = upgrade;
 	}
 	return count;
+}
+
+//-------------------------------------------------------------------------------------------------
+/// the name is the base side's template or a general's own copy of it ("<tag>_<base>")
+static Bool namedAs( const char *name, const char *base )
+{
+	const size_t length = strlen( name ), baseLength = strlen( base );
+	if( length == baseLength )
+		return strcmp( name, base ) == 0;
+	return length > baseLength && name[ length - baseLength - 1 ] == '_' && strcmp( name + length - baseLength, base ) == 0;
+}
+
+namespace
+{
+	/// LaneWar_damagePercent's table: what the gun does to a unit, a structure and a man, in percent (2026-11-23)
+	struct DamageScale
+	{
+		const char *name;
+		Int units, structures, infantry;
+	};
+	const DamageScale DAMAGE_SCALES[] =
+	{
+		{ "AmericaVehicleTomahawk",			60, 100, 60 },
+		{ "ChinaVehicleNukeLauncher",		60, 100, 60 },
+		{ "GLAVehicleScudLauncher",			60, 100, 60 },
+		{ "AmericaJetAurora",						100, 75, 100 },
+		{ "AmericaInfantryPathfinder",	100, 100, 45 },
+	};
+
+	/// the units whose wave copies switch to their WEAPONSET_PLAYER_UPGRADE set, FixesReforged.ini's Lane War part
+	const char *const MODE_WEAPON_SETS[] = { "AmericaTankMicrowave" };
+
+	/// a Direct Strike copy of a unit is named "LaneWar_<its name>" (FixesReforged.ini: Black Lotus with a gun)
+	const char MODE_COPY_PREFIX[] = "LaneWar_";
+}
+
+/// the template a wave copy of a plot unit of this template is made from: its Direct Strike copy where
+/// FixesReforged.ini has one, else itself
+static const ThingTemplate *waveTemplateOf( const ThingTemplate *tmpl )
+{
+	AsciiString name;
+	name.format( "%s%s", MODE_COPY_PREFIX, tmpl->getName().str() );
+	const ThingTemplate *mode = TheThingFactory->findTemplate( name, FALSE );
+	return mode != NULL ? mode : tmpl;
+}
+
+/// the other way: the plot's template a wave copy's template stands for, so the roster, the hero rule and
+/// the players' ability switches know a Direct Strike copy as the unit it copies
+static const ThingTemplate *plotTemplateOf( const ThingTemplate *tmpl )
+{
+	const ThingTemplate *from = tmpl != NULL ? tmpl->friend_getReskinnedFrom() : NULL;
+	if( from != NULL && strncmp( tmpl->getName().str(), MODE_COPY_PREFIX, sizeof( MODE_COPY_PREFIX ) - 1 ) == 0 )
+		return from;
+	return tmpl;
+}
+
+Int LaneWar_damagePercent( const char *damager, Bool victimStructure, Bool victimInfantry )
+{
+	for( Int i = 0; i < (Int)( sizeof( DAMAGE_SCALES ) / sizeof( DAMAGE_SCALES[ 0 ] ) ); ++i )
+		if( namedAs( damager, DAMAGE_SCALES[ i ].name ) )
+			return victimStructure ? DAMAGE_SCALES[ i ].structures : victimInfantry ? DAMAGE_SCALES[ i ].infantry : DAMAGE_SCALES[ i ].units;
+	return 100;
+}
+
+Bool LaneWar_hasModeWeaponSet( const char *name )
+{
+	for( Int i = 0; i < (Int)( sizeof( MODE_WEAPON_SETS ) / sizeof( MODE_WEAPON_SETS[ 0 ] ) ); ++i )
+		if( namedAs( name, MODE_WEAPON_SETS[ i ] ) )
+			return TRUE;
+	return FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -622,9 +695,11 @@ void LaneWarDirector::reset( void )
 		m_spawn[ t ].zero();
 		m_fortress[ t ] = INVALID_ID;
 		m_tower[ t ][ 0 ] = m_tower[ t ][ 1 ] = INVALID_ID;
+		m_towerPaid[ t ][ 0 ] = m_towerPaid[ t ][ 1 ] = FALSE;
 		m_fortressDown[ t ] = FALSE;
 	}
 	m_middle.zero();
+	m_strayWatch = INVALID_ID;
 	m_nextTickFrame = 0;
 	m_tickCount = 0;
 	m_copies.clear();
@@ -1779,6 +1854,22 @@ static Bool laneShortVolley( Object *obj, const AIAbilityButton &entry )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The frame a copy that has just pressed a button in weapon slot `slot` may press again (2026-11-23): a
+	  hero's after LANEWAR_HERO_COOLDOWN_SECONDS of game time whatever he pressed, a Dragon's wall of fire or
+	  a Toxin Truck's slime after LANEWAR_PRESS_COOLDOWN_SECONDS (each unit's one button, so the rest covers
+	  all its presses), anything else at once. */
+static UnsignedInt pressCooldown( const Player *player, const Object *obj, Int slot, UnsignedInt now )
+{
+	if( LaneWar_isHero( player, obj->getTemplate() ) )
+		return now + (UnsignedInt)( LANEWAR_HERO_COOLDOWN_SECONDS * LOGICFRAMES_PER_GAME_SECOND );
+	const Weapon *weapon = slot >= 0 && slot < WEAPONSLOT_COUNT ? obj->getWeaponInWeaponSlot( (WeaponSlotType)slot ) : NULL;
+	const AsciiString name = weapon != NULL ? weapon->getName() : AsciiString::TheEmptyString;
+	if( strstr( name.str(), "FireWallWeapon" ) != NULL || strstr( name.str(), "ToxinTruckSprayer" ) != NULL )
+		return now + (UnsignedInt)( LANEWAR_PRESS_COOLDOWN_SECONDS * LOGICFRAMES_PER_GAME_SECOND );
+	return now;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** The wave units' own buttons, each copy looked at every half game second on its own frame of the
 	  stride (ObjectID and frame, no state).  The skirmish AI's on-the-spot rules go first, at the rung that
 	  weighs every target in reach, then the walk-ups, the remote charges before the rest; only what the
@@ -1815,11 +1906,18 @@ void LaneWarDirector::useAbilities( UnsignedInt now )
 		}
 		if( AIAbility_unitBusy( obj ) )
 			continue;
+		// a copy resting after a capped press only walks on (pressCooldown)
+		if( now < copy.pressFrame )
+		{
+			if( ai->isIdle() )
+				march( obj, team );
+			continue;
+		}
 
 		Object *victim = ai->getCurrentVictim();
 		if( victim != NULL && ( victim->isEffectivelyDead() || player->getRelationship( victim->getTeam() ) != ENEMIES ) )
 			victim = NULL;
-		const ThingTemplate *tmpl = obj->getTemplate();
+		const ThingTemplate *tmpl = plotTemplateOf( obj->getTemplate() );	// the switches are the plot unit's
 		Bool used = FALSE;
 		const std::vector<AIAbilityButton> buttons = AIAbility_buttonsOf( obj );
 		for( size_t b = 0; b < buttons.size() && !used; ++b )
@@ -1839,9 +1937,12 @@ void LaneWarDirector::useAbilities( UnsignedInt now )
 				default:									break;
 			}
 			if( used )
-				DEBUG_LOG(( "LANEWAR ABILITY USE: frame %u player %d '%s' %d on the spot '%s' slot %d, victim '%s' %d\n", now, me,
+			{
+				copy.pressFrame = pressCooldown( player, obj, entry.slot, now );
+				DEBUG_LOG(( "LANEWAR ABILITY USE: frame %u player %d '%s' %d on the spot '%s' slot %d, victim '%s' %d, rests until frame %u\n", now, me,
 										tmpl->getName().str(), (Int)obj->getID(), entry.button->getName().str(), entry.index,
-										victim ? victim->getTemplate()->getName().str() : "none", victim ? (Int)victim->getID() : 0 ));
+										victim ? victim->getTemplate()->getName().str() : "none", victim ? (Int)victim->getID() : 0, copy.pressFrame ));
+			}
 		}
 
 		LaneWarAbility list[ LANEWAR_ABILITIES_MAX ];
@@ -1853,6 +1954,8 @@ void LaneWarDirector::useAbilities( UnsignedInt now )
 				if( ( specialPowerOf( button ) == SPECIAL_REMOTE_CHARGES ) != ( pass == 0 ) || !isWalkUpButton( button ) || !buttonOn( me, tmpl, button ) )
 					continue;
 				used = walkUp( obj, button, 1 - team );
+				if( used )
+					copy.pressFrame = pressCooldown( player, obj, PRIMARY_WEAPON, now );
 			}
 
 		if( !used && ai->isIdle() )
@@ -1868,7 +1971,11 @@ void LaneWarDirector::update( void )
 
 	const UnsignedInt now = TheGameLogic->getFrame();
 
+	// the lifespans first, then what came out of wave units (their dead still listed, so a pilot finds
+	// the vehicle he left), then the dead off the list
 	expireCopies( now );
+	adoptStrays( now );
+	pruneCopies();
 	refillJets();
 
 	for( Int t = 0; t < LANEWAR_TEAMS; ++t )
@@ -1880,6 +1987,7 @@ void LaneWarDirector::update( void )
 			DEBUG_LOG(( "HEADLESS LANEWAR: frame %u fortress %s down, team %s loses\n", now, TEAM_NAME[ t ], TEAM_NAME[ t ] ));
 		}
 	}
+	payTowerBounties( now );
 	if( m_fortressDown[ 0 ] || m_fortressDown[ 1 ] )
 		return;
 
@@ -1897,11 +2005,11 @@ void LaneWarDirector::update( void )
 }
 
 //-------------------------------------------------------------------------------------------------
-/// a copy dies LANEWAR_LIFESPAN_FRAMES after it spawned; the list drops the dead as it goes
+/** A copy dies LANEWAR_LIFESPAN_FRAMES after it spawned.  It stays listed until pruneCopies, after
+	  adoptStrays has seen what its death threw out. */
 void LaneWarDirector::expireCopies( UnsignedInt now )
 {
-	Int expired = 0;
-	size_t kept = 0;
+	Int expired = 0, out = 0;
 	for( size_t i = 0; i < m_copies.size(); ++i )
 	{
 		Object *obj = TheGameLogic->findObjectByID( m_copies[ i ].id );
@@ -1913,12 +2021,93 @@ void LaneWarDirector::expireCopies( UnsignedInt now )
 			++expired;
 			continue;
 		}
-		m_copies[ kept++ ] = m_copies[ i ];
+		++out;
 	}
-	m_copies.resize( kept );
 
 	if( expired > 0 )
-		DEBUG_LOG(( "HEADLESS LANEWAR: frame %u lifespan ended %d copies, %d still out\n", now, expired, (Int)kept ));
+		DEBUG_LOG(( "HEADLESS LANEWAR: frame %u lifespan ended %d copies, %d still out\n", now, expired, out ));
+}
+
+/// the list drops its dead, in order
+void LaneWarDirector::pruneCopies( void )
+{
+	size_t kept = 0;
+	for( size_t i = 0; i < m_copies.size(); ++i )
+	{
+		const Object *obj = TheGameLogic->findObjectByID( m_copies[ i ].id );
+		if( obj != NULL && !obj->isEffectivelyDead() )
+			m_copies[ kept++ ] = m_copies[ i ];
+	}
+	m_copies.resize( kept );
+}
+
+/// the object is a wave copy or a jet out of its squadron, listed still if dead this frame; *dieFrame its lifespan's end
+Bool LaneWarDirector::waveDieFrame( ObjectID parent, UnsignedInt *dieFrame ) const
+{
+	if( parent == INVALID_ID )
+		return FALSE;
+	for( size_t i = 0; i < m_copies.size(); ++i )
+		if( m_copies[ i ].id == parent )
+		{
+			*dieFrame = m_copies[ i ].dieFrame;
+			return TRUE;
+		}
+	for( size_t i = 0; i < m_jets.size(); ++i )
+		if( m_jets[ i ].state != JET_PARKED && m_jets[ i ].id == parent )
+		{
+			*dieFrame = m_jets[ i ].dieFrame;
+			return TRUE;
+		}
+	return FALSE;
+}
+
+/** What comes out of a wave unit belongs to its wave: a Troop Crawler's men, which its TransportContain
+	  makes on its first update, a frame after spawnWave has listed it, and the pilot EjectPilotDie's
+	  creation list throws out of a ranked American vehicle or jet (its producer is the wreck), or anything
+	  else a wave unit makes that a player could order about.  Each becomes a copy: not selectable, dying
+	  when its parent's lifespan ends, marching from useAbilities once it stands idle outside.  Only the
+	  ObjectIDs made since the last pass are looked at, in ID order, so a parent is always listed before
+	  its child is.  A slaved unit (an Angry Mob's men, a drone) follows its master and is left to it; an
+	  add-on rides along as spawnCargo leaves it. */
+void LaneWarDirector::adoptStrays( UnsignedInt now )
+{
+	const Int next = (Int)TheGameLogic->getObjectIDCounter();
+	for( Int id = max( (Int)m_strayWatch, 1 ); id < next; ++id )
+	{
+		Object *obj = TheGameLogic->findObjectByID( (ObjectID)id );
+		if( obj == NULL || obj->isEffectivelyDead() || obj->getSlavedUpdateInterface() != NULL
+				|| !( obj->isKindOf( KINDOF_INFANTRY ) || obj->isKindOf( KINDOF_VEHICLE ) )
+				|| obj->isKindOf( KINDOF_DRONE ) || obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) )
+			continue;
+		Int team, seat;
+		if( !seatOf( obj->getControllingPlayer(), &team, &seat ) )
+			continue;
+		UnsignedInt dieFrame = 0;
+		ObjectID parent = obj->getProducerID();
+		Bool ofWave = waveDieFrame( parent, &dieFrame );
+		for( const Object *in = obj->getContainedBy(); in != NULL && !ofWave; in = in->getContainedBy() )
+		{
+			parent = in->getID();
+			ofWave = waveDieFrame( parent, &dieFrame );
+		}
+		if( !ofWave )
+			continue;
+		Bool listed = FALSE;
+		for( size_t i = 0; i < m_copies.size() && !listed; ++i )
+			listed = m_copies[ i ].id == obj->getID();
+		if( listed )
+			continue;		// a passenger copy spawnCargo loaded
+
+		obj->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_UNSELECTABLE ) );
+		Copy entry;
+		entry.id = obj->getID();
+		entry.dieFrame = dieFrame;
+		entry.owner = obj->getControllingPlayer()->getPlayerIndex();
+		m_copies.push_back( entry );
+		DEBUG_LOG(( "HEADLESS LANEWAR: frame %u '%s' %d of %s%d out of wave unit %d joins its wave, selectable %d, %s, dies at frame %u\n", now,
+								obj->getTemplate()->getName().str(), id, TEAM_NAME[ team ], seat + 1, (Int)parent, obj->isSelectable() ? 1 : 0, obj->getContainedBy() != NULL ? "riding inside it" : "on foot", dieFrame ));
+	}
+	m_strayWatch = (ObjectID)next;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2001,12 +2190,36 @@ void LaneWarDirector::spawnCargo( Object *copy, const PlotUnit &u, Team *owner, 
 
 //-------------------------------------------------------------------------------------------------
 /** A wave's jet copy joins its seat's squadron parked and rearmed, whatever the rest of it is doing,
-	  and goes with the next strike the seat flies.  Its lifespan runs from this tick, as a copy's does. */
+	  and goes with the next strike the seat flies.  Its lifespan runs from this tick, as a copy's does.
+	  One plot jet has one copy alive at most: while the last is in the squadron, parked or flying, the
+	  wave makes none, and the one there takes the object upgrades the plot jet has now at its next
+	  take-off and a rank bought since at once. */
 void LaneWarDirector::joinSquadron( const PlotUnit &u, UnsignedInt now )
 {
 	const Object *original = TheGameLogic->findObjectByID( u.id );
+	for( size_t i = 0; i < m_jets.size(); ++i )
+	{
+		Jet &have = m_jets[ i ];
+		// its plot unit's, wherever that has been moved to; a jet from a save before version 8 by its slot
+		const Bool same = have.plotID != INVALID_ID ? have.plotID == u.id
+										: have.team == u.team && have.seat == u.seat && have.col == u.col && have.row == u.row && have.thing == original->getTemplate();
+		if( !same )
+			continue;
+		have.upgrades = u.upgrades;
+		if( u.veterancy > have.veterancy )
+		{
+			have.veterancy = u.veterancy;
+			Object *flying = have.state != JET_PARKED ? TheGameLogic->findObjectByID( have.id ) : NULL;
+			if( flying != NULL && flying->getExperienceTracker() != NULL && (Int)flying->getVeterancyLevel() < u.veterancy )
+				flying->getExperienceTracker()->setVeterancyLevel( (VeterancyLevel)u.veterancy, FALSE );
+		}
+		DEBUG_LOG(( "HEADLESS LANEWAR JET: frame %u '%s' of %s%d has its copy in the squadron still, %d strikes flown, lifespan to frame %u: no second one, %d jets in all squadrons\n",
+								now, have.thing->getName().str(), TEAM_NAME[ u.team ], u.seat + 1, have.strikes, have.dieFrame, (Int)m_jets.size() ));
+		return;
+	}
 	Jet jet;
 	jet.id = INVALID_ID;
+	jet.plotID = u.id;
 	jet.thing = original->getTemplate();
 	jet.team = u.team;
 	jet.seat = u.seat;
@@ -2216,7 +2429,15 @@ void LaneWarDirector::updateJets( UnsignedInt now )
 		if( now >= jet.dieFrame )
 		{
 			if( obj != NULL )
+			{
+				// listed dead until the next pass, so the pilot its death throws out finds his wave
+				Copy entry;
+				entry.id = obj->getID();
+				entry.dieFrame = jet.dieFrame;
+				entry.owner = m_seatPlayer[ jet.team ][ jet.seat ];
+				m_copies.push_back( entry );
 				obj->kill();
+			}
 			DEBUG_LOG(( "HEADLESS LANEWAR JET: frame %u '%s' of %s%d lifespan ended %s after %d strikes\n", now, jet.thing->getName().str(),
 									TEAM_NAME[ jet.team ], jet.seat + 1, obj != NULL ? "in the air" : "parked", jet.strikes ));
 			continue;
@@ -2331,10 +2552,12 @@ void LaneWarDirector::tick( UnsignedInt now )
 		{
 			if( m_seatPlayer[ t ][ s ] < 0 )
 				continue;
-			const UnsignedInt pay = LaneWar_incomeAt( m_incomeLevel[ t ][ s ], holder == t );
+			// the level's pay with the middle's bonus, and for the middle's holder what the match's length adds
+			const UnsignedInt pay = LaneWar_incomeAt( m_incomeLevel[ t ][ s ], holder == t ) + ( holder == t ? LaneWar_lateIncome( m_tickCount ) : 0 );
 			paid[ t ] = max( paid[ t ], pay );
 			ThePlayerList->getNthPlayer( m_seatPlayer[ t ][ s ] )->getMoney()->deposit( pay, FALSE );
-			TheLaneWarStats->onIncome( m_seatPlayer[ t ][ s ], pay, pay - LaneWar_incomeAt( m_incomeLevel[ t ][ s ], FALSE ) );
+			TheLaneWarStats->onIncome( m_seatPlayer[ t ][ s ], pay,
+				LaneWar_incomeAt( m_incomeLevel[ t ][ s ], holder == t ) - LaneWar_incomeAt( m_incomeLevel[ t ][ s ], FALSE ) );
 		}
 	m_middleHolder = holder;
 
@@ -2368,14 +2591,54 @@ void LaneWarDirector::tick( UnsignedInt now )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A Watch Tower that has fallen pays LANEWAR_TOWER_BOUNTY once to every seated player of the other team,
+	  the frame it is found gone or dead, whoever's shot ended it (2026-11-23). */
+void LaneWarDirector::payTowerBounties( UnsignedInt now )
+{
+	for( Int t = 0; t < LANEWAR_TEAMS; ++t )
+		for( Int k = 0; k < 2; ++k )
+		{
+			if( m_towerPaid[ t ][ k ] || m_tower[ t ][ k ] == INVALID_ID )
+				continue;
+			const Object *tower = TheGameLogic->findObjectByID( m_tower[ t ][ k ] );
+			if( tower != NULL && !tower->isEffectivelyDead() )
+				continue;
+			m_towerPaid[ t ][ k ] = TRUE;
+			const Int paid = 1 - t;
+			AsciiString to, kept;
+			for( Int s = 0; s < LANEWAR_SEATS; ++s )
+			{
+				AsciiString one;
+				if( m_seatPlayer[ paid ][ s ] >= 0 )
+				{
+					Player *player = ThePlayerList->getNthPlayer( m_seatPlayer[ paid ][ s ] );
+					player->getMoney()->deposit( LANEWAR_TOWER_BOUNTY, FALSE );
+					TheLaneWarStats->onIncome( m_seatPlayer[ paid ][ s ], LANEWAR_TOWER_BOUNTY, 0 );
+					one.format( " %d:%u", m_seatPlayer[ paid ][ s ], player->getMoney()->countMoney() );
+					to.concat( one );
+				}
+				if( m_seatPlayer[ t ][ s ] >= 0 )
+				{
+					one.format( " %d:%u", m_seatPlayer[ t ][ s ], ThePlayerList->getNthPlayer( m_seatPlayer[ t ][ s ] )->getMoney()->countMoney() );
+					kept.concat( one );
+				}
+			}
+			DEBUG_LOG(( "HEADLESS LANEWAR: frame %u tower %s%d down: %d to each seat of team %s, now [%s ]; team %s keeps [%s ]\n", now,
+									TEAM_NAME[ t ], k + 1, (Int)LANEWAR_TOWER_BOUNTY, TEAM_NAME[ paid ], to.str(), TEAM_NAME[ t ], kept.str() ));
+		}
+}
+
+//-------------------------------------------------------------------------------------------------
 /** For the log only: the passengers out riding in their wave units and the drones out with their
 	  masters, and how many of each have fired.  Counted mid-fight, since a wave rarely lives to the next tick. */
 void LaneWarDirector::logCargo( UnsignedInt now ) const
 {
-	Int riding = 0, fired = 0;
+	Int riding = 0, fired = 0, subdued = 0;
 	for( size_t i = 0; i < m_copies.size(); ++i )
 	{
 		Object *obj = TheGameLogic->findObjectByID( m_copies[ i ].id );
+		if( obj != NULL && !obj->isEffectivelyDead() && obj->isDisabledByType( DISABLED_SUBDUED ) )
+			++subdued;
 		if( obj == NULL || obj->isEffectivelyDead() || !obj->isContained() )
 			continue;
 		++riding;
@@ -2414,6 +2677,9 @@ void LaneWarDirector::logCargo( UnsignedInt now ) const
 	if( riding > 0 || drones > 0 )
 		DEBUG_LOG(( "HEADLESS LANEWAR: frame %u: %d passengers out riding, %d of them have fired; %d drones out with their masters, %d of them have fired\n",
 								now, riding, fired, drones, dronesFired ));
+	// and the wave units a Microwave Tank or an ECM Tank holds stunned
+	if( subdued > 0 )
+		DEBUG_LOG(( "HEADLESS LANEWAR: frame %u: %d wave units subdued\n", now, subdued ));
 
 	// and a tower or fortress a Hacker has switched off
 	for( Int t = 0; t < LANEWAR_TEAMS; ++t )
@@ -2425,6 +2691,8 @@ void LaneWarDirector::logCargo( UnsignedInt now ) const
 			if( obj != NULL && obj->isDisabledByType( DISABLED_HACKED ) )
 				DEBUG_LOG(( "HEADLESS LANEWAR: frame %u '%s' %d of team %s hacked off until frame %u\n", now, obj->getTemplate()->getName().str(),
 										(Int)obj->getID(), TEAM_NAME[ t ], obj->getDisabledUntil( DISABLED_HACKED ) ));
+			if( obj != NULL && obj->isDisabledByType( DISABLED_SUBDUED ) )
+				DEBUG_LOG(( "HEADLESS LANEWAR: frame %u '%s' %d of team %s subdued\n", now, obj->getTemplate()->getName().str(), (Int)obj->getID(), TEAM_NAME[ t ] ));
 		}
 	}
 }
@@ -2473,7 +2741,7 @@ void LaneWarDirector::spawnWave( Int team, Int seat, UnsignedInt now )
 		pos.y += at.y - m_plotAnchor[ team ][ seat ].y;
 		pos.z = TheTerrainLogic->getGroundHeight( pos.x, pos.y );
 
-		Object *copy = TheThingFactory->newObject( original->getTemplate(), owner );
+		Object *copy = TheThingFactory->newObject( waveTemplateOf( original->getTemplate() ), owner );
 		if( copy == NULL )
 			continue;
 		copy->setOrientation( facing );
@@ -2490,6 +2758,14 @@ void LaneWarDirector::spawnWave( Int team, Int seat, UnsignedInt now )
 			copy->getExperienceTracker()->setVeterancyLevel( (VeterancyLevel)u.veterancy, FALSE );
 			DEBUG_LOG(( "HEADLESS LANEWAR: frame %u '%s' %d goes out at rank %d\n", now, copy->getTemplate()->getName().str(),
 									(Int)copy->getID(), (Int)copy->getVeterancyLevel() ));
+		}
+		// the Microwave Tank's vehicle disabler: a set only the mode switches on (FixesReforged.ini); Black Lotus's
+		// gun came with her template above (waveTemplateOf)
+		if( LaneWar_hasModeWeaponSet( copy->getTemplate()->getName().str() ) )
+		{
+			copy->setWeaponSetFlag( WEAPONSET_PLAYER_UPGRADE );
+			DEBUG_LOG(( "LANEWAR JOB: frame %u '%s' %d goes out with its Direct Strike weapons\n", now, copy->getTemplate()->getName().str(),
+									(Int)copy->getID() ));
 		}
 		owner->setActive();
 		TheAI->pathfinder()->addObjectToPathfindMap( copy );
@@ -2525,7 +2801,10 @@ void LaneWarDirector::spawnWave( Int team, Int seat, UnsignedInt now )
 	/* As far as the enemy fortress: the wave's middle walks onto its line, so the rows in front of the
 		 fortress stop at it and fight it and the flanks come up level with it.  The pads stand behind
 		 the fortresses, so the distance between them would walk a wave past the enemy's fortress; the pad
-		 behind its own is passed on the way out, the pathfinder taking the middle rows round it. */
+		 behind its own is passed on the way out, the pathfinder taking the middle rows round it.  The
+		 upright plot of 2026-11-22 makes the copy 32 cells wide, so about half its columns stand
+		 behind the 14-cell fortress and squeeze past it into the 15.5 cells a side the outer columns
+		 already walk. */
 	Real dx = m_spawn[ 1 - team ].x - m_spawn[ team ].x;
 	const Object *enemyFortress = TheGameLogic->findObjectByID( m_fortress[ 1 - team ] );
 	if( enemyFortress != NULL )
@@ -2563,10 +2842,13 @@ void LaneWarDirector::crc( Xfer *xfer )
 	  Version 4: the squadrons' jets.
 	  Version 5: each plot unit's rank and what it cost.
 	  Version 6: each plot unit's object upgrades and passengers.
-	  Version 7: each jet's object upgrades. */
+	  Version 7: each jet's object upgrades.
+	  Version 8: each jet's plot unit, and how far adoptStrays has looked.
+	  Version 9: which towers' bounties are paid.
+	  Version 10: each copy's next press frame. */
 void LaneWarDirector::xfer( Xfer *xfer )
 {
-	XferVersion currentVersion = 7;
+	XferVersion currentVersion = 10;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -2594,6 +2876,10 @@ void LaneWarDirector::xfer( Xfer *xfer )
 			xfer->xferInt( &m_copies[ i ].owner );
 		else
 			m_copies[ i ].owner = -1;		// taken as whoever holds it the first time it is looked at
+		if( version >= 10 )
+			xfer->xferUnsignedInt( &m_copies[ i ].pressFrame );
+		else
+			m_copies[ i ].pressFrame = 0;
 	}
 
 	count = (UnsignedInt)m_plotUnits.size();
@@ -2753,6 +3039,10 @@ void LaneWarDirector::xfer( Xfer *xfer )
 				if( upgrade != NULL )
 					jet.upgrades.push_back( upgrade );
 			}
+			if( version >= 8 )
+				xfer->xferObjectID( &jet.plotID );
+			else
+				jet.plotID = INVALID_ID;		// matched by its slot instead (joinSquadron)
 		}
 		if( xfer->getXferMode() == XFER_LOAD )
 		{
@@ -2765,4 +3055,19 @@ void LaneWarDirector::xfer( Xfer *xfer )
 	}
 	else
 		m_jets.clear();
+
+	if( version >= 8 )
+		xfer->xferObjectID( &m_strayWatch );
+	else
+		m_strayWatch = INVALID_ID;
+
+	// a match saved before the bounty pays none, for towers fallen or still to fall
+	for( Int t = 0; t < LANEWAR_TEAMS; ++t )
+		for( Int k = 0; k < 2; ++k )
+		{
+			if( version >= 9 )
+				xfer->xferBool( &m_towerPaid[ t ][ k ] );
+			else
+				m_towerPaid[ t ][ k ] = TRUE;
+		}
 }

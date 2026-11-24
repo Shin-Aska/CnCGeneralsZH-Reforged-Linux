@@ -464,6 +464,7 @@ protected:
 	Bool secondBaseCenters(void) const;	///< a base away from home is a Command Center founded once home is full, not a factory on a timer
 	Int findOutposts(Coord3D *at, Int max);	///< this player's factories far from home, one per site, in object order
 	Bool onEmptyStart(const Coord3D *pos) const;	///< within reach of a start position no player started on: a second base's ground
+	Bool inAllyCorner(const Coord3D *pos, const Coord3D *from) const;	///< nearer a living ally's start position than to this base or to from: his ground, not ours to build on
 	const ThingTemplate *missingPrerequisite(Object *dozer, KindOfType kind);	///< the building a dozer button of this kind waits on, that this player has none of
 	Bool queueAtOutpost(const ThingTemplate *tmpl, const Coord3D *at, Real innerRadius, Real lean, const char *why);	///< placeNear round a base away from home, leant towards the enemy by lean
 
@@ -592,7 +593,7 @@ protected:
 	void buyMoneyUnits(void);
 	Int moneyUnitRoom(void) const;	///< how many more money units this player's army and internet centers carry
 	Bool hasEnoughMoneyUnitsFor(TeamPrototype *proto) const;	///< this team is all hackers and there is no room for more
-	Bool placeNear(const ThingTemplate *tmpl, const Coord3D *center, Real innerRadius, Bool walkOutward, Coord3D *spotOnly = NULL, Bool homeOnly = FALSE);	///< the nearest legal, safe spot by the ground from center, queued for a dozer, or only written to spotOnly. walkOutward keeps searching further out as the near ground fills; homeOnly holds any building to the base's edge as staysHome holds its own
+	Bool placeNear(const ThingTemplate *tmpl, const Coord3D *center, Real innerRadius, Bool walkOutward, Coord3D *spotOnly = NULL, Bool homeOnly = FALSE, Real homeReachScale = 1.0f);	///< the nearest legal, safe spot by the ground from center, queued for a dozer, or only written to spotOnly. walkOutward keeps searching further out as the near ground fills; homeOnly holds any building to the base's edge as staysHome holds its own; homeReachScale over 1 stretches that edge and its rings, past the base only on the side away from the enemy
 	Bool queueExtraFactory(Object *dozer, KindOfType kind, Bool doctrine = FALSE);	///< one more of this factory, beside a held expansion or around the base, once the ones standing fall behind their queues; the doctrine's without waiting for that
 	Bool holdsExtraFactory(const ThingTemplate *tmpl);	///< a factory of a kind already standing or going up, while the ones standing keep up with their queues
 	const ThingTemplate *nextBaseDefense(Object *dozer);	///< the base defence off this dozer's buttons that the base has fewest of, NULL for none
@@ -671,7 +672,7 @@ protected:
 	void logEngage(const char *cause, const std::vector<Object *> &units);	///< AI ENGAGE: what goes out, and how it weighs against the army it remembers
 	Bool refuseHold(Team *team, const char *why, Bool logIt);	///< FALSE, after logging the team holdTeamForWave lets go
 	Bool holdReinforcement(Object *obj);	///< a top-up for a team out on the map waits for the next wave instead of walking out alone
-	void rememberEnemies(void);					///< bring the seen-enemy ledger up to date with what is in sight now
+	void rememberEnemies(Bool scanned = FALSE);	///< bring the seen-enemy ledger up to date with what is in sight now; scanned: scanEnemies already ran this frame
 	void rememberedArmy(std::vector<AIVisibleEnemy> *army) const;	///< the ledger, one entry a kind, weighed by combat power
 	void sendWaveThroughTunnels(AIGroup *wave, const Coord3D *center, Waypoint *way);	///< whoever can goes by tunnel when the path is the long way round
 
@@ -1059,6 +1060,12 @@ protected:
 		Bool				stealth;		///< it can go invisible
 	};
 	std::map<ObjectID, SeenEnemy> m_seenEnemies;
+	/** The enemies in sight on a ledger turn, with their owners' indices: scanEnemies fills it, on a worker in
+		* lookAllSeats, and rememberEnemies writes it into the ledger on the logic thread, since a map node is a pool
+		* allocation.  Cleared, never shrunk, so a job grows it only past its largest turn.  Frame-local, not saved. */
+	std::vector< std::pair<Object *, Int> > m_seenScan;
+	void scanEnemies(void);											///< rememberEnemies' reading of the world, into m_seenScan
+	static void scanJob(Int index, void *context);
 	void answerArmy(void);	///< train the answer to the biggest part of the remembered enemy army nothing of ours answers
 
 	/** The fist: one unit picked because the army it remembers has no answer to it, built from the idle

@@ -735,6 +735,7 @@ GlobalData::GlobalData()
 	m_vertexTerrainSun = FALSE;
 	m_noTerrainSubdivide = FALSE;
 	m_shadowMapOldCasters = FALSE;
+	m_rtShadows = FALSE;
 	m_shadowMapPenumbra = 0.0f;		//zero anywhere here means the built-in value stands
 	m_shadowMapSkyFill = 0.0f;
 	m_shadowMapStrength = 0.0f;
@@ -764,6 +765,7 @@ GlobalData::GlobalData()
 	m_techRespawn = 0;							// a destroyed tech building stays destroyed unless -techrespawn asks
 	m_supplyPileLimit = 0;					// a supply pile takes any number of players unless -supplypilelimit asks
 	m_startShrouded = FALSE;				// the retail revealed, fogged start unless -startshrouded asks
+	m_dayNight = FALSE;							// daylight all match unless -daynight asks
 	m_autoSkirmishGameSpeedPercent = PLAYER_GAME_SPEED_PERCENT_DEFAULT;	// the native tick unless -gamespeed asks
 	m_superweapons = 0;							// SUPERWEAPONS_ALLOW unless -superweapons asks
 	m_startingCash = 0;							// the INI's DefaultStartingCash unless -startingcash asks
@@ -845,12 +847,14 @@ GlobalData::GlobalData()
 	m_underwaterClarity = FALSE;
 	m_waterFoam = FALSE;
 	m_groundFoliage = FALSE;
+	m_ragdoll = FALSE;
 	m_groundMarks = FALSE;
 	m_firelight = FALSE;
 	m_heatHaze = FALSE;
 	m_fullDetailAtDistance = FALSE;
 	m_hemiAmbient = FALSE;
 	m_ambientOcclusion = FALSE;
+	m_sunShafts = 0;
 	m_weatherEffects = FALSE;
 	m_waterSplashes = FALSE;
 	m_atmosphere = FALSE;
@@ -1280,6 +1284,8 @@ GlobalData::GlobalData()
 	m_minimapSize = 100;
 	m_showEmptyBuildingPips = TRUE;
 	m_hitFlash = FALSE;
+	m_damageNumbers = FALSE;
+	m_idleWorkerCamera = TRUE;		// retail's: the camera goes to the worker; off is what the fork added
 	m_workersReturnToSupply = TRUE;
 	m_archiveReplays = TRUE;
 

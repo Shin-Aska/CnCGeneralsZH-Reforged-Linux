@@ -167,7 +167,18 @@ Bool UnitCapRefuses( Int unitsTowardCap, Int unitsItAdds, UnsignedInt unitCap );
 // refused, given the finished defences and the superweapons he already has, foundations included.
 // It sits on top of the lobby's rule and never loosens it.
 enum { DEFENSES_PER_SUPERWEAPON = 12 };
+// ... and what each rung's ration now asks, flat on every rung so the levels above Hard never ask more
+// (a rising Int extrapolates: Easy 3 to Hard 12 asked 21 guns a superweapon at Elo 2800, 34 at 4200).
+// The owner, 2026-11-21: turtles win on many superweapons while the AI put up one or two.  Twelve made
+// Hard's first wait for the twelfth gun, six minutes on the defence clock, and the clock's 24 held it to
+// two; four puts the first up at the fourth and lets the clock alone pay for six.  Easy and Medium build
+// theirs from the scripts' once-only lines, so the ration does not make them build more.
+// DEFENSES_PER_SUPERWEAPON stays the defence clock's measure (aiDefenseAllowance).
+enum { AI_HARD_DEFENSES_PER_SUPERWEAPON = 4 };
 Bool SuperweaponDefenseCapRefuses( Int finishedDefenses, Int superweapons, Int defensesPerSuperweapon );
+// The ration a computer at this rating is held to: the rung's, lowered past Hard (4 up to Hard, 3 at Brutal
+// and Vicious, 2 at Savage and Insane), never under one; 0 still asks none.
+Int SuperweaponDefensesAtRating( Int ration, Real rating );
 // Only a defence somebody paid for counts.  The Sneak Attack tunnel, its Start and every general's
 // copy are the only FS_BASE_DEFENSE templates with no BuildCost: a power drops them for free.
 Bool DefenseCountsForSuperweapons( Int buildCost );
@@ -206,10 +217,12 @@ UnsignedInt EarnedAmount( UnsignedInt amount, Int percent );
 // maxBonus (the profile's IncomeBonusMaxPercent) at a quarter of it and below.  Integers only.
 Int IncomeBonusTarget( Int ownStrength, Int strongestEnemyStrength, Int maxBonus );
 // The strengths that target is fed: of count living players in list order, worth[i] each and allies[i]
-// a bit for every player mutually allied with i, self's side (itself and its allies) a player at a
-// time, and the highest per-player average of the other sides, each a leader in list order and the
-// players still ungrouped who are its mutual allies.  Free-for-all, every enemy is a side of one.
-void IncomeSideWorths( const Int *worth, const PlayerMaskType *allies, Int count, Int self, Int *ownAverage, Int *strongestEnemyAverage );
+// a bit for every player mutually allied with i, the whole worth of self's side (itself and its allies),
+// and the highest whole worth of the other sides, each a leader in list order and the players still
+// ungrouped who are its mutual allies.  Free-for-all, every enemy is a side of one.  Whole, not a
+// player at a time: averaged, a computer beside a weak human in a two against one read itself behind
+// the lone enemy and banked the bonus while its side outnumbered him.
+void IncomeSideWorths( const Int *worth, const PlayerMaskType *allies, Int count, Int self, Int *ownWorth, Int *strongestEnemyWorth );
 // One weighing's move from the bonus it has toward that target, at most maxBonus over
 // AI_INCOME_BONUS_STEPS rounded up, so every ceiling is reached in the same number of weighings.
 Int IncomeBonusStep( Int bonus, Int target, Int maxBonus );

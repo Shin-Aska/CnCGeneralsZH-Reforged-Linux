@@ -161,6 +161,9 @@ public:
  	virtual void adjustTerrainLOD(Int adj);
 	virtual void doPartialUpdate(const IRegion2D &partialRange, WorldHeightMap *htMap, RefRenderObjListIterator *pLightsIterator) = 0;
 	virtual void staticLightingChanged(void);
+	/// staticLightingChanged with the ground's relight spread over frames where the terrain can; a whole
+	/// rebuild where it cannot (the day and night cycle's steps on a ground that bakes the light)
+	virtual void spreadLightingChanged(void) { staticLightingChanged(); }
 
 	/** One terrain cell moved - a building foundation flattening the ground under it, say.
 		*
@@ -212,8 +215,9 @@ public:
 	void stepTrees(void);	///< W3DTreeBuffer::stepTrees, at the render's sync point
 	void takeWaypointsForRender(void);	///< W3DWaypointBuffer::takeReadsForRender, at the render's sync point
 	void takePropShroudForRender(void);	///< W3DPropBuffer::takeShroudForRender, at the render's sync point
-	void renderTrees(CameraClass * camera); ///< renders the tree buffer.
-	Int renderTreeShadowCasters(RenderInfoClass &sunInfo, CameraClass *sceneCamera, const SunShadowCasterCull &cull);
+	void renderTrees(CameraClass * camera, Bool grass = TRUE); ///< renders the tree buffer, and the grass unless renderGrass went first.
+	void renderGrass(CameraClass * camera); ///< the grass alone, ahead of the trees (the Ray Traced level)
+	Int renderTreeShadowCasters(RenderInfoClass &sunInfo, CameraClass *sceneCamera, const SunShadowCasterCull &cull); ///< the trees drawn into the sun's map, counted
 
 	void addProp(Int id, Coord3D location, Real angle, Real scale, const AsciiString &modelName);
 	void removeProp(Int id);
@@ -252,6 +256,7 @@ public:
 	void invalidateSkirt(void) { m_skirtStale = TRUE; m_skirtSceneryStale = TRUE; }	///< built again at its next draw: the sea over it moved
 	void drawSkirtProps(RenderInfoClass &rinfo);	///< the skirt scenery's rocks and palms, beside the map's own props
 	W3DBridgeBuffer *getBridgeBuffer()	{return m_bridgeBuffer;}
+	void setCloudStrength(Real strength);	///< the cloud shadow's darkness, 1 as baked (CloudMapTerrainTextureClass::setStrength)
 	void updateShorelineTiles(Int minX, Int minY, Int maxX, Int maxY, WorldHeightMap *pMap);	///<figure out which tiles on this map cross water plane
 	void updateShorelineTile(Int X, Int Y, Int Border, WorldHeightMap *pMap);	///<figure out which tiles on this map cross water plane
 	void recordShoreLineSortInfos(void);

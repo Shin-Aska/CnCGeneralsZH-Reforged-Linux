@@ -99,6 +99,7 @@
 #include "GameClient/TerrainVisual.h"	
 #include "GameClient/CinemaDirector.h"
 #include "GameClient/ControlBar.h"
+#include "Common/MessageBoxFlags.h"	// MessageBoxWrapper and its flags
 #include "GameClient/Display.h"
 #include "GameClient/WindowLayout.h"
 #include "GameClient/LookAtXlat.h"
@@ -110,6 +111,7 @@
 #include "GameClient/GlobalLanguage.h"
 #include "GameClient/GroupPanel.h"
 #include "GameClient/LaneHud.h"
+#include "GameClient/MatchClock.h"
 #include "GameClient/LaneWarEndScreen.h"
 #include "GameClient/AirliftPanel.h"
 #include "GameClient/UIStyle.h"
@@ -1868,7 +1870,9 @@ InGameUI::InGameUI()
 	m_isAttackCircling	= FALSE;
 
 	m_curRcType = RADIUSCURSOR_NONE;
-	
+	memset( &m_markerAim, 0, sizeof( m_markerAim ) );
+	m_markerAim.type = RADIUSCURSOR_NONE;
+
 	m_soloNexusSelectedDrawableID = INVALID_DRAWABLE_ID;
 
 }  // end InGameUI
@@ -2024,6 +2028,10 @@ void InGameUI::setRadiusCursor(RadiusCursorType cursorType, const SpecialPowerTe
 	m_curRadiusCursor.clear();
 	m_curRadiusCursorCentre.clear();
 	m_curRcType = RADIUSCURSOR_NONE;
+	// the ground marker's aim goes down with it, remembered a moment in case the same cursor comes
+	// straight back up (a mouse hint takes it down and puts it up again on every move)
+	if( m_markerAim.type != RADIUSCURSOR_NONE && m_markerAim.endMs == 0 )
+		m_markerAim.endMs = MAX( 1u, (UnsignedInt)Clock_Milliseconds() );
 
 	if (cursorType == RADIUSCURSOR_NONE)
 		return;
@@ -2114,6 +2122,49 @@ void InGameUI::setRadiusCursor(RadiusCursorType cursorType, const SpecialPowerTe
 	const Real unwheeled = radius;
 	if (cursorType == RADIUSCURSOR_GUARD_AREA)
 		radius *= m_guardRadiusScale;
+
+	// The Machined Reticle markers draw the cursor themselves (W3DGroundMarkers), from what is kept
+	// here, and no decal is made.  The same cursor put back up within a moment (a mouse hint, the
+	// guard wheel remaking it at its new size) keeps its press, so the timeline does not restart, and
+	// a new size is eased to from the one on the ground
+	if (groundMarkersOn())
+	{
+		const UnsignedInt MARKER_AIM_KEEP_MS = 250;
+		const UnsignedInt MARKER_WHEEL_EASE_MS = 400;		// W3DGroundMarkers eases over the same
+		const UnsignedInt now = MAX( 1u, (UnsignedInt)Clock_Milliseconds() );
+		GroundMarkerAim &aim = m_markerAim;
+		const Bool same = aim.type == cursorType && aim.power == specPowTempl && aim.caster == obj->getID()
+										&& aim.endMs != 0 && now - aim.endMs < MARKER_AIM_KEEP_MS;
+		if (!same)
+		{
+			aim.pressMs = now;
+			aim.radiusFrom = radius;
+			aim.radiusMs = 0;
+			aim.hasPos = FALSE;
+		}
+		else if (radius != aim.radius)
+		{
+			// from wherever the last step's easing has got to
+			Real shown = aim.radius;
+			if (aim.radiusMs != 0 && now - aim.radiusMs < MARKER_WHEEL_EASE_MS)
+			{
+				const Real f = 1.0f - (Real)( now - aim.radiusMs ) / (Real)MARKER_WHEEL_EASE_MS;
+				shown = aim.radius + ( aim.radiusFrom - aim.radius ) * f * f * f;
+			}
+			aim.radiusFrom = shown;
+			aim.radiusMs = now;
+		}
+		aim.type = cursorType;
+		aim.power = specPowTempl;
+		aim.caster = obj->getID();
+		aim.radius = radius;
+		aim.unwheeled = unwheeled;
+		aim.endMs = 0;
+		m_curRcType = cursorType;
+		handleRadiusCursor();
+		return;
+	}
+
 	if (cursorType == RADIUSCURSOR_GUARD_AREA && m_radiusCursors[cursorType].getTexture().compareNoCase("SCCGuard_Generic") == 0)
 	{
 		// EA's guard marker is one picture, the ring with the shield in its middle, so sizing it to
@@ -2146,6 +2197,32 @@ Bool InGameUI::isTimeFrozenWithoutTick( void ) const
 //-------------------------------------------------------------------------------------------------
 void InGameUI::handleRadiusCursor()
 {
+	// the ground markers' aim has no decal, only the point (W3DGroundMarkers reads it at the sync
+	// point, where this runs from preDraw)
+	if (m_curRcType != RADIUSCURSOR_NONE && m_markerAim.type == m_curRcType && m_markerAim.endMs == 0)
+	{
+		const MouseIO* mouseIO = TheMouse->getMouseStatus();
+		Coord3D pos;
+		const Bool radarOn = TheRadar->isRadarForced()
+									|| ( !TheRadar->isRadarHidden()
+												&& ThePlayerList->getLocalPlayer()
+												&& ThePlayerList->getLocalPlayer()->hasRadar() );
+		Bool hasPos = radarOn && TheRadar->screenPixelToWorld( &mouseIO->pos, &pos );
+		if( !hasPos )
+			hasPos = TheTacticalView->screenToTerrain( &mouseIO->pos, &pos );
+		if ( TheGlobalData->m_doubleClickAttackMove && m_duringDoubleClickAttackMoveGuardHintTimer > 0 )
+		{
+			m_markerAim.pos = m_duringDoubleClickAttackMoveGuardHintStashedPosition;
+			m_markerAim.hasPos = TRUE;
+		}
+		else if ( hasPos )
+		{
+			m_markerAim.pos = pos;
+			m_markerAim.hasPos = TRUE;
+		}
+		return;
+	}
+
 	if (!m_curRadiusCursor.isEmpty())
 	{
 		const MouseIO* mouseIO = TheMouse->getMouseStatus();
@@ -2185,6 +2262,54 @@ void InGameUI::handleRadiusCursor()
     }
 
   }
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The Machined Reticle markers are drawn under the Reforged graphics once their atlas loaded: every
+	* MappedImage of ReforgedGroundMarkers.ini found, and the sheet itself on disk and not the missing
+	* texture (W3DGroundMarkers' loadAtlas, at the sync point, says so here once).  Without it everything
+	* stays on the retail decals, so a build that lacks the sheet still marks the ground.  The delivery
+	* modules ask from the logic thread, so this only reads: a lookup there could add a name key beside
+	* the main thread. */
+//-------------------------------------------------------------------------------------------------
+static Bool theGroundMarkersLoaded = FALSE;
+
+void InGameUI::setGroundMarkersLoaded( Bool loaded )
+{
+	theGroundMarkersLoaded = loaded;
+}
+
+Bool InGameUI::groundMarkersOn( void )
+{
+	return theGroundMarkersLoaded && TheGlobalData != NULL && !TheGlobalData->m_classicGraphics;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A ground order or a power at a location went out on this click: the cursor that aimed it, if one
+	* is still up or went down a moment ago, becomes a marker on the clicked point. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::noteGroundMarkerClick( const Coord3D &pos, const SpecialPowerTemplate *power )
+{
+	const UnsignedInt MARKER_AIM_KEEP_MS = 250;
+	if( !groundMarkersOn() || m_markerAim.type == RADIUSCURSOR_NONE )
+		return;
+	// only the cursor that aimed this order: the guard's for a guard, the power's own for a power
+	if( power != NULL ? m_markerAim.power != power : m_markerAim.type != RADIUSCURSOR_GUARD_AREA )
+		return;
+	const UnsignedInt now = MAX( 1u, (UnsignedInt)Clock_Milliseconds() );
+	if( m_markerAim.endMs != 0 && now - m_markerAim.endMs >= MARKER_AIM_KEEP_MS )
+		return;
+	GroundMarkerShot shot;
+	shot.aim = m_markerAim;
+	shot.aim.pos = pos;
+	shot.aim.hasPos = TRUE;
+	shot.clickMs = now;
+	shot.clickFrame = TheGameLogic->getFrame();
+	shot.firstNewID = TheGameLogic->getObjectIDCounter();
+	m_markerShots.push_back( shot );
+	// a burst of clicks with nothing taking them (a hidden interface) stays bounded
+	if( m_markerShots.size() > 16 )
+		m_markerShots.erase( m_markerShots.begin() );
 }
 
 
@@ -4357,6 +4482,9 @@ void InGameUI::reset( void )
 	m_preferSelection		= false;
 	m_isAttackCircling	= FALSE;
 	m_clientQuiet    = false;
+	m_markerShots.clear();
+	m_markerAim.type = RADIUSCURSOR_NONE;
+	m_markerAim.endMs = 0;
 
 	// TheSuperHackers @bugfix A key or button still held when the game ended left its camera
 	// interaction latched on, and the shell then scrolled or spun on its own.
@@ -9691,7 +9819,12 @@ void InGameUI::postDraw( void )
 				UnsignedInt readyFrame = TheGameLogic->getFrame();
 				if (framesLeft > 0)
 					readyFrame += ConvertRetailFrames( framesLeft );	// script timers count retail frames of game time
-				Int readySecs = ControlBar_secondsFromFrames( (Real)(readyFrame - TheGameLogic->getFrame()) );
+				// at the rate the match is paced to, not the one measured over the last second: that one
+				// wanders a frame or two either way (and far down after a load), and a countdown divided by
+				// it jumps a second or runs backwards.  The pacer's own rate, a cinematic's slower one included
+				// (GameEngine_missionTimeRate's), so the clock keeps real seconds under held input too
+				Int readySecs = ControlBar_secondsFromFramesAt( (Real)(readyFrame - TheGameLogic->getFrame()),
+						GameEngine_cinematicFramesPerSecond( TheGameEngine->getFramesPerSecondLimit(), GameEngine_isPacingCinematic() ) );
 				if ( (info->isCountdown && readySecs != info->timestamp) || (!info->isCountdown && framesLeft != info->timestamp) )
 				{
 					if (!readySecs && info->isCountdown)
@@ -9787,8 +9920,20 @@ void InGameUI::createControlBar( void )
 {
 
 	TheWindowManager->winCreateFromScript( AsciiString("ControlBar.wnd") );
+
+	// winCreateFromScript hands back nothing for a missing file and destroys the whole tree when one
+	// child fails to parse, and everything after this (ControlBar::init first) stands on the bar's
+	// parent.  v4.1.0 died on that null in HideControlBar at every launch of one install, with no line
+	// saying which; say it, and stop with a message instead of an access violation.
+	if( TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey( "ControlBar.wnd:ControlBarParent" ) ) == NULL )
+	{
+		DEBUG_LOG(( "InGameUI::createControlBar - Window\\ControlBar.wnd built no ControlBar.wnd:ControlBarParent (missing, or a window in it failed to parse)\n" ));
+		MessageBoxWrapper( "The command bar's layout (Window\\ControlBar.wnd) could not be read.\n\nRepair the game in the launcher, or remove any mod files from the game folder.", "Command & Conquer Generals Zero Hour", MSGBOX_OK | MSGBOX_TASKMODAL | MSGBOX_ICONERROR );
+		_exit(1);
+	}
+
 	HideControlBar();
-/*	
+/*
 	// hide all windows created from this layout
 	GameWindow *window = TheWindowManager->winGetWindowList();
 	for( ; window; window = window->winGetPrev() )
@@ -12355,6 +12500,14 @@ void InGameUI::drawHudOverlay( void )
 	if( TheGameLogic->getFrame() == 0 )
 		return;
 
+	// the match clock at the top middle, under the readout strip while that is up
+	if( MatchClock_wanted() )
+	{
+		MatchClockState clock;
+		MatchClock_gather( TheGameLogic->getFrame(), clock );
+		MatchClock_draw( clock, hudStripBottom() );
+	}
+
 	// on top of the battlefield like this strip, but never behind the ShowNetBox switch
 	drawKickVoteBanner();
 
@@ -13100,7 +13253,10 @@ void InGameUI::drawProductionList( void )
 	// standing just clear of the radar's frame; the hero's cell stands over it, queue or none
 	const HudCellStyle style = hudCellStyle();
 	const Int foot = radarFrameTop() - stripPixels( PRODUCTION_LIST_LIFT ) - style.production.footH;
-	m_heroCell = drawHeroCell( style, foot - style.cellH, m_hero );
+	// the Direct Strike HUD sells and shows its own hero card, so the cell would be a second hero at the
+	// screen's edge; Apocalypse has no such HUD and keeps it
+	if( !LaneHud_isShowing() )
+		m_heroCell = drawHeroCell( style, foot - style.cellH, m_hero );
 	// the Red Alert style sidebar's cameos wear their own queue's clocks and counts; the hero's cell
 	// stays, over the selection card (radarFrameTop)
 	if( m_productionListCount == 0 || sidebarLayoutOn() )
@@ -13898,16 +14054,17 @@ void InGameUI::removeIdleWorker( Object *obj, Int playerNumber )
 	return;
 }
 
-// The worker key and the worker button.  Reforged and Red Alert Style leave the camera where the
-// player has it; Classic is the original game's bar and centres it on the worker picked, or on what
-// carries it, as the original game's selectNextIdleWorker did (issue #232).
+// The worker key and the worker button.  With IdleWorkerCamera on (the default) every layout centres
+// the camera on the worker picked, or on what carries it, each press, as the original game's
+// selectNextIdleWorker did; off, only Classic, the original game's bar, does (issue #232) and Reforged
+// and Red Alert Style leave the camera where the player has it.
 Object *InGameUI::selectNextIdleWorker( void )
 {
 	// the same walk the button's light comes from, so a lit button always has a worker to give
 	KindOfMaskType mustBeSet, mustBeClear;
 	idleUnitKinds( GameMessage::MSG_META_SELECT_NEXT_IDLE_WORKER, &mustBeSet, &mustBeClear );
 	Object *picked = selectNextIdleUnit( mustBeSet, mustBeClear );
-	if( picked && TheGlobalData->m_hudLayout == HUD_LAYOUT_RETAIL && TheTacticalView )
+	if( picked && ( TheGlobalData->m_idleWorkerCamera || TheGlobalData->m_hudLayout == HUD_LAYOUT_RETAIL ) && TheTacticalView )
 		TheTacticalView->lookAt( picked->getPosition() );
 	return picked;
 }

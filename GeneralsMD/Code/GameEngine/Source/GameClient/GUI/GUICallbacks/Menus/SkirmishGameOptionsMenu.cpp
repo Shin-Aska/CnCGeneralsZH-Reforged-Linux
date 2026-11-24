@@ -89,6 +89,9 @@ SkirmishGameInfo *TheSkirmishGameInfo = NULL;
 // The main menu's Direct Strike button opens this room in that mode, its Skirmish button in the
 // classic one (MainMenu.cpp).  The match is GAME_SKIRMISH either way; the lane map makes the mode.
 Bool skirmishDirectStrike = FALSE;
+// Its Apocalypse button opens the classic room on a generated Apocalypse map, which makes that mode
+// (ApocalypseDirector): no map choice, four seats at most, a fresh map for every match.
+Bool skirmishApocalypse = FALSE;
 
 // window ids ------------------------------------------------------------------------------
 static NameKeyType parentSkirmishGameOptionsID = NAMEKEY_INVALID;
@@ -134,6 +137,7 @@ static NameKeyType comboBoxSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
 static NameKeyType checkBoxUnitLimitID = NAMEKEY_INVALID;
 static NameKeyType checkBoxStartShroudedID = NAMEKEY_INVALID;
+static NameKeyType checkBoxDayNightID = NAMEKEY_INVALID;
 static NameKeyType comboBoxIncomeSharingID = NAMEKEY_INVALID;
 static NameKeyType comboBoxTechRespawnID = NAMEKEY_INVALID;
 static NameKeyType comboBoxSupplyPileLimitID = NAMEKEY_INVALID;
@@ -289,7 +293,7 @@ static AsciiString customKey( Int slot, const char *field )
 }
 
 static const char *const theCustomFields[] = { "SlotList", "Map", "Players", "StartingCash", "Superweapons",
-	"UnitLimit", "StartShrouded", "IncomeSharing", "TechRespawn", "SupplyPileLimit", "GameSpeed" };
+	"UnitLimit", "StartShrouded", "DayNight", "IncomeSharing", "TechRespawn", "SupplyPileLimit", "GameSpeed" };
 
 /// seats in the slot, 0 when it is empty
 static Int customPresetPlayers( const UserPreferences &pref, Int slot )
@@ -311,6 +315,7 @@ static void saveCustomPreset( Int slot )
 	pref.setInt( customKey( slot, "Superweapons" ), TheSkirmishGameInfo->getSuperweaponRestriction() );
 	pref.setInt( customKey( slot, "UnitLimit" ), TheSkirmishGameInfo->getUnitLimit() ? 1 : 0 );
 	pref.setInt( customKey( slot, "StartShrouded" ), TheSkirmishGameInfo->getStartShrouded() ? 1 : 0 );
+	pref.setInt( customKey( slot, "DayNight" ), TheSkirmishGameInfo->getDayNight() ? 1 : 0 );
 	pref.setInt( customKey( slot, "IncomeSharing" ), TheSkirmishGameInfo->getIncomeSharing() );
 	pref.setInt( customKey( slot, "TechRespawn" ), TheSkirmishGameInfo->getTechRespawn() );
 	pref.setInt( customKey( slot, "SupplyPileLimit" ), TheSkirmishGameInfo->getSupplyPileLimit() );
@@ -348,6 +353,7 @@ static Bool loadCustomPreset( Int slot )
 	TheSkirmishGameInfo->setSuperweaponRestriction( (UnsignedShort)pref.getInt( customKey( slot, "Superweapons" ), SUPERWEAPONS_ALLOW ) );
 	TheSkirmishGameInfo->setUnitLimit( pref.getInt( customKey( slot, "UnitLimit" ), 0 ) != 0 );
 	TheSkirmishGameInfo->setStartShrouded( pref.getInt( customKey( slot, "StartShrouded" ), 0 ) != 0 );
+	TheSkirmishGameInfo->setDayNight( pref.getInt( customKey( slot, "DayNight" ), 0 ) != 0 );
 	TheSkirmishGameInfo->setIncomeSharing( pref.getInt( customKey( slot, "IncomeSharing" ), INCOME_SHARING_OFF ) );
 	TheSkirmishGameInfo->setTechRespawn( pref.getInt( customKey( slot, "TechRespawn" ), 0 ) );
 	TheSkirmishGameInfo->setSupplyPileLimit( pref.getInt( customKey( slot, "SupplyPileLimit" ), 0 ) );
@@ -481,6 +487,7 @@ static GameWindow *comboBoxSuperweapons = NULL;
 static GameWindow *comboBoxStartingCash = NULL;
 static GameWindow *checkBoxUnitLimit = NULL;
 static GameWindow *checkBoxStartShrouded = NULL;
+static GameWindow *checkBoxDayNight = NULL;
 static GameWindow *comboBoxIncomeSharing = NULL;
 static GameWindow *comboBoxTechRespawn = NULL;
 static GameWindow *comboBoxSupplyPileLimit = NULL;
@@ -695,7 +702,8 @@ AsciiString SkirmishPreferences::getPreferredMap(void)
 
 	ret = QuotedPrintableToAsciiString(it->second);
 	ret.trim();
-	if (ret.isEmpty() || !isValidMap(ret, TRUE))
+	// a mode's generated map is that mode room's, never a classic room's starting map
+	if (ret.isEmpty() || !isValidMap(ret, TRUE) || IsDirectStrikeMap(ret) || IsApocalypseMap(ret))
 	{
 		ret = getDefaultMap(TRUE);
 		return ret;
@@ -766,6 +774,12 @@ Bool SkirmishPreferences::write(void)
 		setAsciiString("DirectStrikeSlotList", GameInfoToAsciiString(TheSkirmishGameInfo));
 		return UserPreferences::write();
 	}
+	// so does an Apocalypse room: its four seats and its generated map are not the classic room's
+	if (skirmishApocalypse)
+	{
+		setAsciiString("ApocalypseSlotList", GameInfoToAsciiString(TheSkirmishGameInfo));
+		return UserPreferences::write();
+	}
 
 	// read back through QuotedPrintableToAsciiString, whose escape is '_': a generated map's
 	// "rmg_v17_..." written as it is came back as garbage and the room fell back to another map
@@ -775,6 +789,7 @@ Bool SkirmishPreferences::write(void)
   setSuperweaponRestriction( TheSkirmishGameInfo->getSuperweaponRestriction() );
   setInt( "UnitLimit", TheSkirmishGameInfo->getUnitLimit() ? 1 : 0 );
   setInt( "StartShrouded", TheSkirmishGameInfo->getStartShrouded() ? 1 : 0 );
+  setInt( "DayNight", TheSkirmishGameInfo->getDayNight() ? 1 : 0 );
   setInt( "IncomeSharing", TheSkirmishGameInfo->getIncomeSharing() );
   setInt( "TechRespawn", TheSkirmishGameInfo->getTechRespawn() );
   setInt( "SupplyPileLimit", TheSkirmishGameInfo->getSupplyPileLimit() );
@@ -816,7 +831,7 @@ void reallyDoStart( void )
 		TheGameLogic->clearGameData(FALSE);
 
 	// on the game, so the replay's header carries it as a network lobby's does
-	TheSkirmishGameInfo->setGameSpeedPercent( chosenGameSpeedPercent() );
+	TheSkirmishGameInfo->setGameSpeedPercent( chosenGameSpeedPercent() );	// Direct Strike's from its lobby's speed chip
 	const Int gameSpeedPercent = TheSkirmishGameInfo->getGameSpeedPercent();
 	DEBUG_LOG(("Game speed %d%%: %d logic frames a second\n", gameSpeedPercent, GameEngine_matchFramesPerSecond()));
 
@@ -914,9 +929,17 @@ static void startPressed(void)
 		SetDirectStrikeMap(TheSkirmishGameInfo);
 		FitDirectStrikeRoom(TheSkirmishGameInfo);
 	}
+	// and a fresh Apocalypse map for the seats as they stand
+	if (skirmishApocalypse)
+	{
+		FitApocalypseRoom(TheSkirmishGameInfo);
+		SetApocalypseMap(TheSkirmishGameInfo);
+	}
 
 	if (FitRandomMapToRoom(TheSkirmishGameInfo))
 	{
+		if (skirmishApocalypse)
+			FitApocalypseRoom(TheSkirmishGameInfo);	// a restaged map clears the start spots; the seats keep 1..n
 		skirmishPositionStartSpots();
 		skirmishUpdateSlotList();
 	}
@@ -1251,6 +1274,16 @@ void positionStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[]
 		AsciiString templatePath;
 		generatedMapTemplate(localMapFname, templatePath);
 		positionStartSpots(templatePath, buttonMapStartPositions, mapWindow);
+		// an Apocalypse map has no shipped map to stand for it, and the unknown map said nothing; the
+		// generator draws its own preview beside the map, from the name
+		if (IsApocalypseMap(localMapFname))
+		{
+			if (Image *image = getMapPreviewImage(localMapFname))
+			{
+				mapWindow->winSetStatus(WIN_STATUS_IMAGE);
+				mapWindow->winSetEnabledImage(0, image);
+			}
+		}
 		mapWindow->winSetUserData(NULL);
 		positionAdditionalImages(NULL, mapWindow, TRUE);
 		for (Int i = 0; i < MAX_SLOTS; ++i)
@@ -1604,7 +1637,8 @@ static NameKeyType seatScrollDownID = NAMEKEY_INVALID;
 
 static Int seatScrollMax( void )
 {
-	return seatScrollSlider && seatRowCount > 1 ? MAX_SLOTS - seatRowCount : 0;
+	// an Apocalypse room's four seats all fit the first page
+	return seatScrollSlider && seatRowCount > 1 && !skirmishApocalypse ? MAX_SLOTS - seatRowCount : 0;
 }
 
 /// the seat a row shows; row 0 is the local player's whatever the scroll
@@ -1692,6 +1726,12 @@ static void captureSeatRows( void )
 		TheWindowManager->winSendSystemMsg( seatScrollSlider, GSM_SET_MIN_MAX, 0, max( 1, seatScrollMax() ) );
 		GadgetSliderSetPosition( seatScrollSlider, seatScrollMax() );	// the top of the track is the first seat
 	}
+	// an Apocalypse room has one page of seats and no scroll; the classic room keeps its own
+	const char *const scrollParts[] = { "SkirmishGameOptionsMenu.wnd:SliderSeatScroll",
+		"SkirmishGameOptionsMenu.wnd:ButtonSeatScrollUp", "SkirmishGameOptionsMenu.wnd:ButtonSeatScrollDown" };
+	for ( Int i = 0; i < (Int)ARRAY_SIZE( scrollParts ); ++i )
+		if ( GameWindow *part = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( scrollParts[ i ] ) ) )
+			part->winHide( skirmishApocalypse );
 }
 
 /// force repaints the rows where they are, after their seats changed under them
@@ -1739,6 +1779,7 @@ void InitSkirmishGameGadgets( void )
   comboBoxStartingCashID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxStartingCash" ) );
   checkBoxUnitLimitID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:CheckBoxUnitLimit" ) );
   checkBoxStartShroudedID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:CheckBoxStartShrouded" ) );
+  checkBoxDayNightID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:CheckBoxDayNight" ) );
   comboBoxIncomeSharingID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxIncomeSharing" ) );
   comboBoxTechRespawnID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxTechRespawn" ) );
   comboBoxSupplyPileLimitID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxSupplyPileLimit" ) );
@@ -1787,6 +1828,14 @@ void InitSkirmishGameGadgets( void )
 	}
 	else
 		presetPopover = NULL;
+	// an Apocalypse room has no map to pick and no preset to load one: it names its mode, its version
+	// with it, where the room says Skirmish
+	if ( GameWindow *title = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( "SkirmishGameOptionsMenu.wnd:StaticTextTitle" ) ) )
+		GadgetStaticTextSetText( title, skirmishApocalypse ? ModeNameWithVersion( "GUI:Apocalypse", "GUI:ApocalypseVersion" ) : TheGameText->fetch( "GUI:Skirmish" ) );
+	if ( buttonSelectMap )
+		buttonSelectMap->winEnable( !skirmishApocalypse );
+	if ( GameWindow *presets = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, buttonPresetsID ) )
+		presets->winEnable( !skirmishApocalypse );
 	textEntryMapDisplay =TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, textEntryMapDisplayID );
 	DEBUG_ASSERTCRASH(textEntryMapDisplay, ("Could not find the textEntryMapDisplay"));
 	buttonReset = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, buttonResetID );
@@ -1808,6 +1857,11 @@ void InitSkirmishGameGadgets( void )
   DEBUG_ASSERTCRASH(checkBoxStartShrouded, ("Could not find the checkBoxStartShrouded"));
   if ( checkBoxStartShrouded )
     UpdateStartShroudedCheckBox( checkBoxStartShrouded, TheSkirmishGameInfo, TRUE );
+  // the day and night cycle's box, the same kind; it travels as DN
+  checkBoxDayNight = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, checkBoxDayNightID );
+  DEBUG_ASSERTCRASH(checkBoxDayNight, ("Could not find the checkBoxDayNight"));
+  if ( checkBoxDayNight )
+    UpdateDayNightCheckBox( checkBoxDayNight, TheSkirmishGameInfo, TRUE );
   comboBoxIncomeSharing =TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, comboBoxIncomeSharingID );
   DEBUG_ASSERTCRASH(comboBoxIncomeSharing, ("Could not find the comboBoxIncomeSharing"));
   if ( comboBoxIncomeSharing )
@@ -1929,6 +1983,8 @@ void skirmishUpdateSlotList( void )
     GadgetTextEntrySetText( textEntryPlayerName, TheSkirmishGameInfo->getSlot(0)->getName() );
 		if (skirmishDirectStrike)
 			FitDirectStrikeRoom(TheSkirmishGameInfo);
+		if (skirmishApocalypse)
+			FitApocalypseRoom(TheSkirmishGameInfo);
     UpdateSlotList( TheSkirmishGameInfo, comboBoxPlayer,
 										comboBoxColor, comboBoxPlayerTemplate,
 									  comboBoxTeam, NULL, buttonStart, buttonMapStartPosition );
@@ -1938,6 +1994,9 @@ void skirmishUpdateSlotList( void )
 		updateMapStartSpots(TheSkirmishGameInfo, buttonMapStartPosition, FALSE);
 		if (skirmishDirectStrike)
 			LayoutDirectStrikeRoom(parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", TheSkirmishGameInfo);
+		// the four seats and no more; the scroll stays on the first page (seatScrollMax)
+		if (skirmishApocalypse)
+			HideLobbySeatRowsFrom(parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", APOCALYPSE_SEATS);
     doUpdateSlotList = TRUE;
   }
 }
@@ -2021,6 +2080,8 @@ void updateSkirmishGameOptions( void )
     UpdateUnitLimitCheckBox( checkBoxUnitLimit, TheSkirmishGameInfo, TRUE );
   if ( checkBoxStartShrouded )
     UpdateStartShroudedCheckBox( checkBoxStartShrouded, TheSkirmishGameInfo, TRUE );
+  if ( checkBoxDayNight )
+    UpdateDayNightCheckBox( checkBoxDayNight, TheSkirmishGameInfo, TRUE );
   if ( comboBoxIncomeSharing )
     UpdateIncomeSharingComboBox( comboBoxIncomeSharing, TheSkirmishGameInfo, TRUE );
   if ( comboBoxTechRespawn )
@@ -2102,7 +2163,8 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
 	TheSkirmishGameInfo->setSlot(1, gSlot);
 
 	ParseAsciiStringToGameInfo(TheSkirmishGameInfo,
-		skirmishDirectStrike ? prefs.getAsciiString("DirectStrikeSlotList", AsciiString::TheEmptyString) : prefs.getSlotList());
+		skirmishDirectStrike ? prefs.getAsciiString("DirectStrikeSlotList", AsciiString::TheEmptyString)
+		: skirmishApocalypse ? prefs.getAsciiString("ApocalypseSlotList", AsciiString::TheEmptyString) : prefs.getSlotList());
 	// -seed repeats a match set up here too, as it does -autoskirmish's (GameEngine.cpp): the same match from the
 	// same choices
 	TheSkirmishGameInfo->setSeed((TheGlobalData->m_fixedSeed >= 0) ? TheGlobalData->m_fixedSeed : Clock_Milliseconds_Coarse());
@@ -2118,6 +2180,7 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
   TheSkirmishGameInfo->setSuperweaponRestriction( prefs.getSuperweaponRestriction() );
   TheSkirmishGameInfo->setUnitLimit( prefs.getInt( "UnitLimit", 0 ) != 0 );
   TheSkirmishGameInfo->setStartShrouded( prefs.getInt( "StartShrouded", 0 ) != 0 );
+  TheSkirmishGameInfo->setDayNight( prefs.getInt( "DayNight", 0 ) != 0 );
   TheSkirmishGameInfo->setIncomeSharing( prefs.getInt( "IncomeSharing", INCOME_SHARING_OFF ) );
   TheSkirmishGameInfo->setTechRespawn( prefs.getInt( "TechRespawn", 0 ) );
   TheSkirmishGameInfo->setSupplyPileLimit( prefs.getInt( "SupplyPileLimit", 0 ) );
@@ -2131,6 +2194,12 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
 	{
 		SetDirectStrikeMap(TheSkirmishGameInfo);
 		FitDirectStrikeRoom(TheSkirmishGameInfo);
+	}
+	// Apocalypse the same way: a stand-in map for the seats, Start makes the match's own
+	if (skirmishApocalypse)
+	{
+		FitApocalypseRoom(TheSkirmishGameInfo);
+		SetApocalypseMap(TheSkirmishGameInfo);
 	}
 	const MapMetaData *md = TheMapCache->findMap(TheSkirmishGameInfo->getMap());
 	if (!md)
@@ -2157,8 +2226,8 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
 	//initSkirmishGameOptions();
 
 	// the game speed combo, which a stock layout does not have (chosenGameSpeedPercent)
-	// Direct Strike's waves are timed for the native speed every network game plays; its box is hidden
-	populateGameSpeedComboBox( skirmishDirectStrike ? (Int)NATIVE_GAME_SPEED_PERCENT : prefs.getInt( "GameSpeed", PLAYER_GAME_SPEED_PERCENT_DEFAULT ) );
+	// a Direct Strike room opens at 1.0x and its lobby's speed chip picks on this hidden box
+	populateGameSpeedComboBox( skirmishDirectStrike ? (Int)RETAIL_GAME_SPEED_PERCENT : prefs.getInt( "GameSpeed", PLAYER_GAME_SPEED_PERCENT_DEFAULT ) );
 	buttonStart->winSetText(TheGameText->fetch("GUI:Start"));
 	/* hey, for now we're also going to disable the map select button until it doesn't crash */
 	//buttonSelectMap->winEnable( FALSE );
@@ -2464,6 +2533,11 @@ WindowMsgHandledType SkirmishGameOptionsMenuSystem( GameWindow *window, Unsigned
 				if ( controlID == checkBoxStartShroudedID )
 				{
 					TheSkirmishGameInfo->setStartShrouded( GadgetCheckBoxIsChecked( control ) );
+					break;
+				}
+				if ( controlID == checkBoxDayNightID )
+				{
+					TheSkirmishGameInfo->setDayNight( GadgetCheckBoxIsChecked( control ) );
 					break;
 				}
 				if ( LobbyTabClicked( (NameKeyType)controlID ) )

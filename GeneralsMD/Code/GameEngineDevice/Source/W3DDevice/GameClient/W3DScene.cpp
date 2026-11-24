@@ -60,6 +60,7 @@
 #include "W3DDevice/GameClient/W3DScene.h"
 #include "W3DDevice/GameClient/W3DWater.h"
 #include "W3DDevice/GameClient/W3DInGameUI.h"
+#include "W3DDevice/GameClient/W3DGroundMarkers.h"
 #include "W3DDevice/GameClient/W3DDynamicLight.h"
 #include "W3DDevice/GameClient/W3DParticleSys.h"
 #include "W3DDevice/GameClient/FireLights.h"
@@ -92,6 +93,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include "GameLogic/DayNightCycle.h"
 
 /* A hint that a cache line is about to be read, as in PartitionManager.cpp: it reads nothing the
 	 program sees, so no result depends on it. */
@@ -117,7 +119,8 @@
 // DEFINITIONS ////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 ///@todo: Remove these globals since we no longer need W3D to call them for us.
-extern void DoTrees(RenderInfoClass & rinfo);
+extern void DoTrees(RenderInfoClass & rinfo, Bool grass);
+extern void DoGrass(RenderInfoClass & rinfo);
 extern void DoShadows(RenderInfoClass & rinfo, Bool stencilPass);
 extern void DoParticles(RenderInfoClass & rinfo);
 
@@ -493,6 +496,28 @@ void RTS3DScene::Add_Render_Object(RenderObjClass * obj)
 
 void RTS3DScene::Remove_Render_Object(RenderObjClass * obj)
 {
+	// Crash reports 4137 and 3839 drew a polygon renderer whose texture category was gone.  One way
+	// there is a robj leaving the scene mid-draw while the occluder arrays still point at it: they
+	// hold no reference, so the scene's was the last.  Said once a run, so the next report names it.
+	static Bool s_saidMidDraw = FALSE;
+	if (!s_saidMidDraw && m_camera != NULL)
+	{
+		const char *where = NULL;
+		Int i;
+		for (i = 0; where == NULL && i < m_numPotentialOccluders; ++i)
+			if (m_potentialOccluders[i] == obj) where = "occluders";
+		for (i = 0; where == NULL && i < m_numPotentialOccludees; ++i)
+			if (m_potentialOccludees[i] == obj) where = "occludees";
+		for (i = 0; where == NULL && i < m_numNonOccluderOrOccludee; ++i)
+			if (m_nonOccludersOrOccludees[i] == obj) where = "non-occluders";
+		if (where != NULL)
+		{
+			s_saidMidDraw = TRUE;
+			DEBUG_LOG(("RTS3DScene::Remove_Render_Object: '%s' left the scene mid-draw, still in the %s array "
+				"(refs %d, W3D frame %u)\n", obj->Get_Name() ? obj->Get_Name() : "?", where, obj->Num_Refs(),
+				WW3D::Get_Frame_Count()));
+		}
+	}
 	std::replace(m_visibleObjects.begin(), m_visibleObjects.end(), obj, (RenderObjClass *)NULL);
 	SimpleSceneClass::Remove_Render_Object(obj);
 }
@@ -732,7 +757,9 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 				} else {
 					// The same test the main pass hides a drawable by, or a unit under the fog of war,
 					// or a building standing in for its own ghost, shows up in the water and nowhere else.
-					Bool hidden = robj->Is_Hidden() || draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud();
+					// An enemy going into its cloak is out of the water at once: the mirror draws no glass.
+					Bool hidden = robj->Is_Hidden() || draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud()
+						|| draw->getStealthLook() == STEALTHLOOK_INVISIBLE;
 					robj->Set_Visible(!hidden && (modernFullMirror || draw->getDrawsInMirror()) && (!camera->Cull_Sphere(robj->Get_Bounding_Sphere()) || posedPartsInView(robj, camera)));
 				}
 			}
@@ -750,6 +777,9 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 	}
 	else
 	{
+		// whether this frame can draw an own unit's glass, which an enemy fading into its cloak needs too
+		Drawable::noteStealthCloakDrawn( RenderEffects::DrawEffectsAvailable()
+			&& RenderEffects::TakesDrawEffect( DRAW_EFFECT_CLOAK ) );
 
 		// Loop over all top-level RenderObjects in this scene. If the bounding sphere is not in front
 		// of all the frustum planes, it is invisible.
@@ -912,15 +942,17 @@ static unsigned chooseDrawEffect( const Drawable *draw, Bool translucentPass, fl
 	if ( look == STEALTHLOOK_VISIBLE_DETECTED && !draw->isKindOf( KINDOF_MINE ) )
 	{
 		effect = DRAW_EFFECT_REVEALED;
-		strength = pulse;
+		// a structure is asked with two more (effect_revealed): it keeps most of its paint
+		strength = pulse + ( draw->isKindOf( KINDOF_STRUCTURE ) ? 2.0f : 0.0f );
 	}
 	else if ( translucentPass && wearsCloak( draw )
 		&& look != STEALTHLOOK_VISIBLE_DETECTED )
 	{
-		// Detected, the amber stays on and the detector's sweep brightens it; on the pulse alone it
-		// showed for a few frames a sweep and was never seen.
+		// Detected, the amber stays on for as long as it lasts; on the pulse alone it showed for a few
+		// frames a sweep and was never seen.  It eases in and out (Drawable::getStealthAmber).  Four
+		// more for an enemy's cloak (effect_cloak): its fades go between paint and nothing, no glass.
 		effect = DRAW_EFFECT_CLOAK;
-		strength = ( look == STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED ) ? MAX( 0.6f, pulse ) : 0.0f;
+		strength = draw->getStealthAmber() + ( draw->getStealthEnemy() ? 4.0f : 0.0f );
 	}
 	else if ( draw->getObjectForDraw().hasObject && !draw->isObjectDeadForDraw() )
 	{
@@ -952,11 +984,17 @@ static unsigned chooseDrawEffect( const Drawable *draw, Bool translucentPass, fl
 		const StealthLookType target = draw->getStealthLook();
 		Int front = STEALTH_FRONT_SWEEP;
 		if ( effect == DRAW_EFFECT_CLOAK )
-			front = ( target == STEALTHLOOK_VISIBLE_FRIENDLY || target == STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED )
+			front = ( target == STEALTHLOOK_VISIBLE_FRIENDLY || target == STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED
+					|| target == STEALTHLOOK_INVISIBLE )
 				? STEALTH_FRONT_RIPPLE : STEALTH_FRONT_WIND;
 		const Real geometry = draw->getTemplate()->getTemplateGeometryInfo().getMaxHeightAbovePosition();
 		const Int height = clamp( 1, REAL_TO_INT_CEIL( geometry * 1.3f ), 4000 );
-		const Bool overPaint = effect == DRAW_EFFECT_REVEALED && draw->getStealthOverPaint();
+		// The paint bit: for the heat, its far end is paint; for the cloak, a unit or building that keeps
+		// a ghost of its paint over the glass (effect_cloak), since its bend alone is a few pixels at play
+		// zoom.  A building as plain glass over flat sand was the sand: Camo Netting hid a base from its
+		// own player.  Not an enemy's, which has no glass to keep it over.
+		const Bool overPaint = effect == DRAW_EFFECT_REVEALED ? draw->getStealthOverPaint()
+			: !draw->getStealthEnemy();
 		parameters[2] = draw->getPositionForDraw()->z;
 		parameters[3] = CombinerShader_Pack_Stealth( height, front, overPaint != FALSE, (float)fade );
 	}
@@ -1275,8 +1313,23 @@ void RTS3DScene::Flush(RenderInfoClass & rinfo)
 	// (gth) CNC3 Flush the shader meshes	
 	SHD_FLUSH;
 
+	// The Ray Traced level's sun goes on before the batched trees, which no level's sun ever shadowed
+	// (their program receives none): traced over them, a pine took its own needles' shade and came
+	// out 21 to 30% darker than at High.  The grass does receive, so it goes down first, and ahead of
+	// the shadowed point lights too, which it drew under with none of its own.  The lights stay
+	// before the trees, which no level ever lit, and before the sun, whose dark pixel guard reads a
+	// lit scene.
+	const Bool defaultPass = m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE;
+	const Bool raysBeforeTrees = defaultPass && Direct3D11_Ray_Shade_Waiting();
+	if (raysBeforeTrees)
+		DoGrass(rinfo);
+	if (defaultPass)
+		Direct3D11_Ray_Traced_Lights();
+	if (raysBeforeTrees)
+		Direct3D11_Ray_Traced_Shadows();
+
 	// Draw the trees last so they alpha blend onto everything correctly.
-	DoTrees(rinfo);
+	DoTrees(rinfo, !raysBeforeTrees);
 
 	//don't draw shadows in this mode because they interfere with destination alpha
 	if (m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE && !modernFullMirror)
@@ -1293,6 +1346,11 @@ void RTS3DScene::Flush(RenderInfoClass & rinfo)
 		TheTerrainRenderObject->drawSkirtBackdrop();
 
 	WW3D::Render_And_Clear_Static_Sort_Lists(rinfo);	//draws things like water
+
+	// the ground markers' quads that stand on water, at its surface: painted in the terrain pass they
+	// lay on the seabed under it (W3DGroundMarkers).  Not in a mirror, a custom pass or the wireframe
+	if (m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE && !modernFullMirror)
+		W3DGroundMarkers_drawOnWater();
 
 	if (m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE)
 	{
@@ -1361,7 +1419,8 @@ void RTS3DScene::updateFixedLightEnvironments(RenderInfoClass & rinfo)
 	if( TheGlobalData->m_scriptOverrideInfantryLightScale != -1.0f )
 		infantryLightScale = TheGlobalData->m_scriptOverrideInfantryLightScale;
 	else
-		infantryLightScale = TheGlobalData->m_infantryLightScale[TheGlobalData->m_timeOfDay];
+		// the map's own hour's, or under the day and night cycle the day's toward the night's by the light
+		infantryLightScale = DayNight_infantryLightScale(TheGlobalData->m_infantryLightScale);
 	
 	//Generate the default light environment
 	m_defaultLightEnv.Reset(Vector3(0,0,0), Get_Ambient_Light());
@@ -2221,9 +2280,9 @@ void RTS3DScene::flushTranslucentObjects(RenderInfoClass & rinfo)
 			// The cloak writes alpha 1 over an opaque mesh, so the opacity only reaches the meshes it
 			// leaves out (additive glows) and an unsorted blended one, which keeps its own alpha
 			// (dx8renderer.cpp); at the stealth opacity they stood as a patch on the glass body, so
-			// they thin to a sixth with the fade.  A sorted mesh takes no opacity at all.
+			// they thin to a sixth with the fade, an enemy's to nothing.  A sorted mesh takes no opacity at all.
 			if ( wearsCloak( draw ) && draw->getStealthDrawnLook() != STEALTHLOOK_VISIBLE_DETECTED )
-				rinfo.alphaOverride *= 1.0f - 0.85f * draw->getStealthFade();
+				rinfo.alphaOverride *= 1.0f - ( draw->getStealthEnemy() ? 1.0f : 0.85f ) * draw->getStealthFade();
 
 			theTranslucentPass = TRUE;
 			renderOneObject(rinfo, robj, localPlayerIndex);//WW3D::Render(*robj,rinfo);

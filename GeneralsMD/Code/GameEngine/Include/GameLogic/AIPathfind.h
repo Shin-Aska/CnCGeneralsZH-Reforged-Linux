@@ -272,7 +272,10 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	enum {MAX_CPOP=20 * LOGICFRAMES_PER_RETAIL_FRAME};			///< Max times we will return the cached cpop (about once a frame, so two thirds of a second).
+	/// Max times we will return the cached cpop (about once a frame, so two thirds of a second).  A budget,
+	/// not game time: it counts reuses of a cache, and a fresh answer is only ever more exact, so it
+	/// stays in ticks at every GAME_SPEED_PERCENT.
+	enum {MAX_CPOP=20 * LOGICFRAMES_PER_RETAIL_FRAME};
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( Path, "PathPool" );							///< @todo Set real numbers for mem alloc
 
 	PathNode*		m_path;															///< The list of PathNode objects that define the path
@@ -544,6 +547,7 @@ public:
 	Int getZone(void) {return m_zone;}
 	void setZone(Int zone) {m_zone = zone;}
 	void applyZone(void); // Propagates m_zone to all cells.
+	void xferZones( Xfer *xfer );	///< m_zone and the zone each cell reads (PathfindZoneManager::xfer)
 	void getStartCellIndex(ICoord2D *start) {*start = m_startCell;}
 	void getEndCellIndex(ICoord2D *end) {*end = m_endCell;}
 
@@ -703,6 +707,8 @@ public:
 	Bool getInteractsWithBridge(void) const {return m_interactsWithBridge;}
 	void setInteractsWithBridge(Bool interacts) {m_interactsWithBridge = interacts;}
 
+	void xfer( Xfer *xfer );		///< the block as it stands, tables included (PathfindZoneManager::xfer)
+
 protected:
 	void allocateZones(void);
 	void freeZones(void);
@@ -759,6 +765,14 @@ public:
 	Bool stepRebuild( Int cellBudget );
 	Bool isRebuilding( void ) const { return m_build.phase != BUILD_IDLE; }
 
+	/* The zones as the game has them, a pass in progress included, and when the next pass is due.  A
+		 load used to classify the map, put every structure back on it and zone that, then wait ten
+		 seconds for a pass: the zones it answered with in between were not the game's.  map, layers and
+		 bounds are the pathfinder's own. */
+	void xfer( Xfer *xfer, PathfindCell **map, PathfindLayer layers[], const IRegion2D &bounds );
+	/// an object's own post-process that touches a structure marks the zones dirty: the save says when
+	void loadPostProcess( void );
+
 	zoneStorageType getEffectiveZone(LocomotorSurfaceTypeMask acceptableSurfaces, Bool crusher, zoneStorageType zone) const;
 	zoneStorageType getEffectiveTerrainZone(zoneStorageType zone) const;
 
@@ -794,8 +808,8 @@ private:
 	void freeBuildZones( void );
 
 	/* Everything the pass in progress writes, apart from the cells' other zone slot: its own tables
-		 and zone blocks, swapped with the ones in use when it is done.  Never saved; a loaded game
-		 classifies the map and does the whole pass at once. */
+		 and zone blocks, swapped with the ones in use when it is done.  Saved only while a pass runs
+		 (xfer); the diagnostics never. */
 	struct Rebuild
 	{
 		BuildPhase phase;
@@ -838,6 +852,9 @@ private:
 	// UnsignedShort 32768 doubled to 0 and the loop never ended.
 	UnsignedInt		m_maxZone;								///< Max zone used.
 	UnsignedInt		m_nextFrameToCalculateZones;		///< WHen should I recalculate, next?.
+	UnsignedInt		m_loadedNextFrameToCalculateZones;	///< the save's, put back by loadPostProcess
+	Bool					m_nextFrameFromSave;
+	Int						m_loadedNumChanged;		///< the save's m_build.numChanged, put back by loadPostProcess
 	UnsignedInt		m_zonesAllocated;
 	zoneStorageType *m_groundCliffZones;
 	zoneStorageType *m_groundWaterZones;
@@ -892,7 +909,12 @@ enum
 	PF_TRAFFIC_DEPOSIT				= 24 / LOGICFRAMES_PER_RETAIL_FRAME,	///< one blocked unit-frame, at the centre cell; 24 a retail frame, so the same per second
 	PF_TRAFFIC_DECAY_NUM			= 54,			///< x54/64 every decay tick ~ the sandbox's x0.85 per 0.1s
 	PF_TRAFFIC_DECAY_DEN			= 64,
-	PF_TRAFFIC_DECAY_FRAMES		= 3 * LOGICFRAMES_PER_RETAIL_FRAME,	///< a tenth of a second
+	/* A tenth of a second at retail speed, and kept in ticks at every GAME_SPEED_PERCENT.  The deposit
+		 above is per blocked tick too, so the level a standing jam settles at (deposit times decay ticks
+		 over 10/64) is the same at every speed; in game time the field only remembers a jam a third longer
+		 at 150.  Moving both to game time would need a run-time deposit in AIPathfind.cpp and buys nothing
+		 the cost reads. */
+	PF_TRAFFIC_DECAY_FRAMES		= 3 * LOGICFRAMES_PER_RETAIL_FRAME,
 	PF_TRAFFIC_FULL						= 192,		///< traffic at or above this is as expensive as it gets
 	PF_TRAFFIC_NUM						= 4,			///< peak traffic penalty is NUM/DEN of a step - the sandbox's traffic weight
 	PF_TRAFFIC_DEN						= 1,

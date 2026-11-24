@@ -58,6 +58,7 @@
 #include "GameClient/Shadow.h"
 #include "GameClient/TankSkin.h"
 #include "GameNetwork/GameInfo.h"
+#include "GameLogic/DayNightCycle.h"
 #include "GameLogic/GameLogic.h"		// for real-time frame
 #include "GameLogic/GhostObject.h"
 #include "GameLogic/PartitionManager.h"
@@ -84,6 +85,7 @@
 #include "WW3D2/rendobj.h"
 #include "WW3D2/mesh.h"
 #include "WW3D2/meshmdl.h"
+#include "WW3D2/ww3d.h"
 #include "WW3D2/dx11runtime.h"
 #include "Platform/RenderLighting.h"
 #include "WW3D2/ffshader.h"
@@ -1858,6 +1860,11 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	m_groundMotionAngle = 0.0f;
 	m_groundMotionFrame = 0;
 	memset(&m_quad, 0, sizeof(m_quad));
+	m_ragdoll = NULL;
+	m_ragdollRefused = FALSE;
+	m_ragdollWanted = getDrawable() != NULL && W3DRagdoll::wants(getDrawable()->getTemplate());
+	if (m_ragdollWanted)
+		getDrawable()->setTakesImpacts();
 
 	ModelConditionFlags emptyFlags;
 	const ModelConditionInfo* info = findBestInfo(emptyFlags);
@@ -1913,6 +1920,11 @@ void W3DModelDraw::buildRenderObjects( Bool madeInTick )
 		// ponytail: loads every map object's night and snow models once; validate per object override if memory bites
 		if (loadingMap)
 			getW3DModelDrawModuleData()->validateStuffForTimeAndWeather(getDrawable(), TRUE, TRUE);
+		// under the day and night cycle every object's lights turn at dusk (DayNight_update), so its night
+		// states load here, with the day's, and not on the first bone query of the night inside a tick
+		else if (DayNight_isOn())
+			getW3DModelDrawModuleData()->validateStuffForTimeAndWeather(getDrawable(), TRUE,
+												TheGlobalData->m_weather == WEATHER_SNOWY);
 	}
 
 	ModelConditionFlags emptyFlags;
@@ -1945,6 +1957,8 @@ W3DModelDraw::~W3DModelDraw(void)
 		m_trackRenderObject = NULL;
 	}
 
+	delete m_ragdoll;
+	m_ragdoll = NULL;
 	nukeCurrentRender(NULL);
 }
 
@@ -2528,6 +2542,9 @@ void W3DModelDraw::doDrawModule(const Matrix3D* transformMtx)
 		m_renderObject->Set_Transform(mtx);
 	}
 
+	if (m_ragdollWanted)
+		updateRagdoll();
+
 	handleClientTurretPositioning();
 	recalcBonesForClientParticleSystems();
   
@@ -2592,6 +2609,65 @@ void W3DModelDraw::doDrawModule(const Matrix3D* transformMtx)
 			}
 		}
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+void W3DModelDraw::reactToImpact( const Coord3D &pos, Real radius, const Coord3D *source )
+{
+	if (!m_ragdollWanted || radius < 0.0f)
+		return;		// below zero: a kill with no point of impact (poison, a nuke's blast), which pushes no body
+	m_ragdollImpact.pos = pos;
+	m_ragdollImpact.radius = radius;
+	m_ragdollImpact.hasSource = source != NULL;
+	if (source)
+		m_ragdollImpact.source = *source;
+	m_ragdollImpact.valid = TRUE;
+	m_ragdollImpact.syncTime = WW3D::Get_Sync_Time();
+}
+
+//-------------------------------------------------------------------------------------------------
+static Bool stateIsDying(const ModelConditionInfo* state)
+{
+	if (state == NULL)
+		return FALSE;
+	for (size_t i = 0; i < state->m_conditionsYesVec.size(); ++i)
+		if (state->m_conditionsYesVec[i].test(MODELCONDITION_DYING))
+			return TRUE;
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The Ragdoll option, every draw of an infantry model once the drawable's transform is on it.  It goes
+	by the state this module last applied, never the object, which the tick may be writing beside the
+	render.  The option is asked only before a ragdoll starts, so one switched off mid-match lies down
+	as it was going to. */
+void W3DModelDraw::updateRagdoll()
+{
+	if (m_renderObject == NULL || m_ragdollRefused)
+		return;
+	if (m_ragdoll == NULL)
+	{
+		if (!W3DRagdoll::enabled() || (!stateIsDying(m_curState) && !stateIsDying(m_nextState)))
+			return;
+		m_ragdoll = W3DRagdoll::create(m_renderObject, m_ragdollImpact, getDrawable()->getTemplate());
+		if (m_ragdoll == NULL)
+		{
+			m_ragdollRefused = TRUE;
+			return;
+		}
+	}
+	if (!m_ragdoll->update(m_renderObject))
+		dropRagdoll();
+}
+
+//-------------------------------------------------------------------------------------------------
+void W3DModelDraw::dropRagdoll()
+{
+	if (m_ragdoll == NULL)
+		return;
+	delete m_ragdoll;
+	m_ragdoll = NULL;
+	m_ragdollRefused = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4007,6 +4083,7 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 		)
 	{
 		Matrix3D transform;
+		dropRagdoll();	// its bones go with the old model
 		nukeCurrentRender(&transform);
 		Drawable* draw = getDrawable();
 
@@ -4169,7 +4246,8 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 		//BONEPOS_LOG(("validateStuff() from within W3DModelDraw::setModelState()\n"));
 		//BONEPOS_DUMPREAL(getDrawable()->getScale());
 
-		newState->validateStuff(TheGameLogic->isInGameLogicUpdate() ? NULL : m_renderObject, getDrawable()->getScale(),
+		// nor while a ragdoll holds its bones: captured bones in the shared cache would reach logic
+		newState->validateStuff((TheGameLogic->isInGameLogicUpdate() || m_ragdoll) ? NULL : m_renderObject, getDrawable()->getScale(),
 			getW3DModelDrawModuleData()->m_extraPublicBones);	// the live model only outside a tick, as above
 		rebuildWeaponRecoilInfo(newState);
 

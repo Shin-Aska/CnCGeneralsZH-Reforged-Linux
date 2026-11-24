@@ -70,6 +70,7 @@
 #include "Common/RandomValue.h"
 #include "Common/GameCommon.h"
 #include "GameLogic/Damage.h"
+#include "GameLogic/Locomotor.h"
 #include "GameNetwork/RankPointValue.h"
 #include "GameClient/ChromaKeyboard.h"
 #include "GameClient/MetaEvent.h"
@@ -426,6 +427,100 @@ TEST(namekey_lowercase_then_exact_lookup_makes_a_second_key_DEFECT_3082)
 
 	CHECK_NE( (Int)lower, (Int)exact );
 	CHECK_STR( TheNameKeyGenerator->keyToName( lower ).str(), "DefectMixedCase" );
+}
+
+/* MSG_QUEUE_UPGRADE carried the upgrade's NameKey, a first-use number local to the process. Two
+   machines that keyed other names before the upgrades (another language, other files asked for)
+   read the same number as another upgrade or none: the sender paid, the rest refused, and v4.2.0
+   desynced one CRC window after an upgrade click.  The key is now the mask bit, from INI order
+   alone.  Each pass is one machine with its own generator; the second keyed seven names first. */
+TEST(upgrade_message_key_is_the_same_whatever_the_process_keyed_first)
+{
+	CHECK( bootOnce() );
+
+	NameKeyGenerator *shared = TheNameKeyGenerator;
+	NameKeyType radar[ 2 ], mines[ 2 ];
+	for( Int machine = 0; machine < 2; ++machine )
+	{
+		TheNameKeyGenerator = NEW NameKeyGenerator;
+		TheNameKeyGenerator->init();
+		for( Int i = 0; i < machine * 7; ++i )
+		{
+			AsciiString noise;
+			noise.format( "ZhrTestNoise%d", i );
+			TheNameKeyGenerator->nameToKey( noise );
+		}
+
+		UpgradeCenter *center = NEW UpgradeCenter;
+		radar[ machine ] = center->newUpgrade( "ZhrTestUpgradeRadar" )->getUpgradeNameKey();
+		mines[ machine ] = center->newUpgrade( "ZhrTestUpgradeMines" )->getUpgradeNameKey();
+
+		// what the first machine sent means the same upgrade here
+		const UpgradeTemplate *sent = center->findUpgradeByKey( radar[ 0 ] );
+		CHECK( sent != NULL );
+		if( sent )
+			CHECK_STR( sent->getUpgradeName().str(), "ZhrTestUpgradeRadar" );
+		CHECK( center->findUpgrade( "ZhrTestUpgradeMines" ) != NULL );
+		CHECK( center->findUpgrade( "zhrtestupgrademines" ) == NULL );	// case-sensitive, as nameToKey was
+		CHECK( center->findUpgradeByKey( NAMEKEY_INVALID ) == NULL );
+
+		delete center;
+		delete TheNameKeyGenerator;
+	}
+	TheNameKeyGenerator = shared;
+
+	CHECK_EQ( (Int)radar[ 0 ], (Int)radar[ 1 ] );
+	CHECK_EQ( (Int)mines[ 0 ], (Int)mines[ 1 ] );
+	CHECK_NE( (Int)radar[ 0 ], (Int)mines[ 0 ] );
+}
+
+/* MSG_PURCHASE_SCIENCE carried the ScienceType, which is a NameKey too.  It now carries the
+   science's place in the store, from INI order alone; same two machines as above. */
+TEST(science_message_id_is_the_same_whatever_the_process_keyed_first)
+{
+	CHECK( bootOnce() );
+
+	NameKeyGenerator *shared = TheNameKeyGenerator;
+	ScienceStore *savedSciences = TheScienceStore;
+	Int sent[ 2 ];
+	ScienceType raw[ 2 ];
+	for( Int machine = 0; machine < 2; ++machine )
+	{
+		TheNameKeyGenerator = NEW NameKeyGenerator;
+		TheNameKeyGenerator->init();
+		for( Int i = 0; i < machine * 7; ++i )
+		{
+			AsciiString noise;
+			noise.format( "ZhrTestNoise%d", i );
+			TheNameKeyGenerator->nameToKey( noise );
+		}
+		TheScienceStore = NEW ScienceStore;
+		TheScienceStore->init();
+
+		writeFile( TEST_INI, "Science SCIENCE_ZhrTestA\n  SciencePurchasePointCost = 1\nEnd\n"
+												 "Science SCIENCE_ZhrTestB\n  SciencePurchasePointCost = 2\nEnd\n" );
+		CHECK( loadIni( TEST_INI ) );
+
+		raw[ machine ] = TheScienceStore->getScienceFromInternalName( "SCIENCE_ZhrTestB" );
+		sent[ machine ] = TheScienceStore->getScienceMessageID( raw[ machine ] );
+
+		// what the first machine sent buys the same science here
+		const ScienceType bought = TheScienceStore->getScienceFromMessageID( sent[ 0 ] );
+		CHECK_STR( TheScienceStore->getInternalNameForScience( bought ).str(), "SCIENCE_ZhrTestB" );
+		CHECK_EQ( (Int)TheScienceStore->getScienceFromMessageID( 0 ), (Int)SCIENCE_INVALID );
+		CHECK_EQ( (Int)TheScienceStore->getScienceFromMessageID( 3 ), (Int)SCIENCE_INVALID );
+		CHECK_EQ( TheScienceStore->getScienceMessageID( SCIENCE_INVALID ), 0 );
+
+		delete TheScienceStore;
+		delete TheNameKeyGenerator;
+	}
+	TheScienceStore = savedSciences;
+	TheNameKeyGenerator = shared;
+	remove( TEST_INI );
+
+	CHECK_NE( (Int)raw[ 0 ], (Int)raw[ 1 ] );		// the old wire value: differs between the two
+	CHECK_EQ( sent[ 0 ], sent[ 1 ] );
+	CHECK_EQ( sent[ 0 ], 2 );
 }
 
 /* AsciiString::toLower used to strcpy into a fixed 2048-byte stack buffer, so a
@@ -1262,6 +1357,83 @@ TEST(patch_of_a_missing_object_is_skipped)
 		TheWritableGlobalData = NULL;
 	}
 }
+
+/* TalentsReforged.ini gives GLAVehicleRocketBuggy a SET_NORMAL_UPGRADED.  Repacks whose base files
+	 already gave it one threw "states locomotor set SET_NORMAL_UPGRADED twice" and stopped v4.2.0 at
+	 start.  The patch line is skipped now: the object keeps the set its own files gave it, and the next
+	 line still applies.  A Debug build stops on the DEBUG_CRASH by design, so the test is Release only. */
+#if !defined(DEBUG_CRASHING)
+TEST(patch_locomotor_set_the_object_already_has_is_skipped)
+{
+	CHECK( bootOnce() );
+
+	GlobalData *savedGlobals = TheWritableGlobalData;
+	if( savedGlobals == NULL )
+		TheWritableGlobalData = NEW GlobalData;
+	if( TheModuleFactory == NULL )
+	{
+		TheModuleFactory = NEW ModuleFactory;
+		TheModuleFactory->init();
+	}
+	if( TheThingFactory == NULL )
+		TheThingFactory = NEW ThingFactory;
+	if( TheLocomotorStore == NULL )
+		TheLocomotorStore = NEW LocomotorStore;	// left up: templates below keep pointers into it
+
+	writeFile( TEST_INI,
+		"Locomotor LocoSetProbeA\r\n"
+		"  Speed = 10\r\n"
+		"End\r\n"
+		"Locomotor LocoSetProbeB\r\n"
+		"  Speed = 20\r\n"
+		"End\r\n"
+		"Object LocoSetProbe\r\n"
+		"  Behavior = AIUpdateInterface ModuleTag_AI\r\n"
+		"  End\r\n"
+		"  Locomotor = SET_NORMAL LocoSetProbeA\r\n"
+		"  Locomotor = SET_NORMAL_UPGRADED LocoSetProbeA\r\n"
+		"End\r\n" );
+	CHECK( loadIni( TEST_INI ) );
+
+	writeFile( TEST_INI,
+		"Object LocoSetProbe\r\n"
+		"  Locomotor = SET_NORMAL_UPGRADED LocoSetProbeB\r\n"
+		"  Locomotor = SET_WANDER LocoSetProbeB\r\n"
+		"End\r\n" );
+	Bool threw = FALSE;
+	try
+	{
+		INI patch;
+		patch.load( AsciiString( TEST_INI ), INI_LOAD_MULTIFILE, NULL );
+	}
+	catch( ... )
+	{
+		threw = TRUE;
+	}
+	CHECK( threw == FALSE );
+
+	const LocomotorTemplate *a = TheLocomotorStore->findLocomotorTemplate( NAMEKEY( "LocoSetProbeA" ) );
+	const LocomotorTemplate *b = TheLocomotorStore->findLocomotorTemplate( NAMEKEY( "LocoSetProbeB" ) );
+	CHECK( a != NULL && b != NULL );
+	ThingTemplate *probe = const_cast<ThingTemplate *>( TheThingFactory->findTemplate( "LocoSetProbe" ) );
+	AIUpdateModuleData *ai = probe ? probe->friend_getAIModuleInfo() : NULL;
+	CHECK( ai != NULL );
+	if( ai != NULL )
+	{
+		CHECK( ai->m_locomotorTemplates[LOCOMOTORSET_NORMAL_UPGRADED].size() == 1
+			&& ai->m_locomotorTemplates[LOCOMOTORSET_NORMAL_UPGRADED][0] == a );
+		CHECK( ai->m_locomotorTemplates[LOCOMOTORSET_WANDER].size() == 1
+			&& ai->m_locomotorTemplates[LOCOMOTORSET_WANDER][0] == b );
+	}
+
+	remove( TEST_INI );
+	if( savedGlobals == NULL )
+	{
+		delete TheWritableGlobalData;
+		TheWritableGlobalData = NULL;
+	}
+}
+#endif
 
 /* FixesReforged.ini gives every China Command Center the Nuke_ and Early_ carpet bombers.  With data that
 	 has no such special powers the module kept a NULL template, and placing the start building faulted in
@@ -2882,7 +3054,7 @@ TEST(skirmish_ai_earnings_bonus_when_behind)
 	}
 }
 
-/* Player.cpp: the bonus weighs sides, a player at a time, not one seat against another. */
+/* Player.cpp: the bonus weighs whole sides, not one seat against another. */
 TEST(skirmish_ai_earnings_bonus_weighs_sides)
 {
 	Int own = -1, enemy = -1;
@@ -2890,10 +3062,23 @@ TEST(skirmish_ai_earnings_bonus_weighs_sides)
 	const Int worth[ 8 ] = { 1000, 0, 3000, 1000, 4000, 0, 500, 500 };
 	const PlayerMaskType allies[ 8 ] = { 1u << 1, 1u << 0, 1u << 3, 1u << 2, 1u << 5, 1u << 4, 1u << 7, 1u << 6 };
 	IncomeSideWorths( worth, allies, 8, 1, &own, &enemy );
-	CHECK_EQ( own, 500 );
-	CHECK_EQ( enemy, 2000 );
-	/* a quarter of the strongest side's average: the ceiling */
+	CHECK_EQ( own, 1000 );
+	CHECK_EQ( enemy, 4000 );
+	/* a quarter of the strongest side's worth: the ceiling */
 	CHECK_EQ( IncomeBonusTarget( own, enemy, 150 ), 150 );
+	/* TR_Nero's two against one: a rich computer (seat 1) beside a weak human (seat 0) against a lone
+	   computer (seat 2).  Averaged, seat 1 read 3500 against 5000 and banked the bonus; whole, it is
+	   ahead, and the lone one is behind */
+	const Int twoOnOne[ 3 ] = { 1000, 6000, 5000 };
+	const PlayerMaskType pair[ 3 ] = { 1u << 1, 1u << 0, 0 };
+	IncomeSideWorths( twoOnOne, pair, 3, 1, &own, &enemy );
+	CHECK_EQ( own, 7000 );
+	CHECK_EQ( enemy, 5000 );
+	CHECK_EQ( IncomeBonusTarget( own, enemy, 100 ), 0 );
+	IncomeSideWorths( twoOnOne, pair, 3, 2, &own, &enemy );
+	CHECK_EQ( own, 5000 );
+	CHECK_EQ( enemy, 7000 );
+	CHECK( IncomeBonusTarget( own, enemy, 100 ) > 0 );
 	/* free for all: every enemy is a side of one, the richest counts */
 	const Int ffa[ 3 ] = { 300, 100, 200 };
 	const PlayerMaskType none[ 3 ] = { 0, 0, 0 };
@@ -2914,7 +3099,7 @@ TEST(skirmish_ai_earnings_bonus_weighs_sides)
 	wideAllies[ 33 ] = playerIndexToMask( 39 );
 	wideAllies[ 39 ] = playerIndexToMask( 33 );
 	IncomeSideWorths( wide, wideAllies, 40, 33, &own, &enemy );
-	CHECK_EQ( own, 200 );
+	CHECK_EQ( own, 400 );
 	CHECK_EQ( enemy, 5000 );
 }
 
@@ -12971,8 +13156,9 @@ TEST(the_lane_map_names_what_the_director_needs_on_open_soft_ground)
 
 	/* The layout of the night of 2026-11-20, in playable cells on a 16:9 field of 642 by 361: a lane
 		360 by 45 from x 141 to 501 and y 158 to 203, its middle (321, 180.5) the map's, the fortresses
-		0.7 and the towers 0.37 of the half-length off the middle, all on the middle line, plots 32 along
-		by 24 across in a column 14 cells past each end, 95 cells of green, beach and sea behind them. */
+		0.7 and the towers 0.37 of the half-length off the middle, all on the middle line, plots 24 along
+		by 32 across (upright since 2026-11-22) in a column 14 cells past each end, 103 cells of green,
+		beach and sea behind them. */
 	const Int laneX0 = 141, laneX1 = 501, laneY0 = 158, laneY1 = 203;
 	const Real middleX = 3210.0f, middleY = 1805.0f;
 
@@ -13024,8 +13210,8 @@ TEST(the_lane_map_names_what_the_director_needs_on_open_soft_ground)
 		const std::vector<Coord3D>& polygon = theRMGParse.m_areaPolygons[area];
 		CHECK_EQ( (Int)polygon.size(), 4 );
 		CHECK( at.x > polygon[0].x && at.x < polygon[2].x && at.y > polygon[0].y && at.y < polygon[2].y );
-		CHECK_EQ( (Int)( polygon[2].x - polygon[0].x ), 320 );		// turned: 32 cells along the lane, 24 across, 16 rows by 12 columns
-		CHECK_EQ( (Int)( polygon[2].y - polygon[0].y ), 240 );
+		CHECK_EQ( (Int)( polygon[2].x - polygon[0].x ), 240 );		// upright: 24 cells along the lane, 32 across, 12 rows by 16 columns
+		CHECK_EQ( (Int)( polygon[2].y - polygon[0].y ), 320 );
 		CHECK( ( at.x < middleX ) == ( start % 2 == 0 ) );
 		CHECK( at.x < laneX0 * MAP_XY_FACTOR || at.x > laneX1 * MAP_XY_FACTOR );
 		if( start < 2 )
@@ -13060,8 +13246,8 @@ TEST(the_lane_map_names_what_the_director_needs_on_open_soft_ground)
 	CHECK_EQ( spawns, 2 );
 	if( spawns != 2 )
 		return;
-	CHECK_NEAR( spawnAt[0].x, middleX - 1520.0f, 0.5f );
-	CHECK_NEAR( spawnAt[1].x, middleX + 1520.0f, 0.5f );
+	CHECK_NEAR( spawnAt[0].x, middleX - 1480.0f, 0.5f );
+	CHECK_NEAR( spawnAt[1].x, middleX + 1480.0f, 0.5f );
 	CHECK_NEAR( spawnAt[0].y, middleY, 0.5f );
 	CHECK_NEAR( spawnAt[1].y, middleY, 0.5f );
 	CHECK_EQ( laneA, 17 );
@@ -13094,7 +13280,7 @@ TEST(the_lane_map_names_what_the_director_needs_on_open_soft_ground)
 	CHECK_NEAR( theRMGParse.m_objectPositions[tower[0]].x, middleX - 666.0f, 0.5f );
 	CHECK_NEAR( theRMGParse.m_objectPositions[tower[1]].x, middleX + 666.0f, 0.5f );
 
-	/* A wave copy is a plot turned onto the lane, 320 along and 240 across, round its spawn anchor. It
+	/* A wave copy is a plot moved onto the lane, 240 along and 320 across, round its spawn anchor. It
 		lies on the lane, wholly behind its own fortress, two cells clear of the fortress's 140 by 140, so
 		the fortress stands between the pad and the lane; and the fortress leaves the wave room to pass
 		it, more than ten cells of open lane either side. */
@@ -13102,9 +13288,9 @@ TEST(the_lane_map_names_what_the_director_needs_on_open_soft_ground)
 	{
 		const Coord3D& own = theRMGParse.m_objectPositions[fortress[team]];
 		const Real ahead = team == 0 ? 1.0f : -1.0f;
-		CHECK( spawnAt[team].x - 160.0f >= laneX0 * MAP_XY_FACTOR && spawnAt[team].x + 160.0f <= laneX1 * MAP_XY_FACTOR );
-		CHECK( spawnAt[team].y - 120.0f >= laneY0 * MAP_XY_FACTOR && spawnAt[team].y + 120.0f <= laneY1 * MAP_XY_FACTOR );
-		CHECK( ( ( own.x - ahead * 70.0f ) - ( spawnAt[team].x + ahead * 160.0f ) ) * ahead >= 2.0f * MAP_XY_FACTOR );
+		CHECK( spawnAt[team].x - 120.0f >= laneX0 * MAP_XY_FACTOR && spawnAt[team].x + 120.0f <= laneX1 * MAP_XY_FACTOR );
+		CHECK( spawnAt[team].y - 160.0f >= laneY0 * MAP_XY_FACTOR && spawnAt[team].y + 160.0f <= laneY1 * MAP_XY_FACTOR );
+		CHECK( ( ( own.x - ahead * 70.0f ) - ( spawnAt[team].x + ahead * 120.0f ) ) * ahead >= 2.0f * MAP_XY_FACTOR );
 		CHECK( own.y - 70.0f - laneY0 * MAP_XY_FACTOR > 100.0f && laneY1 * MAP_XY_FACTOR - ( own.y + 70.0f ) > 100.0f );
 		CHECK( ( theRMGParse.m_objectPositions[tower[team]].x - own.x ) * ahead > 0.0f );
 	}
@@ -13158,7 +13344,7 @@ TEST(the_lane_map_names_what_the_director_needs_on_open_soft_ground)
 	const std::vector<UnsignedByte> heights = theRMGParse.m_heights;
 	std::vector<AsciiString> themes;
 	/* The ends are round: the island reaches further out to sea on the lane's axis than level with
-		the plot columns' outer edges (y 134 and 226), by RMG_LANE_END_ROUND's ellipse, 11.8 cells on
+		the plot columns' outer edges (y 122 and 238; 134 and 226 before the plot stood upright), by RMG_LANE_END_ROUND's ellipse, 11.8 cells on
 		average over seeds 1 to 12. The core with corners rounded over 30 cells that came before
 		it ran the coast straight down the column, 4.2 cells. */
 	Real roundness = 0.0f;
@@ -13174,7 +13360,7 @@ TEST(the_lane_map_names_what_the_director_needs_on_open_soft_ground)
 		};
 		Real bulge = 0.0f;
 		for( Int from = 0; from < 2; from++ )
-			bulge += 0.5f * (Real)( firstDry( 134, from ) + firstDry( 226, from ) ) - (Real)firstDry( 180, from );
+			bulge += 0.5f * (Real)( firstDry( 122, from ) + firstDry( 238, from ) ) - (Real)firstDry( 180, from );
 		return 0.5f * bulge;
 	};
 	roundness += endBulge();
@@ -13355,13 +13541,51 @@ TEST(lane_war_plot_front_faces_the_lane_and_leads_the_wave)
 	CHECK_NEAR( leftA, -leftB, 0.01f );
 }
 
-TEST(lane_war_times_are_wall_seconds_in_logic_frames)
+TEST(lane_war_damage_scales_reach_only_their_targets)
 {
-	// wall time, so the logic rate and never the game speed: a tick every 45 s, the first at 90 s, a
-	// copy living 130 s, at any speed
-	CHECK_EQ( LANEWAR_TICK_FRAMES, (UnsignedInt)( 45 * LOGICFRAMES_PER_SECOND ) );
-	CHECK_EQ( LANEWAR_FIRST_TICK_FRAMES, (UnsignedInt)( 90 * LOGICFRAMES_PER_SECOND ) );
-	CHECK_EQ( LANEWAR_LIFESPAN_FRAMES, (UnsignedInt)( 130 * LOGICFRAMES_PER_SECOND ) );
+	// the artillery at 60 against units, men included, and full against a structure
+	CHECK_EQ( LaneWar_damagePercent( "ChinaVehicleNukeLauncher", FALSE, FALSE ), 60 );
+	CHECK_EQ( LaneWar_damagePercent( "ChinaVehicleNukeLauncher", TRUE, FALSE ), 100 );
+	CHECK_EQ( LaneWar_damagePercent( "Nuke_ChinaVehicleNukeLauncher", FALSE, FALSE ), 60 );
+	CHECK_EQ( LaneWar_damagePercent( "GLAVehicleScudLauncher", FALSE, TRUE ), 60 );
+	CHECK_EQ( LaneWar_damagePercent( "AmericaVehicleTomahawk", TRUE, FALSE ), 100 );
+	// the Aurora at 75 against structures only, a general's copy too
+	CHECK_EQ( LaneWar_damagePercent( "AirF_AmericaJetAurora", TRUE, FALSE ), 75 );
+	CHECK_EQ( LaneWar_damagePercent( "AmericaJetAurora", FALSE, FALSE ), 100 );
+	// the Pathfinder at 45 against infantry only
+	CHECK_EQ( LaneWar_damagePercent( "AmericaInfantryPathfinder", FALSE, TRUE ), 45 );
+	CHECK_EQ( LaneWar_damagePercent( "AmericaInfantryPathfinder", FALSE, FALSE ), 100 );
+	// nothing else, and no name that merely ends the same way
+	CHECK_EQ( LaneWar_damagePercent( "AmericaInfantryRanger", FALSE, TRUE ), 100 );
+	CHECK_EQ( LaneWar_damagePercent( "XAmericaJetAurora", TRUE, FALSE ), 100 );
+
+	CHECK( LaneWar_hasModeWeaponSet( "AmericaTankMicrowave" ) );
+	CHECK( LaneWar_hasModeWeaponSet( "SupW_AmericaTankMicrowave" ) );
+	// Black Lotus's gun is on her LaneWar_ copy, never a set on her own template
+	CHECK( !LaneWar_hasModeWeaponSet( "ChinaInfantryBlackLotus" ) );
+	CHECK( !LaneWar_hasModeWeaponSet( "ChinaTankECM" ) );
+}
+
+TEST(lane_war_times_are_the_same_match_at_every_speed)
+{
+	// game time: at the native 1.5x a tick every 45 wall s, the first at 90 s, a copy living 130 s, as
+	// tuned; at another speed the same share of the match, so the frames scale against the speed
+	// the frames at today's 30 Hz; 45 s at 2.0x is 1012.5, rounded up
+	const struct { Int percent; UnsignedInt tick, first, life; } SPEEDS[] =
+	{
+		{ 150, 1350, 2700, 3900 },
+		{ 100, 2025, 4050, 5850 },
+		{ 125, 1620, 3240, 4680 },
+		{ 200, 1013, 2025, 2925 },
+	};
+	for( Int i = 0; LOGICFRAMES_PER_SECOND == 30 && i < (Int)( sizeof( SPEEDS ) / sizeof( SPEEDS[ 0 ] ) ); ++i )
+	{
+		GameSpeed_set( SPEEDS[ i ].percent );
+		CHECK_EQ( LANEWAR_TICK_FRAMES, SPEEDS[ i ].tick );
+		CHECK_EQ( LANEWAR_FIRST_TICK_FRAMES, SPEEDS[ i ].first );
+		CHECK_EQ( LANEWAR_LIFESPAN_FRAMES, SPEEDS[ i ].life );
+	}
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
 
 	// a plot unit's status bit has a name, so a save writes it and an INI can read it
 	CHECK_EQ( ObjectStatusMaskType::getSingleBitFromName( "UNATTACKABLE" ), (Int)OBJECT_STATUS_UNATTACKABLE );
@@ -13392,6 +13616,17 @@ TEST(lane_war_jets_take_off_when_the_meeting_is_no_further_than_their_flight)
 	// a strike and a rearm are game time, the lifespan stays wall time
 	CHECK_EQ( LANEWAR_STRIKE_FRAMES, (UnsignedInt)( 30 * LOGICFRAMES_PER_GAME_SECOND ) );
 	CHECK_EQ( LANEWAR_JET_REARM_FRAMES, (UnsignedInt)( 15 * LOGICFRAMES_PER_GAME_SECOND ) );
+}
+
+TEST(lane_war_late_income_leaves_the_opening_alone_then_grows_to_its_cap)
+{
+	for( UnsignedInt tick = 0; tick < LANEWAR_LATE_INCOME_FROM_TICK; ++tick )
+		CHECK_EQ( LaneWar_lateIncome( tick ), (UnsignedInt)0 );
+	CHECK_EQ( LaneWar_lateIncome( LANEWAR_LATE_INCOME_FROM_TICK ), (UnsignedInt)LANEWAR_LATE_INCOME_STEP );
+	CHECK_EQ( LaneWar_lateIncome( LANEWAR_LATE_INCOME_FROM_TICK + 1 ), (UnsignedInt)( 2 * LANEWAR_LATE_INCOME_STEP ) );
+	CHECK_EQ( LaneWar_lateIncome( 1000 ), (UnsignedInt)LANEWAR_LATE_INCOME_MOST );
+	for( UnsignedInt tick = 1; tick < 100; ++tick )
+		CHECK( LaneWar_lateIncome( tick ) >= LaneWar_lateIncome( tick - 1 ) );
 }
 
 TEST(lane_war_tiers_cost_what_the_plan_says_and_a_sale_pays_back_half_once_sent)
@@ -16036,15 +16271,15 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 20 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 22 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells, m_style; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0, 0xE9E74BA7 },
-		{ 12345, 4, 96, 0, 0xCEE6ECA4 },
-		{ 7, 8, 128, 0, 0x9345A3BC },
-		{ 7, 4, 200, 1, 0xBFE61244 },
+		{ 0, 2, 64, 0, 0xE9E74CA7 },
+		{ 12345, 4, 96, 0, 0xCEF6ECA4 },
+		{ 7, 8, 128, 0, 0x9385A3BC },
+		{ 7, 4, 200, 1, 0xBFE61284 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -16348,7 +16583,7 @@ TEST(a_template_map_comes_out_the_same_twice_and_every_start_walks_to_every_othe
 	RandomMapGenerator::generate( exemplarSettings, exemplar );
 
 	// the bytes themselves, pinned like the generator's: a change here is a change to every template map's name
-	static const UnsignedInt theTemplateFingerprints[2] = { 0xCB55DF22u, 0x64B83240u };
+	static const UnsignedInt theTemplateFingerprints[2] = { 0xCB55DF24u, 0x64B83250u };
 	for( Int players = 2; players <= 8; players += 6 )
 	{
 		RandomMapSettings settings;
@@ -18384,6 +18619,7 @@ TEST(a_seed_picks_its_map_type_and_its_ground)
 		if( middle > ring + 40.0f )
 		{
 			massifMaps++;
+			CHECK_NE( theRMGParse.m_timeOfDay, (Int)TIME_OF_DAY_NIGHT );		// night hid the relief
 			std::vector<char> seen;
 			RMGFloodFillFromFirstStart( seen );
 			CHECK( seen[( topY + border ) * width + topX + border] );
@@ -21479,7 +21715,7 @@ TEST(the_bank_target_and_the_upgrade_the_army_pays_for)
 		CHECK( upper.m_superweaponDefenses >= lower.m_superweaponDefenses );
 	}
 	CHECK_EQ( 0.0f, data.m_skill[ AISKILL_BRUTAL ].m_strikeThreatWeight );
-	CHECK_EQ( (Int)DEFENSES_PER_SUPERWEAPON, data.m_skill[ AISKILL_BRUTAL ].m_superweaponDefenses );
+	CHECK_EQ( (Int)AI_HARD_DEFENSES_PER_SUPERWEAPON, data.m_skill[ AISKILL_BRUTAL ].m_superweaponDefenses );
 }
 
 
@@ -22178,6 +22414,58 @@ TEST(the_logic_thread_forks_on_its_own_pool_and_reads_live_state)
 	JobSystem::parallel_for( 1, 1, jobLaneMain, NULL );
 	CHECK_EQ( 1, s_laneMainSeen[ 0 ] );
 	CHECK( !JobSystem::isInsideJob() );
+
+	JobSystem::shutdown();
+}
+
+/* A jet 0.14 off on one seat: the draw stored a speed in the jet's physics while the tick ran beside it.
+	 Every lazy logic cache the client reaches (speed, facing, heights, armour, a weapon's status) stores
+	 only where Thing::isCachePeek says no; this pins who that is. */
+static std::atomic<Int> s_peekJobStores( 0 );
+static void cachePeekJob( Int, void * )
+{
+	if( !Thing::isCachePeek() )
+		s_peekJobStores.fetch_add( 1 );
+}
+
+TEST(client_reads_beside_the_tick_leave_logic_caches_unstored)
+{
+	// the tick, or anything outside a client scope, stores
+	CHECK( !Thing::isCachePeek() );
+	{
+		Thing::CachePeek peek;
+		CHECK( Thing::isCachePeek() );
+		{
+			Thing::CacheStore load;		// a save loaded from the menu stores as -loadsave does
+			CHECK( !Thing::isCachePeek() );
+		}
+		CHECK( Thing::isCachePeek() );
+	}
+	CHECK( !Thing::isCachePeek() );
+
+	// inside the render's window: the main thread and the main pool's workers never store, though a
+	// CachePeek on the main thread does not reach the workers
+	JobSystem::shutdown();
+	JobSystem::init( 4 );
+	LogicThread::g_windowOpen.store( 1 );
+	CHECK( Thing::isCachePeek() );
+	s_peekJobStores.store( 0 );
+	JobSystem::parallel_for( 256, 1, cachePeekJob, NULL );
+	CHECK_EQ( 0, s_peekJobStores.load() );
+
+	// the logic thread and its own workers store while the window is open
+	Int logicStores = 0;
+	std::thread logic( [&logicStores]
+	{
+		LogicThread::t_isLogicThread = TRUE;
+		logicStores = Thing::isCachePeek() ? 0 : 1;
+		s_peekJobStores.store( 0 );
+		JobSystem::parallel_for( 256, 1, cachePeekJob, NULL );
+	} );
+	logic.join();
+	LogicThread::g_windowOpen.store( 0 );
+	CHECK_EQ( 1, logicStores );
+	CHECK_EQ( 256, s_peekJobStores.load() );
 
 	JobSystem::shutdown();
 }
@@ -25061,6 +25349,15 @@ TEST(graphics_quality_slider_only_ever_turns_settings_up)
 		CHECK_EQ( look->values[ TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ] ], 1 );
 		CHECK( graphicsQualityRowIsReforged( *look ) );
 	}
+	// the sun shafts the same, with High (2) at Ultra
+	const GraphicsQualityRow *shafts = findGraphicsQualityRow( "ComboBoxSunShafts" );
+	CHECK( shafts != NULL );
+	if( shafts != NULL )
+	{
+		CHECK_EQ( shafts->values[ TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ] ], 0 );
+		CHECK_EQ( shafts->values[ TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ] ], SUN_SHAFTS_LEVEL_COUNT - 1 );
+		CHECK( graphicsQualityRowIsReforged( *shafts ) );
+	}
 
 	// the slider's own position is a catalog row with exactly the table's steps
 	const OptionDef *slider = findOptionDef( "GraphicsQuality" );
@@ -25118,7 +25415,8 @@ TEST(no_options_file_is_the_classic_game_with_every_added_row_off)
 		"ShadowsForProjectiles", "ShadowsForProps", "ShadowsForParticles", "VolumetricSmokeShadows", "SmokeFireLighting",
 		"DebrisTrails", "MapLight", "TeamGlow", "WaterFoam", "GroundMarks", "Firelight", "HemiAmbient", "AmbientOcclusion",
 		"Weather", "WaterSplashes", "Atmosphere", "StructureCollapse", "InternalHdr", "Smoke", "ParticleBounce",
-		"HeatHaze", "GroundFoliage", "UnderwaterClarity", "FullDetailAtDistance", NULL
+		"HeatHaze", "GroundFoliage", "Ragdoll", "UnderwaterClarity", "FullDetailAtDistance",
+		"SunShafts", NULL
 	};
 	for( Int i = 0; off[ i ] != NULL; ++i )
 		CHECK_EQ( findOptionDef( off[ i ] )->get(), 0 );
@@ -26551,8 +26849,9 @@ TEST(an_open_dropdown_owns_the_rows_that_hang_past_its_panel)
 	CHECK( !OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightOpen, 900, 660 ) );
 }
 
-/* On Hard twelve finished base defences buy one superweapon, twenty-four buy two, whatever mix of
-	 silo, uplink and storm they go to; the lower rungs ask for fewer, from their skill profile.
+/* At a ration of twelve, twelve finished base defences buy one superweapon and twenty-four buy two,
+	 whatever mix of silo, uplink and storm they go to.  Twelve is the defence clock's measure; every
+	 rung's skill profile now asks AI_HARD_DEFENSES_PER_SUPERWEAPON (4), and this pins the arithmetic.
 	 Player::canBuildMoreOfType counts and asks this; the lobby's cap is checked beside it and still
 	 refuses on its own. */
 TEST(twelve_finished_defenses_pay_for_each_superweapon)
@@ -26599,6 +26898,43 @@ TEST(twelve_finished_defenses_pay_for_each_superweapon)
 	CHECK( SuperweaponNeedsDefenses( AsciiString( "ChinaNuclearMissileLauncher" ), FALSE, SUPERWEAPONS_LIMIT, TRUE ) );
 	CHECK( SuperweaponNeedsDefenses( AsciiString( "SupW_AmericaParticleCannonUplink" ), FALSE, SUPERWEAPONS_NONE, TRUE ) );
 	CHECK( SuperweaponNeedsDefenses( AsciiString( "GLAScudStorm" ), TRUE, SUPERWEAPONS_ALLOW, TRUE ) );
+}
+
+/* A higher rating builds its superweapons on fewer guns and with less of the price in the bank.  Up to
+	 Hard both stay what they were, four guns and the whole price; the levels above Hard step down, and
+	 never back up as the rating climbs. */
+TEST(a_higher_rating_wants_superweapons_sooner_and_more)
+{
+	const Int R = AI_HARD_DEFENSES_PER_SUPERWEAPON;
+	CHECK_EQ( R, SuperweaponDefensesAtRating( R, AI_RATING_EASY ) );
+	CHECK_EQ( R, SuperweaponDefensesAtRating( R, AI_RATING_MEDIUM ) );
+	CHECK_EQ( R, SuperweaponDefensesAtRating( R, 1550.0f ) );
+	CHECK_EQ( R, SuperweaponDefensesAtRating( R, AI_RATING_HARD ) );
+	CHECK_EQ( 3, SuperweaponDefensesAtRating( R, AI_RATING_BRUTAL ) );
+	CHECK_EQ( 3, SuperweaponDefensesAtRating( R, AI_RATING_VICIOUS ) );
+	CHECK_EQ( 2, SuperweaponDefensesAtRating( R, AI_RATING_SAVAGE ) );
+	CHECK_EQ( 2, SuperweaponDefensesAtRating( R, AI_RATING_INSANE ) );
+	// far past any ladder the curve rounds to nothing, and one gun a superweapon is still asked
+	CHECK_EQ( 1, SuperweaponDefensesAtRating( R, AI_RATING_LIMIT ) );
+	// none asked stays none, and a smaller ration is never raised
+	CHECK_EQ( 0, SuperweaponDefensesAtRating( 0, AI_RATING_INSANE ) );
+	CHECK_EQ( 1, SuperweaponDefensesAtRating( 1, AI_RATING_HARD ) );
+
+	// the whole price at Hard and every rating under it, the Hard row's lower end included, where the
+	// table's curve stands above 1
+	static const Real UNDER[] = { -AI_RATING_LIMIT, AI_RATING_EASY, AI_RATING_MEDIUM, 1550.0f, 1700.0f, 1799.0f, AI_RATING_HARD };
+	for( Int i = 0; i < (Int)( sizeof( UNDER ) / sizeof( UNDER[ 0 ] ) ); ++i )
+		CHECK_EQ( 1.0f, aiSuperweaponSpareShare( UNDER[ i ] ) );
+	static const Real LADDER[] = { AI_RATING_HARD, 1801.0f, AI_RATING_BRUTAL, AI_RATING_VICIOUS, AI_RATING_SAVAGE, AI_RATING_INSANE, AI_RATING_LIMIT };
+	for( Int i = 1; i < (Int)( sizeof( LADDER ) / sizeof( LADDER[ 0 ] ) ); ++i )
+	{
+		CHECK( aiSuperweaponSpareShare( LADDER[ i ] ) < 1.0f );
+		CHECK( aiSuperweaponSpareShare( LADDER[ i ] ) < aiSuperweaponSpareShare( LADDER[ i - 1 ] ) );
+		CHECK( SuperweaponDefensesAtRating( R, LADDER[ i ] ) <= SuperweaponDefensesAtRating( R, LADDER[ i - 1 ] ) );
+	}
+	CHECK_NEAR( 0.83f, aiSuperweaponSpareShare( AI_RATING_BRUTAL ), 0.01f );
+	CHECK_NEAR( 0.45f, aiSuperweaponSpareShare( AI_RATING_INSANE ), 0.01f );
+	CHECK( aiSuperweaponSpareShare( AI_RATING_LIMIT ) > 0.0f );
 }
 
 /* The defence allowance is the computer's rule only.  A human builds a superweapon against the
@@ -28562,6 +28898,7 @@ TEST(game_speed_set_to_200_and_back_reads_what_it_read)
 #include "test_map_ini_rollback.inc"
 #include "test_hostile_map.inc"
 #include "test_pathfind_slicing.inc"
+#include "test_partition_collide.inc"
 #include "test_score_screen.inc"
 #include "test_load_screen.inc"
 
@@ -28782,6 +29119,66 @@ TEST(handicap_rides_the_slot_entry_and_full_health_leaves_the_string_unchanged)
 	CHECK( guest.getStartShrouded() );
 	CHECK( ParseAsciiStringToGameInfo( &guest, picked ) );
 	CHECK( !guest.getStartShrouded() );
+
+	/* The day and night cycle rides as DN=1 the same way: off writes nothing, and a string without it
+		 (every old replay) parses off.  -daynight in this process is no part of the parse, so a network
+		 game and a replay take the host's word alone. */
+	CHECK( strstr( picked.str(), "DN=" ) == NULL );
+	host.setDayNight( TRUE );
+	const AsciiString nights = GameInfoOptionsString( &host, mapPath, 0 );
+	host.setDayNight( FALSE );
+	CHECK( strstr( nights.str(), "DN=1;" ) != NULL );
+	CHECK( ParseAsciiStringToGameInfo( &guest, nights ) );
+	CHECK( guest.getDayNight() );
+	const Bool savedSwitch = TheGlobalData->m_dayNight;
+	TheWritableGlobalData->m_dayNight = TRUE;
+	CHECK( ParseAsciiStringToGameInfo( &guest, picked ) );
+	CHECK( !guest.getDayNight() );
+	TheWritableGlobalData->m_dayNight = savedSwitch;
+
+	/* The longest string a room can send with the cycle on: eight people at the longest name the LAN
+		 lobby takes, every other seat a computer with a personality and a handicap, every rule set.  It
+		 has to fit the LAN lobby's parts (m_lanMaxOptionsLength) and the online server's 4096 (MAX_OPTS
+		 in online/server.js); DN=1 adds five bytes to whatever it was. */
+	{
+		UnicodeString longName;
+		longName.translate( AsciiString( "WWWWWWWWWWWW" ) );	// g_lanPlayerNameLength letters
+		SkirmishGameInfo full;
+		full.init();
+		full.setMap( mapInSaves );
+		full.setSeed( 0x7fffffff );
+		for( Int i = 0; i < MAX_SLOTS; ++i )
+		{
+			GameSlot *seat = full.getSlot( i );
+			if( i < 8 )
+			{
+				seat->setState( SLOT_PLAYER, longName, 0xC0A80101u + i );
+				seat->setPort( 8088 );
+				seat->setAccept();
+				seat->setMapAvailability( TRUE );
+			}
+			else
+			{
+				seat->setState( SLOT_BRUTAL_AI );
+				seat->setAIPersonality( AIPERSONA_TURTLE );
+			}
+			seat->setPlayerTemplate( PLAYERTEMPLATE_RANDOM );
+			seat->setHandicap( 10 );
+		}
+		full.setSuperweaponRestriction( 2 );
+		full.setUnitLimit( TRUE );
+		full.setProRules( TRUE );
+		full.setIncomeSharing( INCOME_SHARING_COUNT - 1 );
+		full.setTechRespawn( 10 );
+		full.setSupplyPileLimit( 3 );
+		full.setStartShrouded( TRUE );
+		full.setDayNight( TRUE );
+		full.setGameSpeedPercent( PLAYER_GAME_SPEED_PERCENTS[ PLAYER_GAME_SPEED_COUNT - 1 ] );
+		const AsciiString longest = GameInfoOptionsString( &full, mapPath, 0 );
+		CHECK( strstr( longest.str(), "DN=1;" ) != NULL );
+		CHECK( longest.getLength() < m_lanMaxOptionsLength );
+		CHECK( longest.getLength() < 4096 );
+	}
 	CHECK_STR( GameInfoOptionsString( &host, mapPath, 0 ).str(), picked.str() );
 
 	/* A replay's slot list as startRecording writes it, the logic rate last: readReplayHeader takes the
@@ -29382,7 +29779,8 @@ TEST(reforged_archives_mount_base_art_first_then_batches_by_name)
 
 /* Classic Graphics shuts every Reforged archive, HD Textures off the base art and Detailed Models off the
 	 model batches.  ReforgedSkins.big holds only the online skins' sheets, a Classic and a Reforged copy
-	 each, and no model, so every combination mounts it: the Classic gold would never load otherwise. */
+	 each, and no model, so every combination mounts it: the Classic gold would never load otherwise.
+	 ReforgedFracture.big, the structures' fracture sets, likewise: a retail model breaks under Classic too. */
 TEST(reforged_archives_wanted_by_options_and_the_skins_always)
 {
 	for( Int i = 0; i < 8; ++i )
@@ -29390,6 +29788,7 @@ TEST(reforged_archives_wanted_by_options_and_the_skins_always)
 		const Bool classic = ( i & 1 ) != 0, hd = ( i & 2 ) != 0, detailed = ( i & 4 ) != 0;
 		CHECK( ArchiveFileSystem::reforgedArchiveWanted( AsciiString( "ReforgedSkins.big" ), classic, hd, detailed ) );
 		CHECK( ArchiveFileSystem::reforgedArchiveWanted( AsciiString( "C:\\Run\\reforgedskins.BIG" ), classic, hd, detailed ) );
+		CHECK( ArchiveFileSystem::reforgedArchiveWanted( AsciiString( "ReforgedFracture.big" ), classic, hd, detailed ) );
 		CHECK_EQ( ArchiveFileSystem::reforgedArchiveWanted( AsciiString( "ReforgedTextures.big" ), classic, hd, detailed ), !classic && hd );
 		CHECK_EQ( ArchiveFileSystem::reforgedArchiveWanted( AsciiString( "ReforgedUSA.big" ), classic, hd, detailed ), !classic && detailed );
 		CHECK_EQ( ArchiveFileSystem::reforgedArchiveWanted( AsciiString( "ReforgedSkinsExtra.big" ), classic, hd, detailed ), !classic && detailed );
@@ -29814,6 +30213,7 @@ TEST(a_retail_texture_comes_only_from_the_games_own_sources)
 
 	// only the fork's own archive names mount over retail; a reskin renamed Reforged*.big is not one
 	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedSkins.big" ) ) );
+	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedFracture.big" ) ) );
 	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "C:\\Run\\reforgedusa.BIG" ) ) );
 	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedTurkiye.big" ) ) );
 	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedNeutralG.big" ) ) );
@@ -30515,4 +30915,709 @@ TEST(original_generals_briefing_voice_respects_empty_muted_and_cancelled_loads)
 	CHECK_EQ(audio.plays, 0);
 	playback.reset(); playback.update(audio, voice, 0, 0, TRUE);
 	CHECK_EQ(audio.plays, 1);
+}
+
+#include "GameLogic/DayNightCycle.h"
+
+TEST(day_night_cycle_runs_on_game_seconds_at_every_speed)
+{
+	/* Day 600, dusk 90, night 240, dawn 60 game seconds, the same game seconds at every match speed;
+		 the sight steps to 0.9 at 30 s and 0.8 at 60 s into the dusk, back to 0.9 at 20 s and 1.0 at
+		 40 s into the dawn.  Frame 0 is noon, 300 s into the day, so `c` is the frame a cycle starts on. */
+	DayNight_setOverrideForTests( 1 );
+	const Int speeds[] = { 100, 125, 150, 200 };
+	for( Int i = 0; i < (Int)ARRAY_SIZE( speeds ); ++i )
+	{
+		GameSpeed_set( speeds[ i ] );
+		const UnsignedInt s = (UnsignedInt)LOGICFRAMES_PER_GAME_SECOND;
+		CHECK_EQ( DayNight_cycleFrames(), 990u * s );
+		CHECK_EQ( (Int)DAYNIGHT_START_SECONDS, 300 );
+		CHECK_EQ( DayNight_phase( 0 ), (Int)DAYNIGHT_DAY );
+		CHECK_EQ( DayNight_phase( 300 * s - 1 ), (Int)DAYNIGHT_DAY );
+		CHECK_EQ( DayNight_phase( 300 * s ), (Int)DAYNIGHT_DUSK );		// the first dusk, 300 game seconds in
+		for( UnsignedInt cycle = 0; cycle < 2; ++cycle )
+		{
+			const UnsignedInt c = cycle * 990u * s + ( 990u - 300u ) * s;
+			CHECK_EQ( DayNight_phase( c ), (Int)DAYNIGHT_DAY );
+			CHECK_EQ( DayNight_phase( c + 600 * s - 1 ), (Int)DAYNIGHT_DAY );
+			CHECK_EQ( DayNight_phase( c + 600 * s ), (Int)DAYNIGHT_DUSK );
+			CHECK_EQ( DayNight_phase( c + 690 * s ), (Int)DAYNIGHT_NIGHT );
+			CHECK_EQ( DayNight_phase( c + 930 * s ), (Int)DAYNIGHT_DAWN );
+			CHECK_EQ( DayNight_phase( c + 990 * s - 1 ), (Int)DAYNIGHT_DAWN );
+
+			CHECK_EQ( DayNight_amount( c + 600 * s ), 0.0f );
+			CHECK_NEAR( DayNight_amount( c + 645 * s ), 0.5f, 0.0001f );
+			CHECK_EQ( DayNight_amount( c + 690 * s ), 1.0f );
+			CHECK_EQ( DayNight_amount( c + 929 * s ), 1.0f );
+			CHECK_NEAR( DayNight_amount( c + 960 * s ), 0.5f, 0.0001f );
+			CHECK( DayNight_amount( c + 640 * s ) < DayNight_amount( c + 650 * s ) );
+			CHECK( DayNight_amount( c + 950 * s ) > DayNight_amount( c + 970 * s ) );
+
+			CHECK_EQ( DayNight_sightScale( c + 630 * s - 1 ), 1.0f );
+			CHECK_EQ( DayNight_sightScale( c + 630 * s ), 0.9f );
+			CHECK_EQ( DayNight_sightScale( c + 660 * s - 1 ), 0.9f );
+			CHECK_EQ( DayNight_sightScale( c + 660 * s ), 0.8f );
+			CHECK_EQ( DayNight_sightScale( c + 950 * s - 1 ), 0.8f );
+			CHECK_EQ( DayNight_sightScale( c + 950 * s ), 0.9f );
+			CHECK_EQ( DayNight_sightScale( c + 970 * s - 1 ), 0.9f );
+			CHECK_EQ( DayNight_sightScale( c + 970 * s ), 1.0f );
+		}
+
+		/* An object takes each step on its own frame of the one second spread, the frame
+			 DayNight_update has it look again.  The first dusk's first step, 630 s into the cycle. */
+		const UnsignedInt step = 330 * s;
+		const UnsignedInt spread = (UnsignedInt)LOGICFRAMES_PER_SECOND;
+		CHECK_EQ( DayNight_sightScaleFor( (ObjectID)spread, step ), 0.9f );
+		CHECK_EQ( DayNight_sightScaleFor( (ObjectID)7, step + 6 ), 1.0f );
+		CHECK_EQ( DayNight_sightScaleFor( (ObjectID)7, step + 7 ), 0.9f );
+		CHECK_EQ( DayNight_sightScaleFor( (ObjectID)( spread - 1 ), step + spread - 1 ), 0.9f );
+		CHECK_EQ( DayNight_sightScaleFor( (ObjectID)( spread - 1 ), 0 ), 1.0f );
+	}
+
+	// the frames the plan names at the native speed
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+	CHECK_EQ( DayNight_sightStep( 6599 ), 0 );
+	CHECK_EQ( DayNight_sightStep( 6600 ), 1 );
+	CHECK_EQ( DayNight_sightStep( 7200 ), 2 );
+	CHECK_EQ( DayNight_sightStep( 13000 ), 1 );
+	CHECK_EQ( DayNight_sightStep( 13400 ), 0 );
+	CHECK_EQ( DayNight_sightStep( 6600 + 19800 ), 1 );
+	CHECK_EQ( DayNight_cycleFrames(), (UnsignedInt)19800 );
+	DayNight_setOverrideForTests( -1 );
+}
+
+TEST(day_night_light_delays_are_a_hash_of_the_object_within_their_kind)
+{
+	DayNight_setOverrideForTests( 1 );
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+	const UnsignedInt s = (UnsignedInt)LOGICFRAMES_PER_GAME_SECOND;
+	const UnsignedInt longest[ DAYNIGHT_LIGHT_KINDS ] = { 20, 6, 4 };
+	for( Int kind = 0; kind < DAYNIGHT_LIGHT_KINDS; ++kind )
+	{
+		UnsignedInt least = 0xffffffffu, most = 0;
+		Int differ = 0;
+		for( Int id = 1; id <= 2000; ++id )
+		{
+			const UnsignedInt dusk = DayNight_lightDelayFrames( (ObjectID)id, kind, FALSE );
+			const UnsignedInt dawn = DayNight_lightDelayFrames( (ObjectID)id, kind, TRUE );
+			CHECK( dusk <= longest[ kind ] * s );
+			CHECK( dawn <= longest[ kind ] * s );
+			CHECK_EQ( DayNight_lightDelayFrames( (ObjectID)id, kind, FALSE ), dusk );	// the same answer every time
+			least = dusk < least ? dusk : least;
+			most = dusk > most ? dusk : most;
+			differ += dusk != dawn ? 1 : 0;
+		}
+		CHECK( least <= s );												// spread over the whole range
+		CHECK( most >= ( longest[ kind ] - 1 ) * s );
+		CHECK( differ > 1000 );											// dawn has a salt of its own
+	}
+
+	// every light is on through the night, an object made then included, and off by day; frame 0 is
+	// 300 s into the cycle, so cycle time t is frame ( t - 300 ) s
+	for( Int id = 1; id <= 500; ++id )
+		for( Int kind = 0; kind < DAYNIGHT_LIGHT_KINDS; ++kind )
+		{
+			CHECK( DayNight_lightsOn( (ObjectID)id, kind, 390 * s ) );
+			CHECK( DayNight_lightsOn( (ObjectID)id, kind, 629 * s ) );
+			CHECK( !DayNight_lightsOn( (ObjectID)id, kind, 345 * s - 1 ) );
+			CHECK( !DayNight_lightsOn( (ObjectID)id, kind, 681 * s ) );
+			CHECK( !DayNight_lightsOn( (ObjectID)id, kind, 0 ) );
+		}
+	DayNight_setOverrideForTests( -1 );
+}
+
+TEST(day_night_lights_turn_only_inside_the_window_the_logic_walks)
+{
+	/* DayNight_update sets every object's NIGHT condition only on the frames DayNight_lightsMayTurn
+		 answers yes, so a light that turned on any other frame would stay as its bind left it. */
+	DayNight_setOverrideForTests( 1 );
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+	Int turns = 0, outside = 0, walked = 0;
+	for( UnsignedInt f = 1; f <= DayNight_cycleFrames(); ++f )
+	{
+		const Bool walks = DayNight_lightsMayTurn( f );
+		walked += walks ? 1 : 0;
+		for( Int id = 1; id <= 200; ++id )
+			for( Int kind = 0; kind < DAYNIGHT_LIGHT_KINDS; ++kind )
+				if( DayNight_lightsOn( (ObjectID)id, kind, f ) != DayNight_lightsOn( (ObjectID)id, kind, f - 1 ) )
+				{
+					++turns;
+					outside += walks ? 0 : 1;
+				}
+	}
+	CHECK_EQ( outside, 0 );
+	CHECK_EQ( turns, 2 * 200 * DAYNIGHT_LIGHT_KINDS );		// each light on once and off once a cycle
+	const Int windowTicks = ( (Int)DAYNIGHT_BUILDING_DELAY_SECONDS * (Int)LOGICFRAMES_PER_GAME_SECOND + 1 ) * 2;
+	CHECK_EQ( walked, windowTicks );
+	const UnsignedInt firstLights = 345 * (UnsignedInt)LOGICFRAMES_PER_GAME_SECOND;	// cycle time 645, 45 s into the dusk
+	CHECK( DayNight_lightsMayTurn( firstLights ) );
+	CHECK( !DayNight_lightsMayTurn( firstLights - 1 ) );
+	DayNight_setOverrideForTests( 0 );
+	CHECK( !DayNight_lightsMayTurn( firstLights ) );
+	DayNight_setOverrideForTests( -1 );
+}
+
+TEST(day_night_off_answers_daylight_everywhere)
+{
+	DayNight_setOverrideForTests( 0 );
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+	const UnsignedInt s = (UnsignedInt)LOGICFRAMES_PER_GAME_SECOND;
+	const UnsignedInt frames[] = { 0, 660 * s, 800 * s, 960 * s };
+	for( Int i = 0; i < (Int)ARRAY_SIZE( frames ); ++i )
+	{
+		CHECK_EQ( DayNight_phase( frames[ i ] ), (Int)DAYNIGHT_DAY );
+		CHECK_EQ( DayNight_amount( frames[ i ] ), 0.0f );
+		CHECK_EQ( DayNight_sightStep( frames[ i ] ), 0 );
+		CHECK_EQ( DayNight_sightScale( frames[ i ] ), 1.0f );
+		CHECK_EQ( DayNight_sightScaleFor( (ObjectID)13, frames[ i ] ), 1.0f );
+		CHECK( !DayNight_lightsOn( (ObjectID)13, DAYNIGHT_LIGHT_BUILDING, frames[ i ] ) );
+	}
+
+	/* Object::look multiplies its reveal by this scale.  Off, it is 1.0f to the bit on every frame and
+		 for every id, so the multiply hands back the range it was given and the match is the old one. */
+	const Real one = 1.0f;
+	Int notOne = 0;
+	for( UnsignedInt f = 0; f < 2 * DayNight_cycleFrames(); f += 7 )
+		for( Int id = 1; id <= 64; ++id )
+		{
+			const Real scale = DayNight_sightScaleFor( (ObjectID)id, f );
+			notOne += memcmp( &scale, &one, sizeof( Real ) ) != 0 ? 1 : 0;
+		}
+	CHECK_EQ( notOne, 0 );
+	const Real ranges[] = { 0.1f, 30.0f, 337.5f, 412.123f, 1.0e30f };
+	for( Int i = 0; i < (Int)ARRAY_SIZE( ranges ); ++i )
+	{
+		Real range = ranges[ i ];
+		range *= DayNight_sightScaleFor( (ObjectID)5, 13200 );
+		CHECK_MEM( &range, &ranges[ i ], sizeof( Real ) );
+	}
+	CHECK_EQ( DayNight_relookSlot( 12600 ), -1 );
+	DayNight_setOverrideForTests( -1 );
+}
+
+TEST(day_night_relook_frame_is_the_frame_the_scale_changes)
+{
+	/* The invariant the staggered re-look stands on: for every ObjectID residue, every step and every
+		 speed, the frame DayNight_update has an object look again is the frame its scale changes, and no
+		 other.  A look on any frame between gives the same answer on every machine. */
+	DayNight_setOverrideForTests( 1 );
+	const Int speeds[] = { 100, 125, 150, 200 };
+	const UnsignedInt spread = (UnsignedInt)LOGICFRAMES_PER_SECOND;
+	for( Int i = 0; i < (Int)ARRAY_SIZE( speeds ); ++i )
+	{
+		GameSpeed_set( speeds[ i ] );
+		const UnsignedInt end = 2 * DayNight_cycleFrames() + 2 * spread;
+		Int mismatches = 0;
+		Int relooks[ 64 ] = { 0 };
+		for( UnsignedInt f = 1; f < end; ++f )
+		{
+			const Int slot = DayNight_relookSlot( f );
+			for( UnsignedInt r = 0; r < spread; ++r )
+			{
+				const ObjectID id = (ObjectID)( r + 3 * spread );
+				const Bool changed = DayNight_sightScaleFor( id, f ) != DayNight_sightScaleFor( id, f - 1 );
+				const Bool relooked = slot == (Int)r;
+				mismatches += changed != relooked ? 1 : 0;
+				relooks[ r ] += relooked ? 1 : 0;
+			}
+		}
+		CHECK_EQ( mismatches, 0 );
+		for( UnsignedInt r = 0; r < spread; ++r )
+			CHECK_EQ( relooks[ r ], 8 );		// four steps a cycle, two cycles
+	}
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+	DayNight_setOverrideForTests( -1 );
+}
+
+static RGBColor dayNightColour( Real r, Real g, Real b )
+{
+	RGBColor c;
+	c.red = r;
+	c.green = g;
+	c.blue = b;
+	return c;
+}
+
+TEST(day_night_light_lands_on_day_and_night_at_the_end_of_every_dawn_and_dusk)
+{
+	/* 32 levels of the night amount.  A ground lit every frame carries every level; one that bakes the
+		 light carries every fourth, at or below the level, so the dusk ends on 32 and the dawn on 0 in
+		 both directions.  Before this the dawn's last retint was level 3 and the day never came back.
+		 The night look comes at level 16, the middle of each. */
+	CHECK_EQ( DayNight_lightLevel( 0.0f ), 0 );
+	CHECK_EQ( (Int)DAYNIGHT_LIGHT_LEVELS, 128 );
+	CHECK_EQ( DayNight_lightLevel( 0.5f ), 64 );
+	CHECK_EQ( DayNight_lightLevel( 1.0f ), (Int)DAYNIGHT_LIGHT_LEVELS );
+	CHECK_EQ( DayNight_lightLevel( -0.25f ), 0 );
+	CHECK_EQ( DayNight_lightLevel( 1.5f ), (Int)DAYNIGHT_LIGHT_LEVELS );
+	CHECK_EQ( DayNight_tintLevel( 15, FALSE ), 0 );
+	CHECK_EQ( DayNight_tintLevel( 127, FALSE ), 112 );
+	CHECK_EQ( DayNight_tintLevel( 128, FALSE ), 128 );
+	CHECK_EQ( DayNight_tintLevel( 3, TRUE ), 3 );
+	CHECK( !DayNight_nightLookAt( 63 ) );
+	CHECK( DayNight_nightLookAt( 64 ) );
+	CHECK( DayNight_nightLookAt( (Int)DAYNIGHT_LIGHT_LEVELS ) );
+
+	DayNight_setOverrideForTests( 1 );
+	const Int speeds[] = { 100, 125, 150, 200 };
+	for( Int i = 0; i < (Int)ARRAY_SIZE( speeds ); ++i )
+	{
+		GameSpeed_set( speeds[ i ] );
+		const UnsignedInt s = (UnsignedInt)LOGICFRAMES_PER_GAME_SECOND;
+		for( Int fine = 0; fine < 2; ++fine )
+		{
+			Int tinted = -1, changes = 0, lookChanges = 0, wrongDay = 0, wrongNight = 0;
+			Bool look = FALSE;
+			// two whole cycles from the opening noon, past the first dawn and into the second day
+			for( UnsignedInt f = 0; f < 2 * DayNight_cycleFrames(); ++f )
+			{
+				const Int level = DayNight_tintLevel( DayNight_lightLevel( DayNight_amount( f ) ), fine != 0 );
+				if( level != tinted )
+				{
+					changes += tinted >= 0 ? 1 : 0;
+					const Bool nowLook = DayNight_nightLookAt( level );
+					lookChanges += nowLook != look ? 1 : 0;
+					look = nowLook;
+					tinted = level;
+				}
+				const Int phase = DayNight_phase( f );
+				wrongDay += phase == DAYNIGHT_DAY && tinted != 0 ? 1 : 0;
+				wrongNight += phase == DAYNIGHT_NIGHT && tinted != (Int)DAYNIGHT_LIGHT_LEVELS ? 1 : 0;
+			}
+			CHECK_EQ( wrongDay, 0 );
+			CHECK_EQ( wrongNight, 0 );
+			CHECK_EQ( changes, fine ? 2 * ( 128 + 128 ) : 2 * ( 8 + 8 ) );
+			CHECK_EQ( lookChanges, 4 );		// on once in each dusk, off once in each dawn
+			CHECK( !look );
+		}
+		// cycle time t is frame ( t - 300 ) s in the first cycle
+		CHECK( DayNight_nightLookAt( DayNight_lightLevel( DayNight_amount( 345 * s ) ) ) );
+		CHECK( DayNight_nightLookAt( DayNight_lightLevel( DayNight_amount( 629 * s ) ) ) );
+		CHECK( !DayNight_nightLookAt( DayNight_lightLevel( DayNight_amount( 675 * s ) ) ) );
+	}
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+	DayNight_setOverrideForTests( -1 );
+}
+
+TEST(day_night_tint_at_day_is_the_base_to_the_bit)
+{
+	/* The tint is the Apocalypse's formula in its order, so its red night can move onto it later and
+		 draw the same.  At level 0 under the cycle's day factors of one, every channel comes back to the
+		 bit: a day frame on a map authored for afternoon relights nothing. */
+	const DayNightPalette &p = DayNight_palette();
+	const RGBColor bases[] = { dayNightColour( 0.35f, 0.33f, 0.31f ), dayNightColour( 0.961f, 0.9137f, 0.8431f ),
+		dayNightColour( 0.0f, 1.0f, 0.123456f ), dayNightColour( 1.7f, 0.0001f, 0.5f ) };
+	for( Int i = 0; i < (Int)ARRAY_SIZE( bases ); ++i )
+	{
+		RGBColor out;
+		DayNight_tint( out, bases[ i ], p.dayAmbient, p.nightAmbient, 0.0f );
+		CHECK_MEM( &out, &bases[ i ], sizeof( RGBColor ) );
+		DayNight_tint( out, bases[ i ], p.dayDiffuse, p.nightDiffuse, 0.0f );
+		CHECK_MEM( &out, &bases[ i ], sizeof( RGBColor ) );
+
+		// the formula, written out the way ApocalypseDirector's tint() writes it
+		static const Real HAZE[ 3 ] = { 1.03f, 0.99f, 0.93f };
+		static const Real NIGHT[ 3 ] = { 0.70f, 0.32f, 0.28f };
+		const Real amount = 13.0f / 32.0f;
+		RGBColor theirs;
+		theirs.red = bases[ i ].red * ( HAZE[ 0 ] + ( NIGHT[ 0 ] - HAZE[ 0 ] ) * amount );
+		theirs.green = bases[ i ].green * ( HAZE[ 1 ] + ( NIGHT[ 1 ] - HAZE[ 1 ] ) * amount );
+		theirs.blue = bases[ i ].blue * ( HAZE[ 2 ] + ( NIGHT[ 2 ] - HAZE[ 2 ] ) * amount );
+		DayNight_tint( out, bases[ i ], HAZE, NIGHT, amount );
+		CHECK_MEM( &out, &theirs, sizeof( RGBColor ) );
+
+		// a full night is the base under the night factors
+		DayNight_tint( out, bases[ i ], p.dayDiffuse, p.nightDiffuse, 1.0f );
+		CHECK_NEAR( out.red, bases[ i ].red * p.nightDiffuse[ 0 ], 0.00001f );
+		CHECK_NEAR( out.green, bases[ i ].green * p.nightDiffuse[ 1 ], 0.00001f );
+		CHECK_NEAR( out.blue, bases[ i ].blue * p.nightDiffuse[ 2 ], 0.00001f );
+	}
+}
+
+TEST(day_night_palette_is_a_dim_blue_moon_over_noon)
+{
+	const DayNightPalette &p = DayNight_palette();
+	CHECK( p.noonBase );
+	CHECK( p.depthByMapSun );
+	CHECK_EQ( p.shadowCut, 0.5f );
+	for( Int i = 0; i < 3; ++i )
+	{
+		CHECK_EQ( p.dayAmbient[ i ], 1.0f );
+		CHECK_EQ( p.dayDiffuse[ i ], 1.0f );
+		CHECK( p.nightAmbient[ i ] > 0.0f && p.nightAmbient[ i ] <= 1.0f );		// nothing summed past white
+		CHECK( p.nightDiffuse[ i ] > 0.0f && p.nightDiffuse[ i ] <= 1.0f );
+	}
+	CHECK( p.nightAmbient[ 2 ] > p.nightAmbient[ 0 ] && p.nightDiffuse[ 2 ] > p.nightDiffuse[ 0 ] );	// blue
+	// the moon's luminance against the noon sun's, 0.272: a bright map's sun shafts all but gone
+	const Real moon = 0.299f * p.nightDiffuse[ 0 ] + 0.587f * p.nightDiffuse[ 1 ] + 0.114f * p.nightDiffuse[ 2 ];
+	CHECK_NEAR( moon, 0.272f, 0.001f );
+	// a face turned from the moon keeps over half its noon ambient: no black silhouettes
+	const Real shade = 0.299f * p.nightAmbient[ 0 ] + 0.587f * p.nightAmbient[ 1 ] + 0.114f * p.nightAmbient[ 2 ];
+	CHECK( shade > 0.55f && shade < 0.7f );
+}
+
+TEST(day_night_depth_and_noon_check_follow_the_maps_own_light)
+{
+	// a full night under a bright sun, none under a dim one, half between
+	CHECK_EQ( DayNight_depthFor( dayNightColour( 1.0f, 1.0f, 1.0f ) ), 1.0f );
+	CHECK_NEAR( DayNight_depthFor( dayNightColour( 0.9f, 0.9f, 0.9f ) ), 1.0f, 0.0001f );
+	CHECK_NEAR( DayNight_depthFor( dayNightColour( 0.6f, 0.6f, 0.6f ) ), 0.5f, 0.0001f );
+	CHECK_NEAR( DayNight_depthFor( dayNightColour( 0.3f, 0.3f, 0.3f ) ), 0.0f, 0.0001f );
+	CHECK_EQ( DayNight_depthFor( dayNightColour( 0.2f, 0.2f, 0.2f ) ), 0.0f );
+	CHECK_EQ( DayNight_depthFor( dayNightColour( 0.0f, 0.0f, 0.0f ) ), 0.0f );
+
+	// a retail-like afternoon is a noon; a black table, a blinding one and a sun with no light are not
+	CHECK( DayNight_saneNoon( dayNightColour( 0.35f, 0.33f, 0.31f ), dayNightColour( 0.96f, 0.91f, 0.84f ) ) );
+	CHECK( !DayNight_saneNoon( dayNightColour( 0.0f, 0.0f, 0.0f ), dayNightColour( 0.0f, 0.0f, 0.0f ) ) );
+	CHECK( !DayNight_saneNoon( dayNightColour( 5.0f, 5.0f, 5.0f ), dayNightColour( 5.0f, 5.0f, 5.0f ) ) );
+	CHECK( !DayNight_saneNoon( dayNightColour( 0.35f, 0.33f, 0.31f ), dayNightColour( 0.1f, 0.1f, 0.1f ) ) );
+	CHECK( !DayNight_saneNoon( dayNightColour( -1.0f, 0.3f, 0.3f ), dayNightColour( 0.96f, 0.91f, 0.84f ) ) );
+}
+
+TEST(day_night_night_look_without_a_kept_light_is_the_map_off_and_noon_on)
+{
+	/* Nothing in the test process has applied a light, so the answer is the opening one: the cycle off
+		 hands back the map's own test, the cycle on opens at noon on every map. */
+	DayNight_setOverrideForTests( 0 );
+	CHECK( DayNight_nightLookFor( TRUE ) );
+	CHECK( !DayNight_nightLookFor( FALSE ) );
+	DayNight_setOverrideForTests( 1 );
+	CHECK( !DayNight_nightLookFor( TRUE ) );
+	CHECK( !DayNight_nightLookFor( FALSE ) );
+	CHECK_EQ( DayNight_lightAmount(), 0.0f );
+	DayNight_setOverrideForTests( -1 );
+}
+
+TEST(day_night_sky_turns_only_while_no_shadow_shows_it)
+{
+	/* The sun rises at 15 degrees after the dawn, stands at 35 at noon (frame 0), sinks to 15 before
+		 the dusk, over 150 degrees of bearing round the base light's own.  The moon has its own arc.
+		 The light turns from one to the other only while the shadows are faded to nothing, and it never
+		 stands under the floor. */
+	const Real noon = 30.0f;
+	DayNightSky sky;
+	DayNight_setOverrideForTests( 0 );
+	DayNight_sky( 5000, noon, sky );
+	CHECK_EQ( sky.bearing, noon );		// off: a sky that does not move
+	CHECK_EQ( sky.shadow, 1.0f );
+	CHECK( !sky.moon );
+
+	DayNight_setOverrideForTests( 1 );
+	const Int speeds[] = { 100, 125, 150, 200 };
+	for( Int i = 0; i < (Int)ARRAY_SIZE( speeds ); ++i )
+	{
+		GameSpeed_set( speeds[ i ] );
+		const UnsignedInt s = (UnsignedInt)LOGICFRAMES_PER_GAME_SECOND;
+		DayNight_sky( 0, noon, sky );
+		CHECK_NEAR( sky.elevation, 35.0f, 0.01f );
+		CHECK_NEAR( sky.bearing, noon, 0.01f );
+		CHECK_EQ( sky.shadow, 1.0f );
+		CHECK( !sky.moon );
+		DayNight_sky( ( 990 - 300 ) * s, noon, sky );		// the start of the next day, right after the dawn
+		CHECK_NEAR( sky.elevation, 15.0f, 0.01f );
+		CHECK_NEAR( sky.bearing, noon + 75.0f, 0.01f );
+		CHECK_EQ( sky.look, 0.0f );
+
+		/* The night look (cloud shadow and water) eases over four game seconds centred on the turn of the
+			 light: 45 s into the dusk and 30 s into the dawn, frames ( t - 300 ) s of the first cycle. */
+		DayNight_sky( 343 * s, noon, sky );
+		CHECK_EQ( sky.look, 0.0f );
+		DayNight_sky( 345 * s, noon, sky );
+		CHECK_NEAR( sky.look, 0.5f, 0.001f );
+		CHECK( sky.moon );
+		CHECK_EQ( sky.shadow, 0.0f );			// no direct light, so the turn shows nothing
+		DayNight_sky( 347 * s, noon, sky );
+		CHECK_EQ( sky.look, 1.0f );
+		DayNight_sky( 500 * s, noon, sky );
+		CHECK_EQ( sky.look, 1.0f );
+		DayNight_sky( 658 * s, noon, sky );
+		CHECK_EQ( sky.look, 1.0f );
+		DayNight_sky( 660 * s, noon, sky );
+		CHECK_NEAR( sky.look, 0.5f, 0.001f );
+		CHECK( !sky.moon );
+		CHECK_EQ( sky.shadow, 0.0f );
+		DayNight_sky( 662 * s, noon, sky );
+		CHECK_EQ( sky.look, 0.0f );
+
+		Int badTurns = 0, underFloor = 0, overPeak = 0, jumps = 0, moonTurns = 0;
+		DayNightSky last;
+		DayNight_sky( 0, noon, last );
+		for( UnsignedInt f = 1; f < 2 * DayNight_cycleFrames(); ++f )
+		{
+			DayNight_sky( f, noon, sky );
+			underFloor += sky.elevation < 14.999f ? 1 : 0;
+			overPeak += sky.elevation > 35.001f ? 1 : 0;
+			if( ( sky.moon != 0 ) != ( last.moon != 0 ) )
+			{
+				++moonTurns;
+				badTurns += sky.shadow != 0.0f || last.shadow != 0.0f ? 1 : 0;
+			}
+			else if( sky.shadow > 0.0f )
+			{
+				const Real db = sky.bearing - last.bearing, de = sky.elevation - last.elevation;
+				jumps += db > 0.5f || db < -0.5f || de > 0.5f || de < -0.5f ? 1 : 0;
+			}
+			last = sky;
+		}
+		CHECK_EQ( moonTurns, 4 );		// moonrise and sunrise, two cycles
+		CHECK_EQ( badTurns, 0 );
+		CHECK_EQ( underFloor, 0 );
+		CHECK_EQ( overPeak, 0 );
+		CHECK_EQ( jumps, 0 );
+	}
+
+	// warm and dim low, plain at the peak, none for the moon
+	sky.moon = FALSE;
+	sky.elevation = 15.0f;
+	CHECK_EQ( DayNight_lowSun( sky ), 1.0f );
+	sky.elevation = 35.0f;
+	CHECK_EQ( DayNight_lowSun( sky ), 0.0f );
+	// the moon takes the warmth by its elevation too, so the turn at the floor keeps it
+	sky.moon = TRUE;
+	sky.elevation = 15.0f;
+	CHECK_EQ( DayNight_lowSun( sky ), 1.0f );
+	sky.elevation = 30.0f;
+	CHECK_NEAR( DayNight_lowSun( sky ), 0.25f, 0.0001f );
+
+	// the steps: half degrees and every level on a ground lit every frame, five degrees and every
+	// fourth level on one that bakes the light
+	DayNightStep step;
+	sky.moon = FALSE;
+	sky.bearing = 47.3f;
+	sky.elevation = 35.2f;
+	sky.shadow = 0.5f;
+	DayNight_step( 53, sky, TRUE, step );
+	CHECK_EQ( step.level, 53 );
+	CHECK_EQ( step.bearing, 95 );
+	CHECK_EQ( step.elevation, 70 );
+	CHECK_EQ( step.shadow, 64 );		// 128ths, with the direct light
+	DayNight_step( 53, sky, FALSE, step );
+	CHECK_EQ( step.level, 48 );
+	CHECK_EQ( step.bearing, 9 );
+	CHECK_EQ( step.elevation, 7 );
+	CHECK_EQ( step.shadow, 16 );		// 32 steps (COARSE_FADE_STEPS): round( 0.5 * 32 )
+
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+	DayNight_setOverrideForTests( -1 );
+}
+
+TEST(day_night_light_is_continuous_across_both_turns)
+{
+	/* The film saw the frame turn flat and blue in one picture at the sun-to-moon turn.  On a ground lit
+		 every frame, the light a sunlit face takes (ambient plus the direct light times the sine of its
+		 elevation) must move by no more than two levels' worth from one frame to the next across the
+		 whole dusk and dawn, and by under half a level on the turn itself. */
+	DayNight_setOverrideForTests( 1 );
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+	const UnsignedInt s = (UnsignedInt)LOGICFRAMES_PER_GAME_SECOND;
+	const DayNightPalette &p = DayNight_palette();
+	const RGBColor baseAmbient = dayNightColour( 0.35f, 0.33f, 0.31f );
+	const RGBColor baseDiffuse = dayNightColour( 0.96f, 0.91f, 0.84f );
+	Coord3D basePos;
+	basePos.x = -0.8f; basePos.y = 0.3f; basePos.z = -0.5f;
+	const Real depth = DayNight_depthFor( baseDiffuse );
+	const Real noon = (Real)atan2( -basePos.y, -basePos.x ) * ( 180.0f / 3.14159265f );
+
+	struct Total
+	{
+		static Real at( UnsignedInt f, const DayNightPalette &p, Real noon, Real depth, const RGBColor &a, const RGBColor &d, const Coord3D &pos, Bool &moon )
+		{
+			DayNightSky sky;
+			DayNight_sky( f, noon, sky );
+			DayNightStep step;
+			DayNight_step( DayNight_lightLevel( DayNight_amount( f ) ), sky, TRUE, step );
+			RGBColor ambient, diffuse;
+			Coord3D aim;
+			DayNight_stepLight( p, step, TRUE, depth, TRUE, a, d, pos, ambient, diffuse, aim );
+			const Real length = (Real)sqrt( aim.x * aim.x + aim.y * aim.y + aim.z * aim.z );
+			const Real up = length > 0.0f ? -aim.z / length : 0.0f;
+			moon = sky.moon;
+			const Real la = 0.299f * ambient.red + 0.587f * ambient.green + 0.114f * ambient.blue;
+			const Real ld = 0.299f * diffuse.red + 0.587f * diffuse.green + 0.114f * diffuse.blue;
+			return la + ld * up;
+		}
+	};
+	Bool moon;
+	const Real day = Total::at( 0, p, noon, depth, baseAmbient, baseDiffuse, basePos, moon );
+	const Real night = Total::at( 500 * s, p, noon, depth, baseAmbient, baseDiffuse, basePos, moon );
+	const Real level = ( day - night ) / (Real)DAYNIGHT_LIGHT_LEVELS;
+	CHECK( level > 0.0f );
+
+	// the first dusk and dawn: cycle seconds 600 to 690 and 930 to 990, frames ( t - 300 ) s
+	const UnsignedInt windows[ 2 ][ 2 ] = { { 300 * s, 390 * s }, { 630 * s, 690 * s } };
+	for( Int w = 0; w < 2; ++w )
+	{
+		Bool lastMoon;
+		Real last = Total::at( windows[ w ][ 0 ] - 1, p, noon, depth, baseAmbient, baseDiffuse, basePos, lastMoon );
+		Real worst = 0.0f, atTurn = -1.0f;
+		for( UnsignedInt f = windows[ w ][ 0 ]; f <= windows[ w ][ 1 ]; ++f )
+		{
+			Bool nowMoon;
+			const Real total = Total::at( f, p, noon, depth, baseAmbient, baseDiffuse, basePos, nowMoon );
+			const Real change = total > last ? total - last : last - total;
+			worst = change > worst ? change : worst;
+			if( ( nowMoon != 0 ) != ( lastMoon != 0 ) )
+				atTurn = change;
+			last = total;
+			lastMoon = nowMoon;
+		}
+		CHECK( worst <= 2.0f * level );
+		CHECK( atTurn >= 0.0f );					// the turn is in the window
+		CHECK( atTurn <= 0.5f * level );
+	}
+	DayNight_setOverrideForTests( -1 );
+}
+
+TEST(day_night_light_leaves_the_hour_and_the_other_tables_alone)
+{
+	/* The logic reads m_timeOfDay, so the picture never writes it; and it writes only the map's own
+		 hour's slot, keeping every other hour's table as the map left it.  On a morning map the opening
+		 noon is the Afternoon table's colours in the morning slot, to the bit.  The light is handed over
+		 only with the cycle on and something to draw. */
+	CHECK( bootOnce() );
+	GlobalData *savedGlobals = TheWritableGlobalData;
+	if (!savedGlobals) TheWritableGlobalData = NEW GlobalData;
+	GlobalData &g = *TheWritableGlobalData;
+	const TimeOfDay savedHour = g.m_timeOfDay;
+	const Real savedStrength = g.m_shadowMapStrength;
+	const Bool savedHeadless = g.m_headless;
+	GlobalData::TerrainLighting savedTerrain[ TIME_OF_DAY_COUNT ][ MAX_GLOBAL_LIGHTS ];
+	GlobalData::TerrainLighting savedObjects[ TIME_OF_DAY_COUNT ][ MAX_GLOBAL_LIGHTS ];
+	memcpy( savedTerrain, g.m_terrainLighting, sizeof( savedTerrain ) );
+	memcpy( savedObjects, g.m_terrainObjectsLighting, sizeof( savedObjects ) );
+
+	DayNight_resetPicture();
+	DayNight_setOverrideForTests( 1 );
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+	g.m_headless = FALSE;
+	g.m_timeOfDay = TIME_OF_DAY_MORNING;
+	g.m_shadowMapStrength = 0.4f;
+	for( Int k = 0; k < MAX_GLOBAL_LIGHTS; ++k )
+	{
+		GlobalData::TerrainLighting noon, morning;
+		noon.ambient = dayNightColour( 0.35f, 0.33f, 0.31f );
+		noon.diffuse = dayNightColour( 0.96f, 0.91f, 0.84f );
+		noon.lightPos.x = -0.8f; noon.lightPos.y = 0.3f; noon.lightPos.z = -0.5f;
+		morning.ambient = dayNightColour( 0.30f, 0.25f, 0.20f );
+		morning.diffuse = dayNightColour( 0.70f, 0.50f, 0.40f );
+		morning.lightPos.x = -0.9f; morning.lightPos.y = -0.2f; morning.lightPos.z = -0.3f;
+		g.m_terrainLighting[ TIME_OF_DAY_AFTERNOON ][ k ] = g.m_terrainObjectsLighting[ TIME_OF_DAY_AFTERNOON ][ k ] = noon;
+		g.m_terrainLighting[ TIME_OF_DAY_MORNING ][ k ] = g.m_terrainObjectsLighting[ TIME_OF_DAY_MORNING ][ k ] = morning;
+	}
+	GlobalData::TerrainLighting afternoon[ MAX_GLOBAL_LIGHTS ], evening[ MAX_GLOBAL_LIGHTS ];
+	memcpy( afternoon, g.m_terrainLighting[ TIME_OF_DAY_AFTERNOON ], sizeof( afternoon ) );
+	memcpy( evening, g.m_terrainLighting[ TIME_OF_DAY_EVENING ], sizeof( evening ) );
+
+	CHECK( DayNight_handsLightOver() );
+	const UnsignedInt s = (UnsignedInt)LOGICFRAMES_PER_GAME_SECOND;
+	DayNight_applyMapLight( DayNight_palette(), 0 );		// the opening noon
+	CHECK_EQ( (Int)g.m_timeOfDay, (Int)TIME_OF_DAY_MORNING );
+	CHECK_MEM( g.m_terrainLighting[ TIME_OF_DAY_AFTERNOON ], afternoon, sizeof( afternoon ) );
+	CHECK_MEM( g.m_terrainLighting[ TIME_OF_DAY_EVENING ], evening, sizeof( evening ) );
+	CHECK_MEM( &g.m_terrainLighting[ TIME_OF_DAY_MORNING ][ 0 ].ambient, &afternoon[ 0 ].ambient, sizeof( RGBColor ) );
+	CHECK_MEM( &g.m_terrainLighting[ TIME_OF_DAY_MORNING ][ 0 ].diffuse, &afternoon[ 0 ].diffuse, sizeof( RGBColor ) );
+	CHECK_MEM( &g.m_terrainAmbient[ 0 ], &afternoon[ 0 ].ambient, sizeof( RGBColor ) );
+	CHECK( g.m_terrainLighting[ TIME_OF_DAY_MORNING ][ 0 ].lightPos.z < 0.0f );		// a sun over the ground
+
+	DayNight_applyMapLight( DayNight_palette(), 360 * s );		// deep in the first dusk
+	CHECK_EQ( (Int)g.m_timeOfDay, (Int)TIME_OF_DAY_MORNING );
+	CHECK_MEM( g.m_terrainLighting[ TIME_OF_DAY_AFTERNOON ], afternoon, sizeof( afternoon ) );
+	CHECK( g.m_terrainLighting[ TIME_OF_DAY_MORNING ][ 0 ].diffuse.red < afternoon[ 0 ].diffuse.red );
+	CHECK( DayNight_lightAmount() > 0.5f );
+
+	// the second noon is the first to the bit: every step's light is a function of the step alone
+	GlobalData::TerrainLighting firstNoon[ MAX_GLOBAL_LIGHTS ], firstNoonObjects[ MAX_GLOBAL_LIGHTS ];
+	DayNight_applyMapLight( DayNight_palette(), 0 );
+	memcpy( firstNoon, g.m_terrainLighting[ TIME_OF_DAY_MORNING ], sizeof( firstNoon ) );
+	memcpy( firstNoonObjects, g.m_terrainObjectsLighting[ TIME_OF_DAY_MORNING ], sizeof( firstNoonObjects ) );
+	for( UnsignedInt f = 20; f <= DayNight_cycleFrames(); f += 20 )
+		DayNight_applyMapLight( DayNight_palette(), f );
+	CHECK_MEM( g.m_terrainLighting[ TIME_OF_DAY_MORNING ], firstNoon, sizeof( firstNoon ) );
+	CHECK_MEM( g.m_terrainObjectsLighting[ TIME_OF_DAY_MORNING ], firstNoonObjects, sizeof( firstNoonObjects ) );
+	CHECK_EQ( (Int)g.m_timeOfDay, (Int)TIME_OF_DAY_MORNING );
+
+	g.m_headless = TRUE;
+	CHECK( !DayNight_handsLightOver() );
+	g.m_headless = FALSE;
+	DayNight_setOverrideForTests( 0 );
+	CHECK( !DayNight_handsLightOver() );
+
+	DayNight_resetPicture();
+	CHECK_EQ( g.m_shadowMapStrength, 0.4f );		// the whole game's setting comes back
+	CHECK_EQ( DayNight_lightAmount(), 0.0f );
+	DayNight_setOverrideForTests( -1 );
+	memcpy( g.m_terrainLighting, savedTerrain, sizeof( savedTerrain ) );
+	memcpy( g.m_terrainObjectsLighting, savedObjects, sizeof( savedObjects ) );
+	g.m_timeOfDay = savedHour;
+	g.m_shadowMapStrength = savedStrength;
+	g.m_headless = savedHeadless;
+	if (!savedGlobals) { delete TheWritableGlobalData; TheWritableGlobalData = NULL; }
+}
+
+namespace
+{
+/// a world whose save holds only the frame and the cycle's box: the two lead GameLogic::xfer
+class DayNightTestWorld : public GameLogic
+{
+public:
+	struct Stop { Bool value; Bool saw; };
+
+	/// load the head of a save of that version, the box as given where the version has it
+	void loadHead( XferVersion version, Bool box )
+	{
+		class HeadLoad : public XferLoad
+		{
+		public:
+			HeadLoad( XferVersion v, Bool b ) : version( v ), box( b ), versions( 0 ), ints( 0 ) {}
+			void xferVersion( XferVersion *v, XferVersion ) override { if( versions++ ) throw Stop(); *v = version; }
+			void xferUnsignedInt( UnsignedInt *value ) override { if( ints++ ) throw Stop(); *value = 12345; }
+			void xferBool( Bool *value ) override { *value = box; throw Stop(); }
+			void xferImplementation( void *, Int ) override { throw Stop(); }
+			XferVersion version;
+			Bool box;
+			Int versions, ints;
+		} load( version, box );
+		try { GameLogic::xfer( &load ); }
+		catch( const Stop & ) {}
+	}
+
+	/// what a save writes for the box, as the first Bool after the frame
+	Bool saveHead( void )
+	{
+		class HeadSave : public XferSave
+		{
+		public:
+			void xferVersion( XferVersion *, XferVersion ) override {}
+			void xferUnsignedInt( UnsignedInt * ) override {}
+			void xferBool( Bool *value ) override { Stop s; s.value = *value; s.saw = TRUE; throw s; }
+			void xferImplementation( void *, Int ) override { throw Stop(); }
+		} save;
+		try { GameLogic::xfer( &save ); }
+		catch( const Stop &s ) { return s.saw && s.value; }
+		return FALSE;
+	}
+};
+}
+
+TEST(day_night_box_is_saved_ahead_of_the_objects)
+{
+	static DayNightTestWorld *world = NEW DayNightTestWorld;	// kept, like the other empty worlds
+	GameLogic *savedLogic = TheGameLogic;
+	TheGameLogic = world;
+	DayNight_setOverrideForTests( -1 );
+
+	world->loadHead( 23, TRUE );
+	CHECK( world->isDayNight() );
+	CHECK( DayNight_isOn() );
+	CHECK( world->saveHead() );					// written back right after the frame
+	world->loadHead( 23, FALSE );
+	CHECK( !world->isDayNight() );
+	CHECK( !world->saveHead() );
+
+	world->loadHead( 23, TRUE );
+	world->loadHead( 22, TRUE );					// an older save has no box and plays in daylight
+	CHECK( !world->isDayNight() );
+	CHECK( !DayNight_isOn() );
+
+	TheGameLogic = savedLogic;
 }

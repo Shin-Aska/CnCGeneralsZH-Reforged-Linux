@@ -210,6 +210,8 @@ NEW_CONTROLS = [
     (CHECK,  "CheckNetBox",            "GUI:NetBox"),
     (CHECK,  "CheckEmptyBuildingPips", "GUI:EmptyBuildingPips"),
     (CHECK,  "CheckHitFlash",          "GUI:HitFlash"),
+    (CHECK,  "CheckDamageNumbers",     "GUI:DamageNumbers"),
+    (CHECK,  "CheckIdleWorkerCamera",  "GUI:IdleWorkerCamera"),
     (CHECK,  "CheckZoomToCursor",      "GUI:ZoomToCursor"),
     (CHECK,  "CheckIsometricCamera",   "GUI:IsometricCamera"),
     (CHECK,  "CheckCameraShake",       "GUI:CameraShake"),
@@ -283,6 +285,9 @@ NEW_CONTROLS = [
     (CHECK,  "CheckSmoothMotion",      "GUI:SmoothMotion"),
     (CHECK,  "CheckHeatHaze",          "GUI:HeatHaze"),
     (CHECK,  "CheckGroundFoliage",     "GUI:GroundFoliage"),
+    (CHECK,  "CheckRagdoll",           "GUI:Ragdoll"),
+    (LABEL,  "LabelSunShafts",         "GUI:SunShafts"),
+    (COMBO,  "ComboBoxSunShafts",      None),
     (LABEL,  "LabelGraphicsQuality",   "GUI:GraphicsQuality"),
     (SLIDER, "SliderGraphicsQuality",  None),
 ]
@@ -394,7 +399,9 @@ GROUP_LAYOUT = [
             ("check", "CheckHeatHaze"),
             ("check", "CheckGroundFoliage"),
             # the Screen column is full with the monitor and the resolution note
-            setting("LabelFrameRateLimit", "ComboBoxFrameRateLimit")]),
+            setting("LabelFrameRateLimit", "ComboBoxFrameRateLimit"),
+            # the column's last row, down to the page's foot
+            setting("LabelSunShafts", "ComboBoxSunShafts")]),
         # from Interface, whose first column ran past the page once HUD took Layout and HUD Width
         ("GUI:OptionsGroupMenus", [
             setting("LabelMenuTransitionSpeed", "SliderMenuTransitionSpeed", "ValueMenuTransitionSpeed"),
@@ -404,7 +411,9 @@ GROUP_LAYOUT = [
         ("GUI:OptionsGroupModels", [
             ("check", "CheckDetailedModels"),
             ("check", "CheckHDTextures"),
-            ("check", "CheckFullDetailAtDistance")])]),
+            ("check", "CheckFullDetailAtDistance"),
+            # how a soldier's model falls; the Picture column is full down to Sun Shafts
+            ("check", "CheckRagdoll")])]),
 
     ("PageGraphics", [
         # the particle limit went to Effects' Particles group to make room for the quality slider
@@ -509,17 +518,19 @@ GROUP_LAYOUT = [
             ("check", "CheckNudgeBuild"),
             ("check", "CheckBuildWithoutWorker")]),
         ("GUI:OptionsGroupInput", [
+            setting("LabelHotkeyScheme", "ComboBoxHotkeyScheme"),
             ("check", "CheckChromaLighting")])]),
 
     ("PageInterface", [
         ("GUI:OptionsGroupHud", [
             setting("LabelHudLayout", "ComboBoxHudLayout"),
             setting("LabelHudWidth", "ComboBoxHudWidth"),
-            setting("LabelHotkeyScheme", "ComboBoxHotkeyScheme"),
             ("check", "CheckNetBox"),
             setting("LabelMinimapSize", "SliderMinimapSize", "ValueMinimapSize"),
             # here and not under the battlefield, whose column is full to the page's foot
-            ("check", "CheckHitFlash")]),
+            ("check", "CheckHitFlash"),
+            ("check", "CheckDamageNumbers"),
+            ("check", "CheckIdleWorkerCamera")]),
         ("GUI:OptionsGroupBattlefield", [
             setting("LabelHealthBars", "ComboBoxHealthBars"),
             setting("LabelHealthBarColors", "ComboBoxHealthBarColors"),
@@ -892,7 +903,7 @@ def build(layout):
         if not layout.find("CheckFullDetailAtDistance"):
             layout.find("PageDisplay").children.append(make_control(
                 layout.find(CHECK), "CheckFullDetailAtDistance", "GUI:FullDetailAtDistance", 0, 0, 1, 1))
-        reflow_existing_pages(layout, ("PageDisplay", "PageInterface"))
+        reflow_existing_pages(layout, ("PageDisplay", "PageControls", "PageInterface"))
         build_hdassets_footer(layout, layout.find("ButtonDefaults"))
         return update_water_page(layout)
     old = layout.find("OptionsMenuParentOld")

@@ -106,6 +106,7 @@
 #include "W3DDevice/GameClient/W3DSmudge.h"
 #include "W3DDevice/GameClient/W3DSnow.h"
 #include "W3DDevice/GameClient/TerrainSubdivide.h"
+#include "GameLogic/DayNightCycle.h"
 #include "W3DDevice/GameClient/TerrainSkirt.h"
 #include "W3DDevice/GameClient/FoliagePlacement.h"
 #include "W3DDevice/GameClient/Module/W3DModelDraw.h"
@@ -143,10 +144,18 @@ BaseHeightMapRenderObjClass *TheTerrainRenderObject=NULL;
 
 /** Entry point so that trees can be drawn at the appropriate point in the rendering pipe for 
     transparent objects. */
-void DoTrees(RenderInfoClass & rinfo)
+void DoTrees(RenderInfoClass & rinfo, Bool grass)
 {
 	if (TheTerrainRenderObject) {
-		TheTerrainRenderObject->renderTrees(&rinfo.Camera);
+		TheTerrainRenderObject->renderTrees(&rinfo.Camera, grass);
+	}
+}
+
+/** The grass alone, ahead of DoTrees(rinfo, FALSE): the Ray Traced level's order (RTS3DScene::Flush). */
+void DoGrass(RenderInfoClass & rinfo)
+{
+	if (TheTerrainRenderObject) {
+		TheTerrainRenderObject->renderGrass(&rinfo.Camera);
 	}
 }
 
@@ -628,9 +637,13 @@ void BaseHeightMapRenderObjClass::doTheLight(VERTEX_FORMAT *vb, Vector3*light, V
 #else
 	Real shadeR, shadeG, shadeB;
 	Real shade;
-	shadeR = TheGlobalData->m_terrainAmbient[0].red;	//only the first terrain light contributes to ambient
-	shadeG = TheGlobalData->m_terrainAmbient[0].green;
-	shadeB = TheGlobalData->m_terrainAmbient[0].blue;
+	// only the first terrain light contributes to ambient.  Tiles that leave the sun to the pixel bake
+	// the ambient the day and night cycle holds still for them, and the change rides on as a shader term
+	// (DayNight_bakedTerrainAmbient: the live one whenever the cycle's light is not kept)
+	const RGBColor ambient = DayNight_bakedTerrainAmbient(TheGlobalData->m_terrainAmbient[0], sunPerPixel);
+	shadeR = ambient.red;
+	shadeG = ambient.green;
+	shadeB = ambient.blue;
 
 	if (pLightsIterator) {
 		for (pLightsIterator->First(); !pLightsIterator->Is_Done(); pLightsIterator->Next())
@@ -2392,9 +2405,18 @@ void BaseHeightMapRenderObjClass::refreshStaticDiffuseInputs(void)
 	const Int useDepthFade = m_useDepthFade;
 	const Int shape[4] = { m_map->getXExtent(), m_map->getYExtent(), m_map->getBorderSizeInline(), numLights };
 	walk.bits(shape, sizeof(shape));
-	walk.bits(TheGlobalData->m_terrainLightPos, numLights*sizeof(Coord3D));
-	walk.bits(TheGlobalData->m_terrainDiffuse, numLights*sizeof(RGBColor));
-	walk.bits(&TheGlobalData->m_terrainAmbient[0], sizeof(RGBColor));
+	/* Tiles that leave the sun to the pixel read neither the sun's direction nor its colour, and their
+		 ambient is the one the day and night cycle holds still (DayNight_bakedTerrainAmbient), so the
+		 cycle's steps do not retire every cell.  A change of mode is a whole rebuild, which marks the
+		 cells stale anyway; the mode is walked too. */
+	const Int sunApart = sunPerPixelBaked() ? 1 : 0;
+	walk.bits(&sunApart, sizeof(sunApart));
+	if (!sunApart) {
+		walk.bits(TheGlobalData->m_terrainLightPos, numLights*sizeof(Coord3D));
+		walk.bits(TheGlobalData->m_terrainDiffuse, numLights*sizeof(RGBColor));
+	}
+	const RGBColor bakedAmbient = DayNight_bakedTerrainAmbient(TheGlobalData->m_terrainAmbient[0], sunApart != 0);
+	walk.bits(&bakedAmbient, sizeof(RGBColor));
 	walk.bits(&TheGlobalData->m_waterPositionZ, sizeof(Real));
 	walk.bits(&useDepthFade, sizeof(useDepthFade));
 	walk.bits(&m_depthFade, sizeof(m_depthFade));
@@ -2720,6 +2742,12 @@ void BaseHeightMapRenderObjClass::staticLightingChanged( void )
 	m_curNumScorchIndices=0;
 	m_roadBuffer->updateLighting();
 
+	// the batched trees and the bibs bake the light into their vertices, and only refill on a change
+	if (m_treeBuffer)
+		m_treeBuffer->lightingChanged();
+	if (m_bibBuffer)
+		m_bibBuffer->lightingChanged();
+
 }
 
 //=============================================================================
@@ -2803,10 +2831,47 @@ Bool BaseHeightMapRenderObjClass::takeDirtyRegion( IRegion2D &region )
 //=============================================================================
 // BaseHeightMapRenderObjClass::setTimeOfDay
 //=============================================================================
-/** When the time of day changes, the lighting changes and we need to update. */
+/** When the time of day changes, the lighting changes and we need to update.
+
+	DayNight_groundRetint answers other than FULL only inside a step of the day and night cycle's own
+	light (DayNight_applyMapLight, through GameClient::refreshMapLight), so the Apocalypse's tint, a
+	script's hour, the debug key and a map load still rebuild the whole ground as they always did.
+	LIGHT_ONLY needs the tiles baked without the sun as well (sunPerPixelBaked): the direction and the
+	diffuse reach them every frame and the cycle's ambient rides on as a shader term, so only the trees
+	and bibs, which bake all of it, refill.  SPREAD relights the ground over frames. */
 //=============================================================================
+void BaseHeightMapRenderObjClass::setCloudStrength( Real strength )
+{
+	if (m_stageTwoTexture)
+		m_stageTwoTexture->setStrength(strength);
+}
+
 void BaseHeightMapRenderObjClass::setTimeOfDay( TimeOfDay tod )
-{		 
+{
+	const Int retint = DayNight_groundRetint();
+	if ((retint == DAYNIGHT_GROUND_LIGHT_ONLY || retint == DAYNIGHT_GROUND_LIGHT_AND_TREES) && sunPerPixelBaked())
+	{
+		// the few things that bake the whole light and are cheap to refill: the scorches and the bridges
+		m_scorchesInBuffer = 0;
+		m_curNumScorchVertices = 0;
+		m_curNumScorchIndices = 0;
+		if (m_bridgeBuffer)
+			m_bridgeBuffer->lightingChanged();
+		// the trees and bibs, up to eight buffers of 30000 vertices, only on the cycle's coarser steps
+		if (retint == DAYNIGHT_GROUND_LIGHT_AND_TREES)
+		{
+			if (m_treeBuffer)
+				m_treeBuffer->lightingChanged();
+			if (m_bibBuffer)
+				m_bibBuffer->lightingChanged();
+		}
+		return;
+	}
+	if (retint == DAYNIGHT_GROUND_SPREAD)
+	{
+		spreadLightingChanged();
+		return;
+	}
 	staticLightingChanged();
 }
 
@@ -3273,7 +3338,24 @@ Int BaseHeightMapRenderObjClass::renderTreeShadowCasters(RenderInfoClass &sunInf
 	return casters;
 }
 
-void BaseHeightMapRenderObjClass::renderTrees(CameraClass * camera)
+/** The GroundFoliage option's grass on its own, for the Ray Traced level, which draws it ahead of
+	the trees so the sun's rays take it in and leave the batched trees, which no level's sun ever
+	shadowed, unshaded (RTS3DScene::Flush).  Then renderTrees is called with grass FALSE. */
+void BaseHeightMapRenderObjClass::renderGrass(CameraClass * camera)
+{
+#ifdef EXTENDED_STATS
+	if (DX8Wrapper::stats.m_disableObjects) {
+		return;
+	}
+#endif
+	if (m_map == NULL || Scene == NULL || m_treeBuffer == NULL || m_grassBuffer == NULL) return;
+	// the trees' flag that the terrain drew this pass, still up: drawTrees has not run yet
+	if (m_treeBuffer->needToDraw()) {
+		m_grassBuffer->drawGrass(camera, m_terrainContentVersion, Transform);
+	}
+}
+
+void BaseHeightMapRenderObjClass::renderTrees(CameraClass * camera, Bool grass)
 {
 #ifdef EXTENDED_STATS
 	if (DX8Wrapper::stats.m_disableObjects) {
@@ -3299,7 +3381,7 @@ void BaseHeightMapRenderObjClass::renderTrees(CameraClass * camera)
 				m_skirtTrees->drawTrees(camera, &pDynamicLightsIterator);
 			}
 		}
-		if (m_grassBuffer && terrainPass) {
+		if (m_grassBuffer && terrainPass && grass) {
 			m_grassBuffer->drawGrass(camera, m_terrainContentVersion, tm);
 		}
 	}

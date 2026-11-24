@@ -52,6 +52,7 @@
 #include "GameLogic/Armor.h"
 #include "GameLogic/ExperienceTracker.h"
 #include "GameLogic/GameLogic.h"
+#include "GameLogic/LaneWarDirector.h"
 #include "GameLogic/LaneWarStats.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/Damage.h"
@@ -292,7 +293,21 @@ void ActiveBody::validateArmorAndDamageFX() const
 //-------------------------------------------------------------------------------------------------
 Real ActiveBody::estimateDamage( DamageInfoInput& damageInfo ) const
 {
-	validateArmorAndDamageFX();
+	/* the cursor's can-attack hint asks this from the client, and the draw beside the tick could store an
+		 armour from flags the tick has since changed, over the tick's own; asked there, the armour is
+		 worked out and not stored */
+	Armor armor = m_curArmor;
+	if( Thing::isCachePeek() )
+	{
+		const ArmorTemplateSet* set = getObject()->getTemplate()->findArmorTemplateSet(m_curArmorSetFlags);
+		if( set && set != m_curArmorSet )
+			armor = set->getArmorTemplate() ? TheArmorStore->makeArmor(set->getArmorTemplate()) : Armor();
+	}
+	else
+	{
+		validateArmorAndDamageFX();
+		armor = m_curArmor;
+	}
 
 	//Subdual damage can't affect you if you can't be subdued
 	if( IsSubdualDamage(damageInfo.m_damageType)  &&  !canBeSubdued() )
@@ -316,7 +331,7 @@ Real ActiveBody::estimateDamage( DamageInfoInput& damageInfo ) const
 		}
 	}
 
-	Real amount = m_curArmor.adjustDamage(damageInfo.m_damageType, damageInfo.m_amount);
+	Real amount = armor.adjustDamage(damageInfo.m_damageType, damageInfo.m_amount);
 
 	return amount;
 }
@@ -566,6 +581,16 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 			amount *= m_damageScalar;
 		}
 
+		// Direct Strike's scales on a few of EA's guns, in a lane match only (LaneWar_damagePercent); a hit
+		// at 100 percent keeps its float path untouched
+		if( damager != NULL && TheLaneWarDirector != NULL && TheLaneWarDirector->isActive() )
+		{
+			const Int percent = LaneWar_damagePercent( damager->getTemplate()->getName().str(),
+				obj->isKindOf( KINDOF_STRUCTURE ), obj->isKindOf( KINDOF_INFANTRY ) );
+			if( percent != 100 )
+				amount = amount * (Real)percent / 100.0f;
+		}
+
 		// one hit kill: anything that got through the armour at all takes the whole bar
 		Player *damagerPlayer = damager ? damager->getControllingPlayer() : NULL;
 		if( amount > 0.0f && damagerPlayer && damagerPlayer != victimPlayer
@@ -689,12 +714,17 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 				d->onDamage( damageInfo );
 			}
 
-			// the client draws where it landed (a structure in fragments); logic tells, never asks back
+			// the client draws where it landed (a structure in fragments); logic tells, never asks back.  A
+			// kill with no point of impact (a nuke's blast, poison) tells too, at the object with no hole
+			// (a radius below zero), or a structure DestroyDie takes at once vanished instead of falling
 			Drawable *draw = obj->getDrawable();
-			if( draw && damageInfo->in.m_hasImpact )
+			const Bool killed = m_currentHealth <= 0 && m_prevHealth > 0;
+			if( draw && ( damageInfo->in.m_hasImpact || killed ) )
 			{
 				const Object *source = TheGameLogic->findObjectByID( damageInfo->in.m_sourceID );
-				draw->reactToImpact( damageInfo->in.m_impactPos, damageInfo->in.m_impactRadius, source ? source->getPosition() : NULL );
+				const Bool impact = damageInfo->in.m_hasImpact;
+				draw->reactToImpact( impact ? damageInfo->in.m_impactPos : *obj->getPosition(), impact ? damageInfo->in.m_impactRadius : -1.0f,
+					source ? source->getPosition() : NULL );
 			}
 		}
 

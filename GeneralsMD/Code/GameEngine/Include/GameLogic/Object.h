@@ -505,6 +505,7 @@ public:
 	void addSightJammer();		///< an enemy jammer's field took it in: its sight shrinks until the last one lets go
 	void removeSightJammer();	///< a jammer's field let go of it
 	Bool isSightJammed() const { return m_sightJammerCount > 0; }
+	void refreshLook() { unlook(); look(); }	///< look again with what the range is now, for the day and night cycle's sight steps
 
 	// Both of these calls are intended to only be used by TerrainLogic, specifically setActiveBoundary()
 	void friend_prepareForMapBoundaryAdjust(void);
@@ -793,6 +794,8 @@ private:
 	Bool					m_reinforcementRetargeted;	///< the one re-issue on arrival has been used
 	Drawable*			m_drawable;									///< drawable (if any) for this object
 	AsciiString		m_name;										///< internal name
+	Coord3D				m_notedPos;									///< position the partition and trigger areas last reacted to (reactToTransformChange)
+	Real					m_notedAngle;								///< orientation the partition last reacted to
 
 	Object *			m_next;
 	Object *			m_prev;

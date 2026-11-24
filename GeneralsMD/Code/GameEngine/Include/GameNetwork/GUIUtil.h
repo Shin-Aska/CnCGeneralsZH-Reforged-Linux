@@ -96,6 +96,7 @@ void UpdateUnitLimitCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMa
 void UpdateProRulesCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMayEdit);
 // The Hidden Map check box, the same thing for SH, the black start a ranked Quick Match also plays.
 void UpdateStartShroudedCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMayEdit);
+void UpdateDayNightCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMayEdit);
 
 // The income sharing dropdown, one entry per IncomeSharing in GameInfo.h, travelling as IS.
 void PopulateIncomeSharingComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
@@ -227,18 +228,51 @@ Bool IsDirectStrikeMap(const AsciiString &map);
 // a lane map from a seed off the clock, staged, in the map cache and the game's, CRC and size with it
 Bool SetDirectStrikeMap(GameInfo *game);
 // The seats under the mode's rules, for a host to call before it shows or sends the slot list.  The
-// seat is the place: seats 1, 3 and 5 are team 1, 2, 4 and 6 team 2, and seat n stands on start n,
-// which is how the director pairs starts with teams.  Seats past six are closed, Turkiye and the
-// observer become Random (a Random pool loses Turkiye), and the rules that mean nothing here (unit
-// limit, peace time, income sharing, the tech and supply rules, Pro Rules) go off.  TRUE when it
-// changed anything, so a network host sends the options again.
+// seat is the place: seats 1, 3 and 5 are team 1, 2, 4 and 6 team 2, and seat n is start n, which is
+// how the director pairs starts with teams.  A player sits where his start says (he moves by asking
+// for another start, the rooms' own start spot path), every other seated slot takes the seat it was
+// shown at (DirectStrikeSeats) as its start, and the team follows the seat.  Seats past six are
+// closed, Turkiye and the observer become Random (a Random pool loses Turkiye), and the rules that
+// mean nothing here (unit limit, peace time, income sharing, the tech and supply rules, Pro Rules) go
+// off.  TRUE when it changed anything, so a network host sends the options again.
 Bool FitDirectStrikeRoom(GameInfo *game);
+// which of the first six slots shows at which seat, DirectStrikeLobby_seats over the slot list: the
+// same answer on every machine of the room
+void DirectStrikeSeats(const GameInfo *game, Int seatOf[], Int slotAt[]);
+// TRUE when a player may move to `seat`: a seat of the six whose slot is open.  A host checks a
+// joiner's request with it, so a seat closed or taken meanwhile is refused
+Bool DirectStrikeSeatIsOpen(const GameInfo *game, Int seat);
 // The room's look (SkirmishGameOptionsMenu, LanGameOptionsMenu, WOLGameSetupMenu): the Direct Strike
 // lobby over the room's layout, DirectStrikeLobby.h, its three seat cards a team facing each other.  A
 // room calls it after every slot list repaint; ShutdownLobbySeatVisuals takes it off.
 void LayoutDirectStrikeRoom(GameWindow *parent, const char *layoutFilename, const GameInfo *game);
-// Create Game's question, which mode the room is for: Classic or Direct Strike, and Cancel
-void AskGameMode(void (*classic)(void), void (*directStrike)(void));
+enum { APOCALYPSE_SEATS = 4 };	///< RMG_APOC_SEATS_MOST, which clampSettings holds the map to
+// Apocalypse in the skirmish room: like Direct Strike the map's name carries the mode
+// (ApocalypseDirector wakes on its waypoints), so nothing travels in the options string.  A fresh
+// Apocalypse map for the room's seats, staged, in the cache and the game's, CRC and size with it
+Bool SetApocalypseMap(GameInfo *game, Bool allSeats = FALSE);	// allSeats: four starts, so a network room opens four seats
+// Seats past four closed (the map's starts, clampSettings), the seated players on starts 1..n in seat
+// order (the day waves' first front faces start 1), and the rules that mean nothing in a co-op survival
+// off; TRUE when it changed anything
+Bool FitApocalypseRoom(GameInfo *game);
+// a generated Apocalypse map ("rmg_v<n>_<seed>_<n>p_<cells>c_apocalypse"), by its name or its folder's,
+// '\' or '/' paths alike: how a joiner, a game list and a network room know the mode
+Bool IsApocalypseMap(const AsciiString &map);
+// An Apocalypse room shows its four seats only: every window of the layout's seat rows from this row on
+// hidden.  A room calls it after each slot list repaint, which would show them again
+void HideLobbySeatRowsFrom(GameWindow *parent, const char *layoutFilename, Int firstHiddenRow);
+
+// The mode a host's room is for, the Create Game and Host buttons' question.  Set by the lobby that
+// asked, read by the room it opens: LAN spends it at room init, online keeps it while hosting
+// (OnlinePeer's game.host and the options it holds back until the mode's map is staged).
+enum HostGameMode { HOST_MODE_CLASSIC = 0, HOST_MODE_DIRECT_STRIKE, HOST_MODE_APOCALYPSE };
+extern Int TheHostGameMode;
+// Create Game's question, which mode the room is for: GameModeBox.wnd's Classic, Direct Strike and
+// Apocalypse, and Cancel, which answers nothing.  The answer gets the HostGameMode picked
+void AskGameMode(void (*answer)(Int mode));
+/// a mode's name with its version tag after it ("Direct Strike v1.0"): the name's key, then the one key
+/// that holds the version for every place the mode is named; the bare name when that key is missing or empty
+UnicodeString ModeNameWithVersion(const char *nameKey, const char *versionKey);
 
 void EnableSlotListUpdates( Bool val );
 Bool AreSlotListUpdatesEnabled( void );

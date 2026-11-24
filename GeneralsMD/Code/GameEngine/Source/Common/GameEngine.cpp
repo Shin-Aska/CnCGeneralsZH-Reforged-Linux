@@ -207,12 +207,37 @@ GameEngine *TheGameEngine = NULL;
 SubsystemInterfaceList* TheSubsystemList = NULL;
 
 //-------------------------------------------------------------------------------------------------
+/* Two machines died of 0xC0000374 at every stage from the EA logo to a map load, four times with the
+	 log ending just before the Direct3D device was made: something writes past a heap block while the
+	 game starts, and the heap only notices later, somewhere else.  The process heap is walked before and
+	 after every subsystem's init, and the first walk that finds it broken says between which two, which
+	 is the line a crash report's log tail carries.  Startup only; once broken, no more walks. */
+static Int s_startupHeapChecks = 0;
+static Bool s_startupHeapBroken = FALSE;
+
+static void startupHeapCheck( const char *when, const AsciiString &name )
+{
+#if defined(_WIN32)
+	if ( s_startupHeapBroken )
+		return;
+	++s_startupHeapChecks;
+	if ( !HeapValidate( GetProcessHeap(), 0, NULL ) )
+	{
+		s_startupHeapBroken = TRUE;
+		DEBUG_LOG(( "HEAPCHECK: the process heap is corrupt %s %s (check %d)\n", when, name.str(), s_startupHeapChecks ));
+	}
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
 template<class SUBSYSTEM>
-void initSubsystem(SUBSYSTEM*& sysref, AsciiString name, SUBSYSTEM* sys, Xfer *pXfer,  const char* path1 = NULL, 
+void initSubsystem(SUBSYSTEM*& sysref, AsciiString name, SUBSYSTEM* sys, Xfer *pXfer,  const char* path1 = NULL,
 									 const char* path2 = NULL, const char* dirpath = NULL)
 {
+	startupHeapCheck( "before", name );
 	sysref = sys;
 	TheSubsystemList->initSubsystem(sys, path1, path2, dirpath, pXfer, name);
+	startupHeapCheck( "after", name );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -945,6 +970,7 @@ static void startAutoSkirmish( Int numPlayersWanted )
 	TheSkirmishGameInfo->setTechRespawn( TheGlobalData->m_techRespawn );
 	TheSkirmishGameInfo->setSupplyPileLimit( TheGlobalData->m_supplyPileLimit );
 	TheSkirmishGameInfo->setStartShrouded( TheGlobalData->m_startShrouded );
+	TheSkirmishGameInfo->setDayNight( TheGlobalData->m_dayNight );
 	TheSkirmishGameInfo->setSuperweaponRestriction( (UnsignedShort)TheGlobalData->m_superweapons );
 	TheSkirmishGameInfo->setGameSpeedPercent( TheGlobalData->m_autoSkirmishGameSpeedPercent );
 	if (TheGlobalData->m_startingCash > 0)
@@ -1444,6 +1470,9 @@ void GameEngine::init( int argc, char *argv[] )
 		ini.load( AsciiString( "Data\\INI\\TurkiyeReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		// The general's talents, ranks 6 to 10: each card a science and whatever it grants
 		ini.load( AsciiString( "Data\\INI\\TalentsReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
+		/* The Apocalypse mode's zombies, their locomotors and weapons: every name new, so OVERWRITE,
+			 which MULTIFILE would refuse for an object that is not a reskin. */
+		ini.load( AsciiString( "Data\\INI\\ApocalypseReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 
 	#ifdef DUMP_PERF_STATS///////////////////////////////////////////////////////////////////////////
 	GetPrecisionTimer(&endTime64);//////////////////////////////////////////////////////////////////
@@ -1539,6 +1568,9 @@ void GameEngine::init( int argc, char *argv[] )
 		checksumFileContents( xferCRC, "Data\\INI\\CommandButton.ini" );
 		checksumFileContents( xferCRC, "Data\\INI\\CommandSet.ini" );
 		checksumFileContents( xferCRC, "Data\\INI\\CommandSetReforged.ini" );
+		// TheChallengeGenerals loads it without the checksum, and its StartsEnabled decides the Random
+		// pool's candidates and whether a seat gets its starting buildings (GameLogic::startNewGame)
+		checksumFileContents( xferCRC, "Data\\INI\\ChallengeMode.ini" );
 		checksumModels( xferCRC );
 
 		xferCRC.close();
@@ -1732,6 +1764,12 @@ void GameEngine::init( int argc, char *argv[] )
 
 	TheSubsystemList->resetAll();
 	HideControlBar();
+
+	startupHeapCheck( "after", AsciiString( "resetAll" ) );
+#if defined(_WIN32)
+	if ( !s_startupHeapBroken )
+		DEBUG_LOG(( "HEAPCHECK: the process heap was whole at all %d checks of startup\n", s_startupHeapChecks ));
+#endif
 
 	/* Now that every subsystem has been reset, the recorder can be handed the replay and keep
 		 it: the file stays open, the mode stays PLAYBACK, and the MSG_NEW_GAME appended here is

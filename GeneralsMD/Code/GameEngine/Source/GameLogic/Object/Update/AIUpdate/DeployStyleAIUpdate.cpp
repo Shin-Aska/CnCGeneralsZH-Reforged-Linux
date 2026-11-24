@@ -119,7 +119,12 @@ void DeployStyleAIUpdate::aiDoCommand( const AICommandParms* parms )
 //-------------------------------------------------------------------------------------------------
 Bool DeployStyleAIUpdate::willTargetStayInRange( const Weapon *weapon ) const
 {
+	// On the frame of the attack order the attack state has its goal but has not yet named it the
+	// victim, and with no victim the unpack was waved through: the cannon unpacked for a Humvee that
+	// had set off five frames before the order.
 	const Object *victim = getCurrentVictim();
+	if( victim == NULL )
+		victim = getStateMachine()->getGoalObject();
 	if( victim == NULL || victim->getPhysics() == NULL )
 		return TRUE;
 
@@ -323,7 +328,9 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 	Object *self = getObject();
 	UnsignedInt now = TheGameLogic->getFrame();
 	const DeployStyleAIUpdateModuleData *data = getDeployStyleAIUpdateModuleData();
-	
+	// what the deploy scenarios count set-ups and pack-ups by
+	DEBUG_LOG(("DEPLOY STATE: frame %d '%s' %d -> %d%s\n", now, self->getTemplate()->getName().str(), self->getID(), (Int)stateID, reverseDeploy ? " reversed" : ""));
+
 	switch( stateID )
 	{
 		case DEPLOY:

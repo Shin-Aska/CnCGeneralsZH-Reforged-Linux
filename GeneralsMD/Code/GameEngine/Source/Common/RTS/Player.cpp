@@ -2485,7 +2485,8 @@ void Player::transferAssetsFromThat(Player *that)
 	std::list<Object *> objsToTransfer;
 
 	// let's not transfer beacons
-	const ThingTemplate *beaconTemplate = TheThingFactory->findTemplate( that->getPlayerTemplate()->getBeaconTemplate() );
+	const PlayerTemplate *thatTemplate = that->getPlayerTemplate();
+	const ThingTemplate *beaconTemplate = thatTemplate ? TheThingFactory->findTemplate( thatTemplate->getBeaconTemplate() ) : NULL;
 
 	// transfer all his units.
 	for (PlayerTeamList::iterator it = that->m_playerTeamPrototypes.begin(); 
@@ -3680,11 +3681,11 @@ Int IncomeBonusTarget( Int ownStrength, Int strongestEnemyStrength, Int maxBonus
   return bonus < maxBonus ? bonus : maxBonus;
 }
 
-void IncomeSideWorths( const Int *worth, const PlayerMaskType *allies, Int count, Int self, Int *ownAverage, Int *strongestEnemyAverage )
+void IncomeSideWorths( const Int *worth, const PlayerMaskType *allies, Int count, Int self, Int *ownWorth, Int *strongestEnemyWorth )
 {
   PlayerMaskType grouped = 0;
-  *ownAverage = 0;
-  *strongestEnemyAverage = 0;
+  *ownWorth = 0;
+  *strongestEnemyWorth = 0;
   for( Int lead = 0; lead < count; ++lead )
   {
     if( grouped & playerIndexToMask( lead ) )
@@ -3692,7 +3693,6 @@ void IncomeSideWorths( const Int *worth, const PlayerMaskType *allies, Int count
     // the leader's own side when it is this player or one of its allies, else the next enemy side
     const Bool ours = lead == self || ( allies[ self ] & playerIndexToMask( lead ) ) != 0;
     Int64 sum = 0;
-    Int size = 0;
     for( Int i = lead; i < count; ++i )
     {
       if( grouped & playerIndexToMask( i ) )
@@ -3703,13 +3703,14 @@ void IncomeSideWorths( const Int *worth, const PlayerMaskType *allies, Int count
         continue;
       grouped |= playerIndexToMask( i );
       sum += worth[ i ];
-      ++size;
     }
-    const Int average = (Int)( sum / size );
+    // the side's whole worth: two against one is two players' worth against one, so a computer
+    // beside a weak partner is not behind a lone enemy it outnumbers, and the lone one is
+    const Int total = sum < 0x7FFFFFFF ? (Int)sum : 0x7FFFFFFF;
     if( ours )
-      *ownAverage = average;
-    else if( average > *strongestEnemyAverage )
-      *strongestEnemyAverage = average;
+      *ownWorth = total;
+    else if( total > *strongestEnemyWorth )
+      *strongestEnemyWorth = total;
   }
 }
 
@@ -3794,9 +3795,23 @@ Int Player::countUnitsTowardCap( void ) const
   return count;
 }
 
-/** The most base defences a Tech computer's first superweapon waits for, Easy, Medium and Hard, read at the
-	* seat's rating; extern for aiRatingTables. */
-extern const AIRungInt TECH_FIRST_DEFENSES = { { 8, 6, 4 }, AIKNOB_OPEN };
+/** The most base defences a computer's superweapon waits for, the first and every one after it, Easy, Medium
+	* and Hard, read at the seat's rating; extern for aiRatingTables.  It only ever loosens the rung's ration
+	* (m_superweaponDefenses, 4): up to Hard it reads 4 or more and changes nothing, past Hard it falls, 3 at
+	* Brutal and Vicious, 2 at Savage and Insane, so a higher rating puts its superweapons up on fewer guns. */
+extern const AIRungInt SUPERWEAPON_MOST_DEFENSES = { { 8, 6, 4 }, AIKNOB_OPEN };
+
+/** The guns each superweapon asks of this computer: the rung's ration, held to SUPERWEAPON_MOST_DEFENSES at
+	* its rating and never under one, since the curve rounds to 0 far past any ladder.  0 still asks none. */
+Int SuperweaponDefensesAtRating( Int ration, Real rating )
+{
+  if ( ration <= 0 )
+    return ration;
+  Int most = aiRatingLerp( rating, SUPERWEAPON_MOST_DEFENSES );
+  if ( most < 1 )
+    most = 1;
+  return ration < most ? ration : most;
+}
 
 //=============================================================================
 Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerOrder ) const
@@ -3845,12 +3860,9 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerO
   {
     SuperweaponDefenseCount count = { 0, 0 };
     iterateObjects( countSuperweaponDefenses, &count );
-    // a Tech computer's first superweapon is its plan, and a GLA Air one's SCUD Storm, and waits for
-    // at most this many guns, whatever the rung's own ration asks (TECH_FIRST_DEFENSES)
-    const Bool techFirst = count.superweapons == 0 && m_ai->superweaponIsPlan() &&
-      count.defenses >= aiRatingLerp( m_ai->getAIRating(), TECH_FIRST_DEFENSES );
-    if ( !techFirst && SuperweaponDefenseCapRefuses( count.defenses, count.superweapons,
-                                                     m_ai->getSkillProfile()->m_superweaponDefenses ) )
+    // the rung's ration, which a rating past Hard lowers (SUPERWEAPON_MOST_DEFENSES)
+    const Int ration = SuperweaponDefensesAtRating( m_ai->getSkillProfile()->m_superweaponDefenses, m_ai->getAIRating() );
+    if ( SuperweaponDefenseCapRefuses( count.defenses, count.superweapons, ration ) )
       return false;
   }
 

@@ -183,7 +183,8 @@ function Install-Mbedtls {
 }
 
 # --- The fork's own upscaled art: every 3D texture at twice its size, and the ground, and the
-# rebuilt models, one Reforged<Side>.big per side that Tools\artpack.py packs. Not in git -
+# rebuilt models, one Reforged<Side>.big per side that Tools\artpack.py packs, and the structures'
+# fracture sets in ReforgedFracture.big, cut from retail models and so never in git either. Not in git -
 # ReforgedTextures.big alone is a gigabyte, ten times
 # what GitHub takes in a file, and LFS in a fork is billed to the parent repository.
 #
@@ -244,6 +245,7 @@ function Get-ArtFromChannel {
       url    = "$channelUrl$($release.folder)/$($_.path -replace '\\', '/')"
       size   = $_.size
       sha256 = $_.sha256
+      date   = $release.date
     }
   })
 }
@@ -276,9 +278,15 @@ function Install-Art {
   New-Item -ItemType Directory -Force -Path $runFolder | Out-Null
   foreach ($file in $wanted) {
     $target = Join-Path $runFolder $file.name
-    if ((Test-Path $target) -and -not $Force -and
-        (Get-FileHash $target -Algorithm SHA256).Hash -eq $file.sha256.ToUpper()) {
-      continue
+    if ((Test-Path $target) -and -not $Force) {
+      if ((Get-FileHash $target -Algorithm SHA256).Hash -eq $file.sha256.ToUpper()) { continue }
+      # A copy written after the release went out is one built here (ReforgedSkins.big before
+      # v4.3.1 carried it was overwritten by the channel's older one on every build). An older copy
+      # is a stale download and is replaced. The GitHub release lists no date, so it always replaces.
+      if ($file.date -and (Get-Item $target).LastWriteTime.Date -gt [datetime]$file.date) {
+        Step "keeping local $($file.name), newer than the channel's; -Force replaces it"
+        continue
+      }
     }
     $partial = "$target.part"
     Step "downloading $($file.name) ($([Math]::Round($file.size / 1MB)) MB)"

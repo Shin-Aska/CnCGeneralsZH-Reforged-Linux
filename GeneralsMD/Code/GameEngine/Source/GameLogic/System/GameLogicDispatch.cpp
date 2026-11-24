@@ -44,6 +44,7 @@
 #include "Common/NameKeyGenerator.h"
 #include "Common/ThingFactory.h"
 #include "Common/Player.h"
+#include "Common/Science.h"
 #include "Common/PlayerList.h"
 #include "Common/PlayerTemplate.h"
 #include "Common/MessageStream.h"
@@ -58,6 +59,7 @@
 #include "Common/Radar.h"
 
 #include "GameLogic/AIPathfind.h"
+#include "GameLogic/ApocalypseDirector.h"
 #include "GameLogic/ExperienceTracker.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/LaneWarDirector.h"
@@ -995,6 +997,14 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 			const Int amount = msg->getArgument( 1 )->integer;
 			if( amount <= 0 || targetIndex < 0 || targetIndex >= ThePlayerList->getPlayerCount() )
 				break;
+			// No gifts in Direct Strike or Apocalypse: each director decides from the map, the same on every
+			// machine.  The bots' own bank-to-bank sharing never sends this message and is left alone.
+			if( ( TheLaneWarDirector != NULL && TheLaneWarDirector->isActive() )
+					|| ( TheApocalypseDirector != NULL && TheApocalypseDirector->isActive() ) )
+			{
+				DEBUG_LOG(( "MONEY TRANSFER: frame %d player %d refused, mode match\n", getFrame(), thisPlayer->getPlayerIndex() ));
+				break;
+			}
 			Player *target = ThePlayerList->getNthPlayer( targetIndex );
 			if( target == thisPlayer || !thisPlayer->isPlayableSide() || !thisPlayer->isPlayerActive()
 					|| !target->isPlayableSide() || !target->isPlayerActive() )
@@ -2763,7 +2773,8 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 			TheTerrainLogic->getExtent(&r);
 			if (!r.isInRegionNoZ(&pos))
 				pos = TheTerrainLogic->findClosestEdgePoint(&pos);
-			const ThingTemplate *thing = TheThingFactory->findTemplate( thisPlayer->getPlayerTemplate()->getBeaconTemplate() );
+			const PlayerTemplate *beaconOwnerTemplate = thisPlayer->getPlayerTemplate();
+			const ThingTemplate *thing = beaconOwnerTemplate ? TheThingFactory->findTemplate( beaconOwnerTemplate->getBeaconTemplate() ) : NULL;
 			if (thing && !TheVictoryConditions->hasSinglePlayerBeenDefeated(thisPlayer))
 			{
 				Int count;
@@ -3000,10 +3011,12 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 				for (VecObjectID::const_iterator it = selectedObjects.begin(); it != selectedObjects.end(); ++it)
 				{
 					Object *beacon = findObjectByID(*it);
-					if (beacon)
+					// the selection can hold a civilian's or a neutral thing, whose player has no template and no beacon
+					const PlayerTemplate *beaconOwnerTemplate = beacon ? beacon->getControllingPlayer()->getPlayerTemplate() : NULL;
+					if (beaconOwnerTemplate)
 					{
-						const ThingTemplate *thing = TheThingFactory->findTemplate( beacon->getControllingPlayer()->getPlayerTemplate()->getBeaconTemplate() );
-						if (thing->isEquivalentTo(beacon->getTemplate()))
+						const ThingTemplate *thing = TheThingFactory->findTemplate( beaconOwnerTemplate->getBeaconTemplate() );
+						if (thing && thing->isEquivalentTo(beacon->getTemplate()))
 						{
 							if (beacon->getControllingPlayer() == thisPlayer)
 							{
@@ -3245,7 +3258,8 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 		//---------------------------------------------------------------------------------------------
 		case GameMessage::MSG_PURCHASE_SCIENCE:
 		{
-			ScienceType science = (ScienceType)msg->getArgument( 0 )->integer;
+			// the store's place, not the ScienceType: that is a NameKey, numbered per process
+			ScienceType science = TheScienceStore->getScienceFromMessageID( msg->getArgument( 0 )->integer );
 
 			// sanity
 			if( science == SCIENCE_INVALID )

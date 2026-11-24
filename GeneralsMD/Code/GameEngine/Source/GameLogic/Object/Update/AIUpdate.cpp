@@ -93,7 +93,11 @@ AIUpdateModuleData::AIUpdateModuleData()
 	for (int i = 0; i < MAX_TURRETS; i++)
 		m_turretData[i] = NULL;
 	m_autoAcquireEnemiesWhenIdle = 0;
-	m_moodAttackCheckRate.setRaw( 2000 );
+	// EA's 2000 let an idle unit watch an enemy inside its reach for up to two game seconds, three on
+	// the first check with its random half-rate offset (amovefield's STATUE stops, TODO 68); the idle
+	// state sleeps no longer than this clock, so it alone sets the wait. Twice the idle scans for every
+	// unit whose INI names no rate; they run as the frame's mood search jobs.
+	m_moodAttackCheckRate.setRaw( 1000 );
 #ifdef ALLOW_SURRENDER
 	m_surrenderDuration.setRaw( 120000 );
 #endif
@@ -263,6 +267,20 @@ static void AIUpdate_traceMove( const Object *obj, const Coord3D& framePos, Bool
 	LocomotorSetType set = (LocomotorSetType)INI::scanIndexList(ini->getNextToken(), TheLocomotorSetNames);
 	if (!self->m_locomotorTemplates[set].empty())
 	{
+		if (ini->getLoadType() == INI_LOAD_MULTIFILE)
+		{
+			/* TalentsReforged.ini adds SET_NORMAL_UPGRADED to objects retail leaves without one (the
+				 Rocket Buggy, the Demolitions Bomb Truck, the Inferno Cannon).  Base files from a repack or
+				 another mod that already give the object that set stopped v4.1.0 and v4.2.0 at start; the
+				 line is skipped and the object keeps the set its own files gave it.  On EA's files the set
+				 is empty here, so nothing changes there.  A Debug build still stops: one of our own patch
+				 lines naming a set twice (an ObjectReskin sharing its source's AI data) is ours to fix. */
+			DEBUG_LOG(("[LINE: %d in '%s'] %s already has locomotor set %s; the line is skipped\n",
+				ini->getLineNum(), ini->getFilename().str(), tt->getName().str(), TheLocomotorSetNames[set]));
+			DEBUG_CRASH(("[LINE: %d in '%s'] %s states locomotor set %s twice\n",
+				ini->getLineNum(), ini->getFilename().str(), tt->getName().str(), TheLocomotorSetNames[set]));
+			return;
+		}
 		if (ini->getLoadType() != INI_LOAD_CREATE_OVERRIDES)
 		{
 			g_LastErrorDump.format("[LINE: %d in '%s'] %s states locomotor set %s twice\n",
@@ -1362,7 +1380,8 @@ UpdateSleepTime AIUpdateInterface::update( void )
 	{
 		Object *me = getObject();
 		Object *tunnel = me->getContainedBy();
-		if (tunnel != NULL && tunnel->getContain()->isTunnelContain())
+		// what holds it can have no contain module (v4.2.0, frame 30495); Object::onDestroy asks the same
+		if (tunnel != NULL && tunnel->getContain() != NULL && tunnel->getContain()->isTunnelContain())
 		{
 			Object *exit = me->getControllingPlayer()->getTunnelSystem()->findTunnelNear( &m_tunnelTripGoal, me );
 			privateExit( exit != NULL ? exit : tunnel, CMD_FROM_AI );
@@ -2103,16 +2122,24 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 			}
 			// jba intense debug
 			//DEBUG_LOG(("*****Units ended up on top of each other.  Shouldn't happen.\n"));
+			// One order per collision at most, and none that leaves a unit where it stands: the
+			// other unit's collision runs this too, so moving both from both sides gave each up to
+			// two orders a tick, and a spot the pathfinder hands back unchanged repeated forever.
+			Bool moved = FALSE;
 			if (isIdle()) {
 				Coord3D safePosition = *getObject()->getPosition();
-				
 				TheAI->pathfinder()->adjustToPossibleDestination(getObject(), getLocomotorSet(), &safePosition);
-				aiMoveToPosition( &safePosition, CMD_FROM_AI ); 
+				if (safePosition.x != getObject()->getPosition()->x || safePosition.y != getObject()->getPosition()->y) {
+					aiMoveToPosition( &safePosition, CMD_FROM_AI );
+					moved = TRUE;
+				}
 			}
-			if (aiOther->isIdle()) {
-				TheAI->pathfinder()->adjustToPossibleDestination(other, aiOther->getLocomotorSet(), 
+			if (!moved && aiOther->isIdle()) {
+				TheAI->pathfinder()->adjustToPossibleDestination(other, aiOther->getLocomotorSet(),
 					&otherPos);
-				aiOther->aiMoveToPosition( &otherPos, CMD_FROM_AI);
+				if (otherPos.x != other->getPosition()->x || otherPos.y != other->getPosition()->y) {
+					aiOther->aiMoveToPosition( &otherPos, CMD_FROM_AI);
+				}
 			}
 		}
 	}
@@ -7436,6 +7463,7 @@ namespace
 		std::vector<Object *>	objects;
 		std::vector<Real>			distSqr;
 		SimpleObjectIterator	*iterator = NULL;
+		Int										reserved = 0;		///< clumps the iterator holds blocks for, filled on the logic thread
 	};
 
 	std::vector<MoodSearch>	s_moodSearches;
@@ -7531,6 +7559,7 @@ namespace
 			 them: every Object's armour for its armour flags now, and the AI's worth and armour tables and
 			 name keys for its template (AI_prewarmTargetTables); an aircraft's facing is filled in the walk
 			 above. A height above the ground is worked out in the job and not stored (Thing::CachePeek). */
+		Int objectCount = 0;
 		for( Object *o = TheGameLogic->getFirstObject(); o; o = o->getNextObject() )
 		{
 			DamageInfoInput probe;
@@ -7538,18 +7567,36 @@ namespace
 			probe.m_amount = 0.0f;
 			o->estimateDamage( probe );
 			AI_prewarmTargetTables( o );
+			++objectCount;
 		}
 		ThePartitionManager->prepareJobGathers();
+		/* A gather holds each object once and gives up past MOOD_SEARCH_CAPACITY, so no job's iterator
+			 fills past the smaller of the two. Its pool blocks are taken here, on the logic thread, by one
+			 throwaway fill that recycle() keeps as spares: a job then takes nothing from the pool (the
+			 iterator's blocks were the last allocations from a job in HEADLESS JOBS, TODO 190). */
+		const Int fill = min( objectCount, (Int)MOOD_SEARCH_CAPACITY );
 		const Int slots = min( JobSystem::workerCount() + 1, (Int)MOOD_SEARCH_SLOTS );
 		for( Int s = 0; s < slots; ++s )
 		{
-			if( (Int)s_moodSearchScratch[ s ].objects.size() < (Int)MOOD_SEARCH_CAPACITY )
+			MoodSearchScratch &scratch = s_moodSearchScratch[ s ];
+			if( (Int)scratch.objects.size() < (Int)MOOD_SEARCH_CAPACITY )
 			{
-				s_moodSearchScratch[ s ].objects.resize( MOOD_SEARCH_CAPACITY );
-				s_moodSearchScratch[ s ].distSqr.resize( MOOD_SEARCH_CAPACITY );
+				scratch.objects.resize( MOOD_SEARCH_CAPACITY );
+				scratch.distSqr.resize( MOOD_SEARCH_CAPACITY );
 			}
-			if( s_moodSearchScratch[ s ].iterator == NULL )
-				s_moodSearchScratch[ s ].iterator = newInstance( SimpleObjectIterator );
+			if( scratch.iterator == NULL )
+			{
+				scratch.iterator = newInstance( SimpleObjectIterator );
+				scratch.reserved = 0;
+			}
+			if( scratch.reserved < fill )
+			{
+				Object *any = TheGameLogic->getFirstObject();
+				for( Int i = 0; i < fill; ++i )
+					scratch.iterator->insert( any, 0.0f );
+				scratch.iterator->recycle();
+				scratch.reserved = fill;
+			}
 		}
 
 		JobSystem::parallel_for( (Int)s_moodSearches.size(), 1, moodSearchJob, NULL );
@@ -7581,6 +7628,7 @@ void AIUpdate_resetMoodSearches( void )
 			s_moodSearchScratch[ s ].iterator->deleteInstance();
 			s_moodSearchScratch[ s ].iterator = NULL;
 		}
+		s_moodSearchScratch[ s ].reserved = 0;
 	}
 }
 
@@ -7995,12 +8043,13 @@ void AIUpdateInterface::crc( Xfer *x )
 	* 20: the aggressive stance
 	* 21: the player's orders held until the exit path is done
 	* 22: the auto garrison search
-	* 23: the stuck ladder's state, the closest-path retry flag and the compact group goal */
+	* 23: the stuck ladder's state, the closest-path retry flag and the compact group goal
+	* 24: the crowd scan kept between looks */
 // ------------------------------------------------------------------------------------------------
 void AIUpdateInterface::xfer( Xfer *xfer )
 {
   // version
-  const XferVersion currentVersion = 23;
+  const XferVersion currentVersion = 24;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
  
@@ -8379,6 +8428,41 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 		xfer->xferUnsignedInt(&m_rescueCool);
 		xfer->xferBool(&m_retryPath);
 		xfer->xferBool(&m_compactGoal);
+	}
+
+	if (version >= 24)
+	{
+		// The neighbour scan crowdSteer reuses between its staggered looks.  Without it every loaded
+		// unit looked on its first crowd frame, where the game that was saved read the copy.  An
+		// invalid copy is never read (the next frame scans) and its fields were never set, so only a
+		// valid one is written.
+		CrowdScan &s = m_crowdScan;
+		xfer->xferBool(&s.valid);
+	}
+	if (version >= 24 && m_crowdScan.valid)
+	{
+		CrowdScan &s = m_crowdScan;
+		xfer->xferReal(&s.sep);
+		xfer->xferObjectID(&s.blocker);
+		xfer->xferObjectID(&s.joiner);
+		xfer->xferReal(&s.joinerSide);
+		xfer->xferReal(&s.joinerR);
+		xfer->xferBool(&s.giveWay);
+		xfer->xferReal(&s.giveWayLat);
+		xfer->xferInt(&s.rank);
+		xfer->xferBool(&s.touching);
+		xfer->xferBool(&s.crossing);
+		xfer->xferInt(&s.nearCount);
+		if (s.nearCount < 0 || s.nearCount > CROWD_SCAN_NEAR_MAX)
+			throw SC_INVALID_DATA;
+		for (Int n = 0; n < s.nearCount; ++n)
+		{
+			xfer->xferReal(&s.nearLat[n]);
+			xfer->xferReal(&s.nearR[n]);
+		}
+		xfer->xferBool(&s.packAny);
+		xfer->xferReal(&s.packLo);
+		xfer->xferReal(&s.packHi);
 	}
 
 }  // end xfer

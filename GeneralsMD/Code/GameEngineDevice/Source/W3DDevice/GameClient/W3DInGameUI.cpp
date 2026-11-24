@@ -65,9 +65,11 @@
 #include "GameClient/Image.h"
 #include "GameClient/Mouse.h"
 #include "GameClient/ObserverCamera.h"
+#include "GameClient/LaneHud.h"
 #include "W3DDevice/GameClient/W3DAssetManager.h"
 #include "W3DDevice/GameClient/W3DGUICallbacks.h"
 #include "W3DDevice/GameClient/W3DInGameUI.h"
+#include "W3DDevice/GameClient/W3DGroundMarkers.h"
 #include "W3DDevice/GameClient/W3DDisplay.h"
 #include "W3DDevice/GameClient/W3DScene.h"
 #include "W3DDevice/GameClient/W3DView.h"
@@ -433,6 +435,7 @@ void W3DInGameUI::reset( void )
 	m_hudOverlayDraw.clear();
 	m_guardMarkersFrame = ~0u;
 	m_guardMarkerTops.clear();
+	W3DGroundMarkers_reset();
 
 }  // end reset
 
@@ -454,6 +457,7 @@ void W3DInGameUI::recordDraw( void )
 	m_orderRingColors.clear();
 	m_orderRingBornMs.clear();
 	m_orderMarkers.clear();
+	W3DGroundMarkers_clearDraw();		// nothing of the last picture's, under -cinema included
 	takeMoveHintTransforms();
 	if( CinemaDirector_hidesHud() )
 		return;
@@ -469,6 +473,7 @@ void W3DInGameUI::recordDraw( void )
 	preDraw();
 	takeBuildGrid();	// after preDraw, which puts the ghost where the patch is centred
 	takeOrderRings();	// after preDraw, which places them (updateOrderHints)
+	W3DGroundMarkers_take( this );	// after preDraw, which puts the aimed cursor's point (handleRadiusCursor)
 
 	// draw the formation line if one is being dragged out
 	if( m_isFormationDragging )
@@ -1139,6 +1144,28 @@ void W3DInGameUI::drawLanePlotGrids( Bool shadeByShroud )
 			}
 		}
 	}
+
+	// the block the armed card or the carried unit would take, washed green where it may go and red
+	// where it may not, in quads of half a slot so the wash follows the ground as the lines do
+	Coord2D at;
+	Real half;
+	Bool legal;
+	if( LaneHud_heldFootprint( &at, &half, &legal ) )
+	{
+		const Real WASH_ALPHA = 0x50;
+		const UnsignedInt c = overlayColor( legal ? 0x003CBA48 : 0x00F03C2D, WASH_ALPHA );	// DirectStrikeTheme's green, LaneHud's red
+		const Real step = 0.5f * SLOT;
+		const Int n = max( 1, REAL_TO_INT_FLOOR( 2.0f * half / step + 0.5f ) );
+		for( Int j = 0; j < n; ++j )
+			for( Int i = 0; i < n; ++i )
+			{
+				const Real x0 = at.x - half + i * step, x1 = x0 + step;
+				const Real y0 = at.y - half + j * step, y1 = y0 + step;
+				quads.add( Vector3( x0, y0, overlayGround( x0, y0 ) + LIFT ), Vector3( x1, y0, overlayGround( x1, y0 ) + LIFT ),
+									 Vector3( x1, y1, overlayGround( x1, y1 ) + LIFT ), Vector3( x0, y1, overlayGround( x0, y1 ) + LIFT ),
+									 c, c, c, c );
+			}
+	}
 	quads.flush();
 
 }  // end drawLanePlotGrids
@@ -1449,6 +1476,8 @@ void W3DInGameUI::takeOrderRings( void )
 		const Real x = hint.pos.x, y = hint.pos.y;
 		if( isOrderMarkOnWater( x, y, NULL ) )
 			continue;		// after the water, on the sorted list (W3DWaypointBuffer::takeWaterMarks)
+		if( W3DGroundMarkers_drawsClickMarker( hint.kind ) )
+			continue;		// a move's or an attack's is the Machined Reticle ring (W3DGroundMarkers)
 		m_orderMarkers.push_back( OrderMarker() );
 		OrderMarker &mark = m_orderMarkers.back();
 		mark.rgb = orderKindColor( hint.kind );
@@ -1504,6 +1533,10 @@ static Real markerGround( const Vector3 &at, Real reach, const Real *heights, In
 //-------------------------------------------------------------------------------------------------
 void W3DInGameUI::drawOrderRings( Bool shadeByShroud )
 {
+	// the Machined Reticle markers first, under the order dots: both terrains call this after their
+	// shroud, so the markers are drawn from here rather than from each of them
+	W3DGroundMarkers_draw( shadeByShroud );
+
 	if( m_orderRingColors.empty() && m_orderMarkers.empty() )
 		return;
 	// not in the water's mirror pass: they would lie on the reflection, as the order lines would

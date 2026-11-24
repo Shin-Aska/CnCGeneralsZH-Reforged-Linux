@@ -21,10 +21,13 @@
 // They pin ALL 21 complete pixel programs and both vertex programs, including tone/grade math,
 // so extracting a shader cannot silently retune it. A deliberate shader edit must review/update
 // these baselines. This is source equivalence, not a substitute for a graphics compiler or GPU test.
-// HAZE was subsequently reviewed for optional water-surface blending (2026-11-15).
+// HAZE combines optional water-surface blending with the brightest-channel shroud light.
 // The four bloom baselines come independently from upstream 419d88bee dx11post.cpp (2026-11-17).
 // WORLD_AO takes main's edge normalisation (ffb8a5fa1), read from main 3989c3e60 dx11post.cpp.
-// ATMOSPHERE takes the terrain skirt's closing over the land past the map (MapSize.zw), reviewed 2026-11-22.
+// WORLD_AO, HAZE and ATMOSPHERE read the shroud's light as its brightest channel, not green, so a
+// tinted shroud (the Apocalypse map's red) is not taken for a dark one (2026-11-22, reviewed).
+// ATMOSPHERE takes the terrain skirt's closing over the land past the map (MapSize.zw), reviewed 2026-11-22;
+// its baseline is the merge of both (2026-11-23).
 #include "test_harness.h"
 #include "postshader.h"
 
@@ -52,12 +55,12 @@ TEST(postshader_sources_match_reviewed_program_baselines)
 		{ POST_SHADER_SHARPEN_MULTISAMPLED, 2271, UINT64_C(8540435591871154879) },
 		{ POST_SHADER_AO, 2757, UINT64_C(17818794792923536144) },
 		{ POST_SHADER_AO_SCENE, 2753, UINT64_C(4404110208642369224) },
-		{ POST_SHADER_WORLD_AO, 4053, UINT64_C(6210755435003540758) },
+		{ POST_SHADER_WORLD_AO, 4135, UINT64_C(4082931064958060590) },
 		{ POST_SHADER_WORLD_AO_BLUR, 2596, UINT64_C(13133616914098004519) },
 		{ POST_SHADER_WORLD_AO_UPSAMPLE, 2478, UINT64_C(803955814330322769) },
-		{ POST_SHADER_HAZE, 4783, UINT64_C(11426069177408586079) },
+		{ POST_SHADER_HAZE, 4865, UINT64_C(725287374033131011) },
 		{ POST_SHADER_SKY, 2547, UINT64_C(15455093490457882870) },
-		{ POST_SHADER_ATMOSPHERE, 3475, UINT64_C(17240489725174463235) },
+		{ POST_SHADER_ATMOSPHERE, 3557, UINT64_C(18055152453470310377) },
 		{ POST_SHADER_BLOOM_EXTRACT, 2172, UINT64_C(8169773055433301573) },
 		{ POST_SHADER_BLOOM_BLUR, 1840, UINT64_C(15383801789143368049) },
 		{ POST_SHADER_BLOOM_COMPOSITE, 1982, UINT64_C(17820278394050563199) },

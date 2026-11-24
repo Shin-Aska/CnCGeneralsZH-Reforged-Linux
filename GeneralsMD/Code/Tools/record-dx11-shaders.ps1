@@ -69,7 +69,9 @@ param(
 	# only the runs whose names match one of these wildcards (seed0-classic, seed0, seed0-ultra): the short check
 	[string[]] $Only = @(),
 	# given to every run, after its own switches (for example -noDynamicLOD)
-	[string[]] $ExtraArgs = @()
+	[string[]] $ExtraArgs = @(),
+	# Options.ini rows laid over the Ultra rows, for finding out what one row costs in programs (-UltraOverride @{ SunShafts = 0 })
+	[hashtable] $UltraOverride = @{}
 )
 
 $ErrorActionPreference = "Stop"
@@ -116,17 +118,44 @@ foreach ($map in $Maps) {
 }
 # The per-object looks (power outage, EMP, cloak and its shadow, revealed), each a program of its own on every
 # mesh it dresses, which an observer's match never draws: an observer sees every stealthed unit as a friend's
-# and none revealed. Scenarios\drawlooks.txt and looks4.txt stage them for a seat 0 that plays, and the
+# and none revealed. Scenarios\drawlooks.txt, looks4.txt, stealthown.txt and stealthenemy.txt stage them for a seat 0 that plays, and the
 # cinema of the same name keeps the camera on them and ends the match.
 foreach ($look in @(
 		@{ Name = "drawlooks"; Sides = @("-side", 0, "FactionChina", "-side", 1, "FactionAmerica") },
-		@{ Name = "looks4"; Sides = @("-side", 0, "FactionAmericaSuperWeaponGeneral", "-side", 1, "FactionGLA") })) {
-	$staged = @("-quickstart", "-noshellmap", "-multiInstance", "-noFPSLimit", "-map", "`"Maps\Twilight Flame\Twilight Flame.map`"",
-		"-autoskirmish", 2, "-takeover") + $look.Sides + @("-seed", 7, "-scenario", $look.Name, "-cinema", $look.Name)
-	$runs += , @{ Name = $look.Name; Args = $staged; Minutes = $TimeoutMinutes }
-	$runs += , @{ Name = "$($look.Name)-nopost"; Args = $staged + @("-dx11post", "off"); Minutes = $TimeoutMinutes }
-	$runs += , @{ Name = "$($look.Name)-ultra"; Args = $staged; Minutes = $TimeoutMinutes; Ultra = $true }
+		@{ Name = "looks4"; Sides = @("-side", 0, "FactionAmericaSuperWeaponGeneral", "-side", 1, "FactionGLA") },
+		# The stealth units' own transitions as the other side sees them, on Tournament Desert: units and
+		# buildings cloaking and decloaking, the ripple and wind fronts, a Camo Netting barracks, a
+		# detector revealing a cloaked unit and a cloaked building, a Rebel's fire decloak. Own view and
+		# enemy view are two scenes (Scenarios\stealthown.txt, stealthenemy.txt), longer than the two
+		# above: the match runs to the frame the scenario's last event needs.
+		@{ Name = "stealthown"; Map = "Tournament Desert"; Seed = 5; Frames = 2700; Extra = @("-gamespeed", 100)
+			Sides = @("-side", 0, "FactionGLAStealthGeneral", "-side", 1, "FactionChina") },
+		@{ Name = "stealthenemy"; Map = "Tournament Desert"; Seed = 5; Frames = 2580; Extra = @("-gamespeed", 100)
+			Sides = @("-side", 0, "FactionChina", "-side", 1, "FactionGLAStealthGeneral") })) {
+		$mapName = if ($look.Map) { $look.Map } else { "Twilight Flame" }
+		$lookSeed = if ($look.Seed) { $look.Seed } else { 7 }
+		$lookFrames = if ($look.Frames) { [Math]::Max($look.Frames, $Frames) } else { $Frames }
+	$staged = @("-quickstart", "-noshellmap", "-multiInstance", "-noFPSLimit", "-map", "`"Maps\$mapName\$mapName.map`"",
+		"-autoskirmish", 2, "-takeover") + $look.Sides + @("-seed", $lookSeed) + @($look.Extra | Where-Object { $null -ne $_ }) + @("-scenario", $look.Name, "-cinema", $look.Name)
+	$runs += , @{ Name = $look.Name; Args = $staged; Minutes = $TimeoutMinutes; Frames = $lookFrames }
+	$runs += , @{ Name = "$($look.Name)-nopost"; Args = $staged + @("-dx11post", "off"); Minutes = $TimeoutMinutes; Frames = $lookFrames }
+	$runs += , @{ Name = "$($look.Name)-ultra"; Args = $staged; Minutes = $TimeoutMinutes; Ultra = $true; Frames = $lookFrames }
 }
+# Two scenes no seeded match reaches. The Direct Strike lane with a watch tower holed and felled (the fracture
+# draw has its own vertex format), and a battle under a million burning particles, which fills the Direct3D 11
+# particle ring past its cap so its evaluate shader is compiled and used.
+$runs += , @{ Name = "lanetower"; Minutes = $TimeoutMinutes; Frames = 9000
+	Args = @("-quickstart", "-noshellmap", "-multiInstance", "-noFPSLimit", "-observer", "-randommap", 3, "lane", "-autoskirmish", 2,
+		"-takeover", "-side", 0, "FactionAmerica", "-side", 1, "FactionChina", "-seed", 1, "-scenario", "piecetower") }
+$runs += , @{ Name = "lanetower-ultra"; Minutes = $TimeoutMinutes; Frames = 9000; Ultra = $true
+	Args = @("-quickstart", "-noshellmap", "-multiInstance", "-noFPSLimit", "-observer", "-randommap", 3, "lane", "-autoskirmish", 2,
+		"-takeover", "-side", 0, "FactionAmerica", "-side", 1, "FactionChina", "-seed", 1, "-scenario", "piecetower") }
+$ringArgs = @("-quickstart", "-noshellmap", "-multiInstance", "-noFPSLimit", "-noDynamicLOD", "-gpuparticles", "-particlecap", 2500,
+	"-map", "`"Maps\Twilight Flame\Twilight Flame.map`"", "-autoskirmish", 3, "-takeover", "-observer",
+	"-side", 0, "FactionAmerica", "-side", 1, "FactionChina", "-side", 2, "FactionGLA", "-seed", 7,
+	"-scenario", "gpu1m_battle", "-cinema", "gpu1m_battle")
+$runs += , @{ Name = "gpuring"; Minutes = $TimeoutMinutes; Frames = 3300; Args = $ringArgs }
+$runs += , @{ Name = "gpuring-ultra"; Minutes = $TimeoutMinutes; Frames = 3300; Ultra = $true; Args = $ringArgs }
 # The main menu's shell map, the first thing a player sees: the intro movies, then the menu, which runs until
 # it is killed.  The cache is written while the game runs, so the kill loses nothing.
 $runs += , @{ Name = "shellmap"; Args = @("-multiInstance", "-noFPSLimit"); Minutes = 5 }
@@ -142,7 +171,8 @@ $runs += , @{ Name = "seed0-classic"; Args = @("-quickstart", "-noshellmap", "-m
 # rung is whole.
 $ultraRows = [ordered]@{ StaticGameLOD = "Ultra"; GraphicsQuality = 10; MSAA = 3; ShadowQuality = 2; Smoke = 1; MapLight = "yes";
 	Firelight = "yes"; HemiAmbient = "yes"; AmbientOcclusion = "yes"; InternalHdr = "yes"; Weather = "yes"; WaterSplashes = "yes";
-	Atmosphere = "yes"; StructureCollapse = "yes"; GroundMarks = "yes"; GroundFoliage = "yes"; HeatHaze = "yes" }
+	Atmosphere = "yes"; StructureCollapse = "yes"; GroundMarks = "yes"; GroundFoliage = "yes"; HeatHaze = "yes"; SunShafts = 2 }
+foreach ($row in $UltraOverride.Keys) { $ultraRows[$row] = $UltraOverride[$row] }
 $ultraIni = @(Get-Content (Join-Path $repoRoot "reforged-look.ini") | Where-Object { $_ -notmatch "^\s*($($ultraRows.Keys -join '|'))\s*=" }) +
 	@($ultraRows.GetEnumerator() | ForEach-Object { "$($_.Key) = $($_.Value)" })
 
@@ -151,10 +181,21 @@ if ($Only.Count -gt 0) { $runs = @($runs | Where-Object { $name = $_.Name; @($On
 New-Item -ItemType Directory -Force $UserData | Out-Null
 $env:ZH_USER_DATA_DIR = (Resolve-Path $UserData).Path
 
+$finished = $false
+$prevFarm = $null
 if (Test-Path $cache) { Move-Item -Force $cache $aside }
 try {
 	foreach ($run in $runs) {
-		$farm = Join-Path $WorkDir "farm-$($run.Name)"	# one a run, so every run's log is kept
+		# a farm holds a copy of every exe and dll, so the one before is cleared once its log is kept
+		if ($prevFarm -and (Test-Path -LiteralPath $prevFarm)) {
+			New-Item -ItemType Directory -Force (Join-Path $WorkDir "logs") | Out-Null
+			Get-ChildItem -LiteralPath $prevFarm -Filter "rec_*" -File | Copy-Item -Destination (Join-Path $WorkDir "logs") -Force
+			Remove-Item -LiteralPath $prevFarm -Recurse -Force
+		}
+		$farm = Join-Path $WorkDir "farm-$($run.Name)"
+		$prevFarm = $farm
+		$freeMB = [int]([System.IO.DriveInfo]::new($WorkDir.Substring(0, 1)).AvailableFreeSpace / 1MB)
+		if ($freeMB -lt 300) { throw "only $freeMB MB free on the work drive: a farm and a log need room, stopping before run $($run.Name)" }
 		New-Farm $zh $farm
 		$options = Join-Path $UserData "Options.ini"
 		if ($run.Classic) { Remove-Item -LiteralPath $options -Force -ErrorAction SilentlyContinue }
@@ -164,7 +205,7 @@ try {
 		if (-not $KeepShipped -and (Test-Path -LiteralPath $shipped)) { Remove-Item -LiteralPath $shipped -Force }	# the link, never its target
 		# -win as well: Windows has no hidden window, and a full screen game minimizes when someone clicks
 		# away from it and then waits, never reaching -maxframes
-		$arguments = $run.Args + $ExtraArgs + @("-maxframes", $Frames, "-win", "-hiddenwindow", "-noaudio", "-logPrefix", "rec_$($run.Name)")
+		$arguments = $run.Args + $ExtraArgs + @("-maxframes", $(if ($run.Frames) { $run.Frames } else { $Frames }), "-win", "-hiddenwindow", "-noaudio", "-logPrefix", "rec_$($run.Name)")
 		Write-Host ("{0}: " -f $run.Name) -NoNewline
 		$sw = [Diagnostics.Stopwatch]::StartNew()
 		$proc = Start-Process -FilePath (Join-Path $farm "generals.exe") -ArgumentList $arguments -WorkingDirectory $farm -PassThru
@@ -191,6 +232,9 @@ try {
 	}
 	$compiler = (Get-Item (Join-Path $env:WINDIR "System32\d3dcompiler_47.dll")).VersionInfo.FileVersion
 	Write-Host ("{0}: {1} programs, {2} bytes, compiled by d3dcompiler_47 {3}" -f $Out, $count, $bytes.Length, $compiler)
+	$finished = $true
 } finally {
+	# a run that stopped early (a full drive, a throw) keeps what it compiled beside the cache as .partial
+	if ((Test-Path $cache) -and -not $finished) { Copy-Item -Force $cache "$cache.partial" -ErrorAction SilentlyContinue }
 	if (Test-Path $aside) { Move-Item -Force $aside $cache } else { Remove-Item -Force $cache -ErrorAction SilentlyContinue }
 }
