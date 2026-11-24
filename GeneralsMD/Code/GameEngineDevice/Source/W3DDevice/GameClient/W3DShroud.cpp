@@ -567,7 +567,7 @@ void W3DShroud::fillBorderShroudData(W3DShroudLevel level, SurfaceClass* pDestSu
 	
 }
 
-/** The border's level at a map's start.  It was the shroud's black.  It is lit a little now, darker
+/** The border's level at a map's start.  With the terrain skirt it is lit a little, darker
 than ground in the fog (FogAlpha 127), so it still reads as out of bounds; the clamp carries the same
 texel over the ground drawn past the map (TerrainSkirt.h), and the two meet without a line.  Only
 the start: a script that asks for the border shrouded (setBorderShroudLevel with ShroudAlpha) still
@@ -576,6 +576,8 @@ W3DShroudLevel W3DShroud::defaultBorderShroudLevel(void)
 {
 	const W3DShroudLevel BORDER_SHROUD_DEFAULT = 96;
 	const W3DShroudLevel shroud = (W3DShroudLevel)TheGlobalData->m_shroudAlpha;
+	if (!TheGlobalData->m_terrainSkirt)
+		return shroud;
 	return shroud > BORDER_SHROUD_DEFAULT ? shroud : BORDER_SHROUD_DEFAULT;
 }
 

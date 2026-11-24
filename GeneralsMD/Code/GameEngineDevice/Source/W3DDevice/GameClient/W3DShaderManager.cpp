@@ -598,11 +598,18 @@ static Bool pushAtmosphere(Bool weatherHaze)
 			TheTerrainRenderObject->getMinHeight(),
 			(map->getXExtent() - 1 - map->getBorderSizeInline() * 2) * MAP_XY_FACTOR,
 			(map->getYExtent() - 1 - map->getBorderSizeInline() * 2) * MAP_XY_FACTOR, sky->Peek_D3D_Base_Texture());
+		Real skirtBorder = 0.0f;
+		Real skirtReach = 0.0f;
+		if (TheGlobalData->m_terrainSkirt)
+		{
+			skirtBorder = map->getBorderSizeInline() * MAP_XY_FACTOR;
+			skirtReach = TerrainSkirt::REACH;
+		}
 #if defined(_WIN32)
-		DX11Post_Set_Atmosphere_Edge(map->getBorderSizeInline() * MAP_XY_FACTOR, TerrainSkirt::REACH);
+		DX11Post_Set_Atmosphere_Edge(skirtBorder, skirtReach);
 #else
-        s_nativeEnvironment.Atmosphere.MapSize[2] = map->getBorderSizeInline() * MAP_XY_FACTOR;
-        s_nativeEnvironment.Atmosphere.MapSize[3] = TerrainSkirt::REACH;
+        s_nativeEnvironment.Atmosphere.MapSize[2] = skirtBorder;
+        s_nativeEnvironment.Atmosphere.MapSize[3] = skirtReach;
 #endif
 	}
 	else if (s_on)

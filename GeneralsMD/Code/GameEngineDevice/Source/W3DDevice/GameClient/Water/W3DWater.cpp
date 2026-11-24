@@ -673,6 +673,8 @@ void WaterRenderObjClass::addSkirtSeas(void)
 {
 	m_skirtSeasFirst = m_waterPolygonsForDraw.size();
 	m_skirtSeaRuns.clear();
+	if (TheGlobalData == NULL || !TheGlobalData->m_terrainSkirt)
+		return;
 	WorldHeightMap *map = TheTerrainRenderObject ? TheTerrainRenderObject->getMap() : NULL;
 	if (map == NULL || map->getXExtent() < 2 || map->getYExtent() < 2)
 		return;

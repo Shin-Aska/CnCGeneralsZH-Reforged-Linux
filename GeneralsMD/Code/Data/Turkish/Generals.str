@@ -19222,19 +19222,15 @@ GUI:WaterRefractionQuality
 END
 
 GUI:WaterRefractionQuality0
-"Tam"
+"Standart"
 END
 
 GUI:WaterRefractionQuality1
-"Basit"
-END
-
-GUI:WaterRefractionQuality2
-"Kapalı"
+"Bozulmasız"
 END
 
 TOOLTIP:WaterRefractionQuality
-"Modern su içindir. Tam kırılma, yüzeyin altındaki görüntüyü bozar. Basit kırılma, bozulma olmadan berrak su sunar. Kapalı seçeneği daha iyi performans için suyu opak ve renkli yapar. Kabul Et'e basınca uygulanır."
+"Modern su için. Standart, dalgalarla birlikte suyun altındaki görüntüyü kırar. Bozulmasız, yüzeyin altını doğrudan gösterir. Kırılmayı ayarlamak için Berrak Sığlık seçeneğini açın. Kabul Et'e basınca uygulanır."
 END
 
 GUI:MapAwareWaveHeading
@@ -19250,7 +19246,7 @@ GUI:UnderwaterClarity
 END
 
 TOOLTIP:UnderwaterClarity
-"Modern su için. Sığ kayalıklar, resifler, batık yıkıntılar suyun altından görünür. Geniş düz deniz dibi ve derin su, haritada nasılsa o kadar bulanık kalır. Kabul Et'e basınca uygulanır."
+"Modern su için. Sığ kayalıklar, resifler, batık yıkıntılar suyun altından görünür. Geniş düz deniz dibi ve derin su, haritada nasılsa o kadar bulanık kalır. Kırılma ayarını da etkinleştirir. Kabul Et'e basınca uygulanır."
 END
 
 GUI:WaterReflectionDetail

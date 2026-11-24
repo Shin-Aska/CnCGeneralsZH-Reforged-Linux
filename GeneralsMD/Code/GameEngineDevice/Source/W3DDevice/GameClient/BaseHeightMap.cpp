@@ -802,7 +802,7 @@ void BaseHeightMapRenderObjClass::reset(void)
 
 	if (m_shroud)
 	{	m_shroud->reset();
-		m_shroud->setBorderShroudLevel(W3DShroud::defaultBorderShroudLevel());	// half dark at start, see there
+		m_shroud->setBorderShroudLevel(W3DShroud::defaultBorderShroudLevel());
 	}
 }
 
@@ -4142,7 +4142,8 @@ void BaseHeightMapRenderObjClass::drawSkirt(RenderInfoClass &rinfo)
 	// never into Classic's, which leaves the ground out.
 	const Bool modernFullMirror = TheWaterRenderObj && TheWaterRenderObj->isModernFullMirror();
 	m_skirtFadePending = FALSE;
-	if (m_map == NULL || m_disableTextures || Is_Hidden() || (ShaderClass::Is_Backface_Culling_Inverted() && !modernFullMirror))
+	if (m_map == NULL || !TheGlobalData->m_terrainSkirt || m_disableTextures || Is_Hidden()
+		|| (ShaderClass::Is_Backface_Culling_Inverted() && !modernFullMirror))
 		return;
 	// from here the fade owes at least the void's colour, whatever of the skirt is in view
 	m_skirtVisible.clear();

@@ -1954,19 +1954,15 @@ GUI:WaterRefractionQuality
 END
 
 GUI:WaterRefractionQuality0
-"Full"
+"Standard"
 END
 
 GUI:WaterRefractionQuality1
-"Simple"
-END
-
-GUI:WaterRefractionQuality2
-"Off"
+"Undistorted"
 END
 
 TOOLTIP:WaterRefractionQuality
-"For Modern water. Full distorts the view below the surface. Simple keeps clear water without distortion. Off uses opaque tinted water for better performance. Applied when you Accept."
+"For Modern water. Standard bends the view below the surface with the waves. Undistorted gives a straight view through the water. Enable Underwater Clarity to change Refraction. Applied when you Accept."
 END
 
 GUI:WaterReflectionDetail
@@ -5045,7 +5041,7 @@ GUI:UnderwaterClarity
 END
 
 TOOLTIP:UnderwaterClarity
-"For Modern water. Shallow shelves, reefs and sunken ruins show through the sea. Broad flat seabeds and deep water stay as murky as the map made them. Applied when you Accept."
+"For Modern water. Shallow shelves, reefs and sunken ruins show through the sea. Broad flat seabeds and deep water stay as murky as the map made them. This also enables the Refraction dropdown. Applied when you Accept."
 END
 
 GUI:QMSearchTime

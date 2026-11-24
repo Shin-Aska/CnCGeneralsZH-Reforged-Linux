@@ -1048,7 +1048,7 @@ const GraphicsQualityRow TheGraphicsQualityTable[] =
 	{ "Check3DShadows",					2.5f,  {    0,    0,    0,    0,    0,    1,    1,    1,    1,    1,    1 } },
 	// SDL water quality choices. The reflection mode remains the player's chosen look.
 	{ "CheckWaterReflectionEnabled",		0.0f, {    0,    0,    0,    0,    1,    1,    1,    1,    1,    1,    1 } },
-	{ "ComboBoxWaterRefractionQuality",	0.0f, {    2,    1,    1,    1,    1,    1,    0,    0,    0,    0,    0 } },
+	{ "ComboBoxWaterRefractionQuality",	0.0f, {    1,    1,    1,    1,    1,    1,    0,    0,    0,    0,    0 } },
 	// RTX 4060, 1920x1080, USA2/SWANGLE: baseline 11.85/6.09 ms; nomips alone
 	// 11.10/5.63 ms (-6/-8%); noshore alone 9.34/5.12 ms (-21/-16%).
 	{ "CheckWaterShoreWaveTurning",		0.0f, {    0,    0,    0,    0,    1,    1,    1,    1,    1,    1,    1 } },
@@ -1186,7 +1186,8 @@ void saveAcceptedWaterPreference( UserPreferences& pref, const OptionDef& def, I
 {
 	if( strcmp( def.iniKey, "WaterShoreWaveTurning" ) != 0
 		&& strcmp( def.iniKey, "WaterWaveFiltering" ) != 0
-		&& strcmp( def.iniKey, "WaterFftResolution" ) != 0 )
+		&& strcmp( def.iniKey, "WaterFftResolution" ) != 0
+		&& strcmp( def.iniKey, "WaterRefractionQuality" ) != 0 )
 		return;
 
 	pref[ AsciiString( def.iniKey ) ] = formatOptionValue( def, value );

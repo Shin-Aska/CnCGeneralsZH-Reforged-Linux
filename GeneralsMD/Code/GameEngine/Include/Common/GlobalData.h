@@ -247,6 +247,7 @@ public:
 	Bool m_shadowMapReport;				// "-shadowmapreport": log what ended up in that buffer, once a second
 	Bool m_vertexTerrainSun;			// "-vertexTerrainSun": the ground keeps EA's per-vertex sun on Direct3D 11 too, the before half of a picture
 	Bool m_noTerrainSubdivide;		// "-noTerrainSubdivide": the ground keeps EA's two triangles a cell on Direct3D 11 too, the before half of a picture
+	Bool m_terrainSkirt;			// draws the landscape beyond the map edge when -terrainSkirt is set on Linux
 	Bool m_shadowMapOldCasters;		// "-shadowmapoldcasters": every caster through the mesh renderer, none instanced
 	Bool m_rtShadows;							// "-rtShadows": the sun's shadows traced on Direct3D 11, one ray a pixel, in place of the map
 	Bool m_shadowMapOnly;					// "-shadowmaponly": the map's shadows with the stencil volumes' own darkening off

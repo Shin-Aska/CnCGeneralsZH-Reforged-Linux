@@ -19102,19 +19102,15 @@ GUI:WaterRefractionQuality
 END
 
 GUI:WaterRefractionQuality0
-"Complète"
+"Standard"
 END
 
 GUI:WaterRefractionQuality1
-"Simple"
-END
-
-GUI:WaterRefractionQuality2
-"Désactivée"
+"Sans distorsion"
 END
 
 TOOLTIP:WaterRefractionQuality
-"Pour l’eau moderne. La réfraction complète déforme la vue sous la surface. La réfraction simple garde une eau claire sans déformation. Désactivée, l’eau est opaque et teintée pour améliorer les performances. Appliqué quand vous cliquez sur Accepter."
+"Pour l’eau moderne. Standard déforme la vue sous la surface au rythme des vagues. Sans distorsion offre une vue directe. Activez Eau limpide pour régler la réfraction. S’applique quand vous cliquez sur Accepter."
 END
 
 GUI:WaterReflectionDetail
@@ -19442,7 +19438,7 @@ GUI:UnderwaterClarity
 END
 
 TOOLTIP:UnderwaterClarity
-"Pour l'eau moderne. Les hauts-fonds, les récifs et les ruines englouties se voient à travers la mer. Les grands fonds plats et l'eau profonde restent aussi troubles que la carte les a faits. S'applique quand vous cliquez sur Accepter."
+"Pour l'eau moderne. Les hauts-fonds, les récifs et les ruines englouties se voient à travers la mer. Les grands fonds plats et l'eau profonde restent aussi troubles que la carte les a faits. Active aussi le réglage de la réfraction. S'applique quand vous cliquez sur Accepter."
 END
 
 GUI:WaterSplashes

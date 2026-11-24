@@ -15826,19 +15826,15 @@ GUI:WaterRefractionQuality
 END
 
 GUI:WaterRefractionQuality0
-"Voll"
+"Standard"
 END
 
 GUI:WaterRefractionQuality1
-"Einfach"
-END
-
-GUI:WaterRefractionQuality2
-"Aus"
+"Unverzerrt"
 END
 
 TOOLTIP:WaterRefractionQuality
-"Für modernes Wasser. Vollständige Brechung verzerrt den Blick unter der Oberfläche. Einfache Brechung zeigt klares Wasser ohne Verzerrung. Aus macht das Wasser undurchsichtig und getönt, um die Leistung zu verbessern. Wird nach Klick auf Annehmen angewendet."
+"Für modernes Wasser. Standard verzerrt die Sicht unter Wasser mit den Wellen. Unverzerrt zeigt einen direkten Blick unter die Oberfläche. Aktiviere Klares Wasser, um die Lichtbrechung einzustellen. Gilt nach Annehmen."
 END
 
 GUI:WaterReflectionDetail
@@ -17886,7 +17882,7 @@ TOOLTIP:SunShafts
 END
 
 TOOLTIP:UnderwaterClarity
-"Für modernes Wasser. Flache Schelfe, Riffe und versunkene Ruinen scheinen durch das Meer. Breite flache Meeresböden und tiefes Wasser bleiben so trüb, wie die Karte sie gemacht hat. Gilt, sobald du Annehmen drückst."
+"Für modernes Wasser. Flache Schelfe, Riffe und versunkene Ruinen scheinen durch das Meer. Breite flache Meeresböden und tiefes Wasser bleiben so trüb, wie die Karte sie gemacht hat. Gibt auch die Einstellung für Lichtbrechung frei. Gilt, sobald du Annehmen drückst."
 END
 
 TOOLTIP:WaterSplashes

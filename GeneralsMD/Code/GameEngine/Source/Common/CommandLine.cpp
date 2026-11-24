@@ -1051,6 +1051,14 @@ Int parseNoTerrainSubdivide(char *args[], int num)
 	}
 	return 1;
 }
+
+static Int parseTerrainSkirt(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_terrainSkirt = TRUE;
+	return 1;
+}
+
 Int parseShadowMapReport(char *args[], int num)
 {
 	if (TheWritableGlobalData)
@@ -2993,6 +3001,7 @@ static CommandLineParam params[] =
 	{ "-shadowmapreport", parseShadowMapReport },
 	{ "-vertexTerrainSun", parseVertexTerrainSun },
 	{ "-noTerrainSubdivide", parseNoTerrainSubdivide },
+	{ "-terrainSkirt", parseTerrainSkirt },
 	{ "-shadowmapoldcasters", parseShadowMapOldCasters },
 	{ "-rtShadows", parseRtShadows },
 	{ "-shadowmapboth", parseShadowMapBoth },

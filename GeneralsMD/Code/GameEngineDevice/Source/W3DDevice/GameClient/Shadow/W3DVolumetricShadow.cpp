@@ -4521,8 +4521,10 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	// that cannot make the rays' buffers draws the map alone.
 	Direct3D11_Set_Ray_Traced_Shadows( rayTraced != FALSE );
 #endif
+	// The terrain renderer exists in the shell before it has a height map to draw.
 	if (mode != SunShadow::Mode::Legacy && TheGlobalData->m_shadowMap && captureShadows && TheTacticalView != NULL
-		&& TheTerrainRenderObject != NULL && TheTerrainLogic != NULL && TheW3DShadowManager != NULL)
+		&& TheTerrainRenderObject != NULL && TheTerrainRenderObject->getMap() != NULL
+		&& TheTerrainLogic != NULL && TheW3DShadowManager != NULL)
 	{
 		if (wholeMap && !wholeMapRefused && SunShadow::Begin( DX8Wrapper::_Get_D3D_Device(), SHADOW_MAP_WHOLE_MAP_TEXELS ))
 		{

@@ -734,6 +734,12 @@ GlobalData::GlobalData()
 	m_shadowMapReport = FALSE;
 	m_vertexTerrainSun = FALSE;
 	m_noTerrainSubdivide = FALSE;
+	// Remove this switch and its renderer checks when the 4.2.3 map edge is no longer needed.
+#if defined(__linux__)
+	m_terrainSkirt = FALSE;
+#else
+	m_terrainSkirt = TRUE;
+#endif
 	m_shadowMapOldCasters = FALSE;
 	m_rtShadows = FALSE;
 	m_shadowMapPenumbra = 0.0f;		//zero anywhere here means the built-in value stands

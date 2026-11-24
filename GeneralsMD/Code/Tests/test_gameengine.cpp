@@ -24601,7 +24601,7 @@ TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
 
     const Int low = TheGraphicsQualityAnchors[STATIC_GAME_LOD_LOW];
     CHECK_EQ(reflections->values[low], 0);
-    CHECK_EQ(refraction->values[low], 2);
+    CHECK_EQ(refraction->values[low], 1);
     CHECK_EQ(shore->values[low], 0);
     CHECK_EQ(filtering->values[low], 0);
     CHECK_EQ(waves->values[low], 0);
@@ -24626,7 +24626,9 @@ TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
     pref["WaterReflectionDetail"] = "0";
     loadOptionsFromPreferences(pref);
     CHECK(!scratch->m_waterReflectionEnabled);
-    CHECK_EQ(scratch->m_waterRefractionQuality, 2);
+    CHECK_EQ(scratch->m_waterRefractionQuality, 1);
+    saveAcceptedWaterPreference(pref, *findOptionDef("WaterRefractionQuality"), scratch->m_waterRefractionQuality);
+    CHECK_STR(pref["WaterRefractionQuality"].str(), "1");
     CHECK(scratch->m_waterShoreWaveTurning);
     CHECK(!scratch->m_waterWaveFiltering);
     CHECK_EQ(scratch->m_waterReflectionDetail, 0);
@@ -25329,7 +25331,7 @@ TEST(graphics_quality_slider_only_ever_turns_settings_up)
 	{
 		const GraphicsQualityRow &quality = TheGraphicsQualityTable[ row ];
 		CHECK( findGraphicsQualityRow( quality.control ) == &quality );
-		// Modern water's refraction lists Full, Simple, Off: its entries fall as the picture improves
+		// Modern water lists Standard before Undistorted, so its index falls at higher quality steps.
 		const Bool falls = strcmp( quality.control, "ComboBoxWaterRefractionQuality" ) == 0;
 		for( Int step = 1; step < GRAPHICS_QUALITY_STEPS; ++step )
 			CHECK( falls ? quality.values[ step ] <= quality.values[ step - 1 ] : quality.values[ step ] >= quality.values[ step - 1 ] );

@@ -2491,6 +2491,21 @@ static void showSunShaftsAvailable( void )
 #endif
 }
 
+static void showWaterRefractionAvailable( void )
+{
+	GameWindow *refraction = findOptionWidget( *findOptionDef( "WaterRefractionQuality" ) );
+	GameWindow *clarity = findOptionWidget( *findOptionDef( "UnderwaterClarity" ) );
+	if( refraction != NULL )
+		refraction->winEnable( clarity != NULL && modernWaterSettingsSupported() && GadgetCheckBoxIsChecked( clarity ) );
+}
+
+// The clarity checkbox locks manual refraction edits. Presets and Defaults still set its quality.
+static Bool canSetGraphicsOption( GameWindow *control )
+{
+	return control != NULL && !control->winIsHidden()
+		&& ( control->winGetEnabled() || control->winGetWindowId() == NAMEKEY( "OptionsMenu.wnd:ComboBoxWaterRefractionQuality" ) );
+}
+
 /** The row's control when the quality slider sets it, otherwise NULL.  It leaves a control the player
 	* cannot change - greyed in a match or under Direct3D 9, hidden where the device lacks it - and,
 	* while Classic Graphics is ticked, every row the fork added: under it a preset is EA's detail
@@ -2498,7 +2513,7 @@ static void showSunShaftsAvailable( void )
 static GameWindow *graphicsQualityDrivenWidget( const GraphicsQualityRow &row )
 {
 	GameWindow *control = graphicsQualityWidget( row );
-	if( control->winIsHidden() || !control->winGetEnabled() )
+	if( !canSetGraphicsOption( control ) )
 		return NULL;
 
 	if( GadgetCheckBoxIsChecked( classicGraphicsCheckBox() ) && graphicsQualityRowIsReforged( row ) )
@@ -2696,7 +2711,7 @@ static void showClassicGraphicsChoice( void )
 	for( Int row = 0; row < TheGraphicsQualityTableCount; ++row )
 	{
 		GameWindow *control = graphicsQualityWidget( TheGraphicsQualityTable[ row ] );
-		if( graphicsQualityRowIsReforged( TheGraphicsQualityTable[ row ] ) && !control->winIsHidden() && control->winGetEnabled() )
+		if( graphicsQualityRowIsReforged( TheGraphicsQualityTable[ row ] ) && canSetGraphicsOption( control ) )
 			setGraphicsQualityControl( control, TheGraphicsQualityTable[ row ].values[ 0 ] );
 	}
 	ignoreSelected = FALSE;
@@ -2732,12 +2747,13 @@ static void showClassicDefaults( void )
 	{
 		const OptionDef& def = TheOptionCatalog[ i ];
 		GameWindow *control = findOptionWidget( def );
-		if( control != NULL && !defaultsKeepsRow( def ) && !control->winIsHidden() && control->winGetEnabled() )
+		if( !defaultsKeepsRow( def ) && canSetGraphicsOption( control ) )
 			setGraphicsQualityControl( control, optionDefaultValue( def ) );
 	}
 	GadgetCheckBoxSetChecked( checkCloudShadows, optionDefaultValue( *findOptionDef( "UseCloudMap" ) ) != 0 );
 	ignoreSelected = FALSE;
 	showSunShaftsAvailable();
+	showWaterRefractionAvailable();
 
 	defaultsPressed = TRUE;
 	updateSliderReadouts();
@@ -3279,6 +3295,7 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 	}
 #endif
 	showSunShaftsAvailable();
+	showWaterRefractionAvailable();
 
 #if !defined(_WIN32)
 	// This existing next-map option has an actual native HDR provider as well.
@@ -3619,6 +3636,10 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 			else if( control == classicGraphicsCheckBox() )
 			{
 				showClassicGraphicsChoice();
+			}
+			else if( controlID == NAMEKEY( "OptionsMenu.wnd:CheckUnderwaterClarity" ) )
+			{
+				showWaterRefractionAvailable();
 			}
 			else if( isGraphicsDetailControl( control ) || isGraphicsQualityControl( control ) )
 			{
