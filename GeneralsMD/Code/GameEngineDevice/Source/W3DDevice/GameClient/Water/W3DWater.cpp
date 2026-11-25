@@ -4586,9 +4586,13 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
         WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device(),true);
     const Bool hardwareOneBounce=!hardwarePathRequested && WaterPathTracing::HardwareRequested()
         && WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device());
-	if (m_waterPathSchedule.ShouldRefresh(nowMs,viewChanged))
+    using Capture=W3DWaterPathScene::Capture;
+    const Capture capture=hardwareStatic ? Capture::HardwarePath
+        : hardwareOneBounce ? Capture::HardwareReflection : Capture::SoftwarePath;
+    const Bool captureChanged=m_waterPathScene->RequestedCapture()!=capture;
+	if (m_waterPathSchedule.ShouldRefresh(nowMs,viewChanged || captureChanged))
 	{
-		if (!m_waterPathScene->Update(m_parentScene,TheTerrainRenderObject,this,&view))
+		if (!m_waterPathScene->Update(m_parentScene,TheTerrainRenderObject,this,&view,capture))
 			return FALSE;
 		m_waterPathSchedule.MarkRefreshed(nowMs);
 		m_waterPathView = view;
@@ -4597,11 +4601,17 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
     m_waterPathReady = FALSE;
     if (hardwareStatic) {
         m_waterPathReady = WaterPathTracing::PrepareHardwarePath(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
-            m_waterPathScene->Revision(),&m_waterPathScene->Materials());
+            m_waterPathScene->Revision(),&m_waterPathScene->Materials(),m_waterPathScene->StaticTriangleCount());
     } else if (hardwareOneBounce)
         m_waterPathReady = WaterPathTracing::PrepareHardware(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
             m_waterPathScene->Revision(),&m_waterPathScene->Materials());
     if (!m_waterPathReady && WaterScreenReflection::IsPathTraced(m_waterReflectionMode)) {
+        // A native failure must not feed its expanded/reordered static packet to the
+        // software fallback. Restore the original scoped scene and matching materials.
+        if (m_waterPathScene->StaticTriangleCount()) {
+            if (!m_waterPathScene->Update(m_parentScene,TheTerrainRenderObject,this,&view)) return FALSE;
+            m_waterPathSchedule.MarkRefreshed(nowMs);
+        }
         m_waterPathReady = WaterPathTracing::Prepare(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
             m_waterPathScene->Revision(),&m_waterPathScene->Materials());
     }

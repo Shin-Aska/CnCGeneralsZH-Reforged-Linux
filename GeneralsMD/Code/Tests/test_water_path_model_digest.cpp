@@ -149,3 +149,81 @@ TEST(water_path_model_digest_keeps_transform_visibility_and_skin_pose_per_instan
     CHECK_EQ(memo.stats.misses, 1u);
     CHECK_EQ(memo.stats.hits, 5u);
 }
+
+TEST(water_path_exact_model_cache_compares_current_bytes_on_every_refresh)
+{
+    Model model;
+    WaterPathModelDigest::ExactCache cache;
+    auto get=[&]() {return cache.Get(&model,[&](auto &sink) {
+        Fields(model,[&](const void *data,size_t count){sink.Bytes(data,count);});
+    });};
+    cache.BeginRefresh();
+    const auto original = get();
+    CHECK_EQ(original.value, Uncached(model));
+    CHECK_NE(original.revision, 0u);
+    CHECK_EQ(cache.stats.misses, 1u);
+    cache.EndRefresh();
+    cache.BeginRefresh();
+    WaterPathModelDigest::RefreshMemo memo(false, false, &cache);
+    uint64_t revision = 0;
+    CHECK_EQ(memo.Get(&model, get, &revision), original.value);
+    CHECK_EQ(revision, original.revision);
+    CHECK_EQ(cache.stats.hits, 1u);
+    revision = 0;
+    CHECK_EQ(memo.Get(&model, get, &revision), original.value);
+    CHECK_EQ(revision, original.revision);
+    cache.EndRefresh();
+    for(auto *field:{&model.indices,&model.uv,&model.colours,&model.materials,&model.shaders,&model.textures}) {
+        for(unsigned char &value:*field) {
+            value=29;cache.BeginRefresh();CHECK_EQ(get().value,Uncached(model));CHECK_EQ(cache.stats.misses,1u);cache.EndRefresh();
+            cache.BeginRefresh();CHECK_EQ(get().value,Uncached(model));CHECK_EQ(cache.stats.hits,1u);cache.EndRefresh();
+            value=0;cache.BeginRefresh();CHECK_EQ(get().value,Uncached(model));CHECK_EQ(cache.stats.misses,1u);cache.EndRefresh();
+        }
+    }
+    for(unsigned char &value:model.vertices) {
+        value=41;cache.BeginRefresh();CHECK_EQ(get().value,Uncached(model));CHECK_EQ(cache.stats.misses,1u);cache.EndRefresh();
+        value=0;cache.BeginRefresh();CHECK_EQ(get().value,Uncached(model));cache.EndRefresh();
+    }
+    model.flags=8;cache.BeginRefresh();CHECK_EQ(get().value,Uncached(model));CHECK_EQ(cache.stats.misses,1u);cache.EndRefresh();
+    CHECK(cache.StoredBytes()<=16u*1024u*1024u);
+    cache.BeginRefresh();cache.EndRefresh();CHECK_EQ(cache.StoredBytes(),0u); // owner disappeared
+    model.flags = 0;
+    cache.BeginRefresh();
+    CHECK_NE(get().revision, original.revision);
+    cache.EndRefresh();
+}
+
+TEST(water_path_exact_model_cache_preserves_byte_stream_length_and_budget_fallback)
+{
+    std::vector<unsigned char> current(97,13);
+    WaterPathModelDigest::ExactCache cache(128);
+    int identity=0;
+    auto get=[&]() {return cache.Get(&identity,[&](auto &sink){sink.Bytes(current.data(),current.size());});};
+    auto expected=[&]() {WaterPathModelDigest::Hash hash;hash.Bytes(current.data(),current.size());return hash.value;};
+    uint64_t previousRevision = 0;
+    unsigned previousCount = 0;
+    for(unsigned count:{97u,97u,98u,0u,127u,129u,97u}) {
+        current.resize(count,31);cache.BeginRefresh();const auto result=get();
+        CHECK_EQ(result.value,expected());CHECK_EQ(result.bytes,current.size());CHECK(cache.StoredBytes()<=128);
+        if (count > 128) {
+            CHECK_EQ(cache.stats.bypasses, 1u);
+            CHECK_EQ(cache.StoredBytes(), 0u);
+            CHECK_EQ(result.revision, 0u);
+        } else if (count == previousCount) {
+            CHECK_EQ(result.revision, previousRevision);
+        } else {
+            CHECK_NE(result.revision, 0u);
+            CHECK_NE(result.revision, previousRevision);
+        }
+        previousCount = count;
+        previousRevision = result.revision;
+        cache.EndRefresh();
+    }
+    cache.Clear();CHECK_EQ(cache.StoredBytes(),0u);
+    cache.BeginRefresh();
+    const auto rebuilt = get();
+    CHECK_EQ(rebuilt.value, expected());
+    CHECK_NE(rebuilt.revision, previousRevision);
+    CHECK_EQ(cache.stats.misses, 1u);
+    cache.EndRefresh();
+}

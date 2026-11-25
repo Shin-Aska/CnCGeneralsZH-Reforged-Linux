@@ -1,6 +1,10 @@
 #include "test_harness.h"
 #include "Platform/WaterPathTracingScene.h"
 #include "Platform/WaterPathTracingMaterials.h"
+#include "Platform/WaterPathTerrainSnapshot.h"
+#include "Platform/WaterPathStaticSpans.h"
+#include "Platform/WaterPathSnapshotPolicy.h"
+#include "Platform/WaterPathTerrainGroups.h"
 #include "WaterPathBuildReference.h"
 #include "Platform/WaterPathTracingSchedule.h"
 #include "Platform/WaterPathTracingMotion.h"
@@ -838,6 +842,49 @@ TEST(water_hardware_retained_prefix_proof_includes_albedo_and_degenerate_source_
     for(unsigned i=0;i<fresh.triangles.size();++i)CHECK_EQ(scene.SourceTriangleIndex(i),fresh.SourceTriangleIndex(i));
 }
 
+TEST(water_hardware_terrain_snapshot_requires_exact_current_source_bytes)
+{
+    TerrainSnapshotKey key;key.Map=&key;key.Width=7;key.Height=5;key.Border=1;key.FlipRowBytes=1;
+    key.HasView=true;key.WaterLevel=2;key.HasShroud=true;key.CellColumns=3;key.CellRows=2;
+    key.CellWidth=20;key.CellHeight=30;
+    std::vector<unsigned char> heights(35,7),flips(5,0),cells={0,80,255,30,120,200};
+    TerrainSnapshotProof proof;
+    CHECK(!proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));
+    proof.Commit(key,heights.data(),heights.size(),flips.data(),flips.size(),cells,123);
+    CHECK(proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));
+    const auto unchanged=key;
+    heights[3]++;CHECK(!proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));heights[3]--;
+    flips[2]=4;CHECK(!proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));flips[2]=0;
+    cells[4]++;CHECK(!proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));cells[4]--;
+    key.WaterLevel++;CHECK(!proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));key=unchanged;
+    key.CellWidth++;CHECK(!proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));key=unchanged;
+    key.Border++;CHECK(!proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));key=unchanged;
+    key.HasView=false;CHECK(!proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));key=unchanged;
+    key.Map=&proof;CHECK(!proof.Matches(key,heights.data(),heights.size(),flips.data(),flips.size(),cells));key=unchanged;
+    key.FlipRowBytes=0;CHECK(!proof.Matches(key,heights.data(),heights.size(),nullptr,0,cells));
+    proof.Commit(key,heights.data(),heights.size(),nullptr,0,cells,124);
+    CHECK(proof.Matches(key,heights.data(),heights.size(),nullptr,0,cells));
+}
+
+TEST(water_hardware_terrain_shroud_expansion_matches_original_per_vertex_sampling)
+{
+    for(float width:{7.5f,10.f,37.5f,40.f})for(float height:{8.f,25.f,40.f})for(int border:{0,3,8}) {
+        TerrainSnapshotKey key;key.Width=41;key.Height=29;key.Border=border;
+        key.HasShroud=true;key.CellColumns=7;key.CellRows=5;key.CellWidth=width;key.CellHeight=height;
+        std::vector<unsigned char> cells(35),actual;
+        for(unsigned i=0;i<cells.size();++i)cells[i]=static_cast<unsigned char>((i*73)%256);
+        ExpandTerrainShroud(key,cells,actual);
+        CHECK_EQ(actual.size(),size_t(key.Width)*key.Height);
+        for(int y=0;y<key.Height;++y)for(int x=0;x<key.Width;++x) {
+            const int sx=int(std::floor((x-border)*10.f/width)),sy=int(std::floor((y-border)*10.f/height));
+            const unsigned char expected=sx>=0 && sy>=0 && sx<7 && sy<5 ? cells[size_t(sy)*7+sx] : 0;
+            CHECK_EQ(actual[size_t(y)*key.Width+x],expected);
+        }
+        key.HasShroud=false;ExpandTerrainShroud(key,cells,actual);
+        for(unsigned char value:actual)CHECK_EQ(value,255);
+    }
+}
+
 TEST(water_hardware_static_albedo_update_retains_exact_edges_and_source_slots)
 {
     std::vector<Triangle> input={Triangle{},Face(0,2),Face(1,3),Face(2,4)};
@@ -866,4 +913,101 @@ TEST(water_hardware_static_albedo_update_retains_exact_edges_and_source_slots)
     CHECK(incremental.PackLinear(input,false,3));CHECK(!incremental.LinearStaticGeometryReused());
     CHECK(fresh.PackLinear(input,false));
     for(unsigned i=0;i<fresh.triangles.size();++i)CHECK_EQ(incremental.SourceTriangleIndex(i),fresh.SourceTriangleIndex(i));
+}
+
+
+TEST(water_hardware_static_span_layout_retains_ids_only_with_exact_source_rows)
+{
+    int a=0,b=0,c=0;
+    const std::vector<StaticSpan> original={{&a,100,4,11},{&b,104,0,12},{&c,104,7,13}};
+    auto current=original;
+    current[0].Fingerprint=21;current[2].Fingerprint=23;
+    CHECK(SameStaticSpanLayout(original,current)); // appearance changes can be staged in place
+    current[0].Identity=&b;CHECK(!SameStaticSpanLayout(original,current));current=original;
+    std::swap(current[0],current[1]);CHECK(!SameStaticSpanLayout(original,current));current=original;
+    current[2].Count--;CHECK(!SameStaticSpanLayout(original,current));current=original;
+    current[0].First--;CHECK(!SameStaticSpanLayout(original,current));current=original;
+    current[1].Identity=&a;CHECK(!SameStaticSpanLayout(original,current));current=original;
+    current.pop_back();CHECK(!SameStaticSpanLayout(original,current));
+    CHECK(SameStaticSpanLayout({},{}));
+}
+
+
+TEST(water_hardware_snapshot_policy_bounds_terrain_pressure_without_plane_or_shroud_thrash)
+{
+    int map=0,data=0,owner=0,nextMap=0,nextData=0;
+    NativeSnapshotKey key;key.Map=&map;key.Data=&data;key.Owner=&owner;key.Width=512;key.Height=512;key.Border=30;
+    NativeSnapshotPolicy policy;
+    CHECK(policy.RetainFull(key,0));CHECK(policy.Changed);
+    CHECK(policy.RetainFull(key,82326));CHECK(!policy.Changed); // Island stays on retained native geometry.
+    CHECK(policy.RetainFull(key,NativeSnapshotPolicy::TerrainRowBudget));
+    CHECK(!policy.RetainFull(key,NativeSnapshotPolicy::TerrainRowBudget+1));CHECK(policy.Changed);
+    CHECK(!policy.RetainFull(key,111316));CHECK(!policy.Changed); // USA2 uses original reflected scope.
+    CHECK(!policy.RetainFull(key,0));CHECK(!policy.Changed); // Shroud/source pressure decrease cannot toggle allocations.
+    CHECK_EQ(policy.Peak(),111316u);
+    // A flyover can alternate water planes with49K/111K terrain rows. Pressure remains map-wide;
+    // the independent TerrainSnapshotKey above still invalidates geometry on exact plane changes.
+    for(size_t rows:{49324u,111316u,49324u,111316u}) {
+        CHECK(!policy.RetainFull(key,rows));CHECK(!policy.Changed);
+    }
+    key.Map=&nextMap;CHECK(policy.RetainFull(key,0));CHECK(policy.Changed);
+    CHECK(!policy.RetainFull(key,111316));
+    key.Data=&nextData;CHECK(policy.RetainFull(key,82326));CHECK(policy.Changed);
+    CHECK(!policy.RetainFull(key,111316));
+    policy.Reset();CHECK(policy.RetainFull(key,82326));CHECK(policy.Changed);
+}
+
+
+TEST(water_hardware_terrain_groups_preserve_original_ordered_scope_indices)
+{
+    std::vector<Triangle> terrain;
+    for(unsigned y=0;y<81;++y)for(unsigned x=0;x<93;++x) {
+        const float z=float((x+y)%9)+(y%3==0 ? -2 : 2);
+        terrain.push_back({{float(x)*10,float(y)*10,z},{float(x)*10+10,float(y)*10,z},
+            {float(x)*10,float(y)*10+10,z},{.3f,.4f,.5f}});
+    }
+    std::vector<View> views;
+    for(unsigned i=0;i<40;++i) {
+        View view;view.origin={float(i)*23-100,float(i%7)*90,-20};
+        view.rayTopLeft={-.3f,.3f,1};view.rayDx={.6f,0,0};view.rayDy={0,-.6f,0};
+        view.maxDistance=80+float(i)*3;view.secondaryDistance=float(i%3)*40;view.shadowDistance=float(i%4)*70;
+        view.sunDirection={.3f,-.7f,1};
+        views.push_back(view);
+    }
+    // The wider view also contains whole above-water groups.
+    View overview=views.back();
+    overview.origin={460,400,-1500};
+    views.push_back(overview);
+
+    TerrainGroups groups;groups.Build(terrain);
+    size_t totalSkipped=0,totalAccepted=0;
+    for(const View &view:views) {
+        CaptureScope scope(view);
+        std::vector<TerrainGroups::Span> spans;
+        std::vector<size_t> actual,original;
+        size_t tested=0,skipped=0,accepted=0;
+        groups.Select(terrain,scope,spans,tested,skipped,accepted);
+        for (const auto &span:spans)
+            for (size_t t=span.First;t<span.End;++t) actual.push_back(t);
+        for(size_t t=0;t<terrain.size();++t) {
+            const auto &v=terrain[t];
+            if(scope.Matches(Minimum(v.a,Minimum(v.b,v.c)),Maximum(v.a,Maximum(v.b,v.c))))original.push_back(t);
+        }
+        CHECK(actual==original);CHECK_EQ(tested+skipped+accepted,terrain.size());
+        totalSkipped+=skipped;
+        totalAccepted+=accepted;
+    }
+    CHECK(totalSkipped>terrain.size());
+    CHECK(totalAccepted>0);
+    terrain.resize(17);groups.Build(terrain);
+    View invalid;invalid.rayTopLeft={0,0,0};CaptureScope unrestricted(invalid);
+    std::vector<TerrainGroups::Span> selected;
+    size_t tested=0,skipped=0,accepted=0;
+    groups.Select(terrain,unrestricted,selected,tested,skipped,accepted);
+    CHECK_EQ(selected.size(),1u);CHECK_EQ(skipped+tested,0u);
+    CHECK_EQ(accepted,terrain.size());
+    if (!selected.empty()) { CHECK_EQ(selected[0].First,0u); CHECK_EQ(selected[0].End,terrain.size()); }
+    terrain.clear();groups.Build(terrain);
+    groups.Select(terrain,unrestricted,selected,tested,skipped,accepted);
+    CHECK(selected.empty());CHECK_EQ(tested+skipped+accepted,0u);
 }

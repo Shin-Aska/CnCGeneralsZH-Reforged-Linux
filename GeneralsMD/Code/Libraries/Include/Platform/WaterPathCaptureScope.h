@@ -76,6 +76,33 @@ public:
         return true;
     }
 
+    // The group bounds enclose every triangle box. Leave faces near a plane
+    // to the per-triangle test, including numerical uncertainty at large coordinates.
+    bool Contains(Vec3 minimum,Vec3 maximum) const
+    {
+        if (!active) return true;
+        if (!Finite(minimum) || !Finite(maximum) || minimum.z < waterLevel-0.05f)
+            return false;
+        if (finiteFootprint && (minimum.x<low.x || maximum.x>high.x
+            || minimum.y<low.y || maximum.y>high.y || minimum.z<low.z || maximum.z>high.z))
+            return false;
+        const Vec3 centre=Scale(Add(minimum,maximum),0.5f);
+        const Vec3 extent=Scale(Sub(maximum,minimum),0.5f);
+        const Vec3 relative=Sub(centre,origin);
+        const Vec3 magnitude=Add(Add(Maximum(centre,Scale(centre,-1)),Maximum(origin,Scale(origin,-1))),extent);
+        if (!Finite(relative) || !Finite(magnitude)) return false;
+        for (unsigned i=0;i<4;++i) {
+            const Vec3 n=sides[i];
+            const Vec3 absNormal={std::abs(n.x),std::abs(n.y),std::abs(n.z)};
+            const float distance=Dot(n,relative)-Dot(absNormal,extent);
+            const float slack=(Dot(absNormal,magnitude)+std::abs(margins[i])+1.0f)
+                * (32*std::numeric_limits<float>::epsilon());
+            if (!std::isfinite(distance) || !std::isfinite(slack)
+                || distance < -margins[i]+slack) return false;
+        }
+        return true;
+    }
+
 private:
     Vec3 origin{},sides[4]{},low{},high{};
     float waterLevel=0,margins[4]{};

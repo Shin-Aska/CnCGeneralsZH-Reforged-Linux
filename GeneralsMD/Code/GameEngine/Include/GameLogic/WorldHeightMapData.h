@@ -139,6 +139,10 @@ public:  // height map info.
 
 public:  // cell bits
 	Bool getFlipState(Int xIndex, Int yIndex) const;
+#if defined(__linux__)
+	const UnsignedByte *getFlipStateData() const { return m_cellFlipState; }
+	Int getFlipStateRowBytes() const { return m_flipStateWidth; }
+#endif
 	///Faster version of above function without all the safety checks - For people that do checks externally.
 	inline Bool getQuickFlipState(Int xIndex, Int yIndex) const
 	{
