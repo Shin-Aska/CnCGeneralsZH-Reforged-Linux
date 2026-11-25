@@ -493,6 +493,18 @@ void PosixDevice9::Build_Sun_Constants(SdlEnginePixelConstants &constants) const
     constants.VolumeParameters[3] = SunSmoke::SelfCurve;
     std::memcpy(constants.WorldFromClip,Sun->WorldFromClip,sizeof(Sun->WorldFromClip));
 }
+bool PosixDevice9::Read_Sun_Post_View(SDL_GPUTexture *&texture, float sunFromWorld[16], float &bias, float &strength)
+{
+    texture = nullptr; bias = strength = 0;
+    // Match receiver admission, including the exact active scene/target. Shafts use
+    // the same effective map whether the hardware query succeeded or fell back.
+    if (!sunFromWorld || !Sun_Receives_View()) return false;
+    texture = Sun->Target.Depth;
+    std::memcpy(sunFromWorld, Sun->ViewProjection, sizeof(Sun->ViewProjection));
+    bias = Sun->Parameters[1]; strength = Sun->Parameters[2];
+    return texture != nullptr;
+}
+
 SDL_GPUTexture *PosixDevice9::Sun_Texture() const { return Sun ? Sun->Target.Depth : nullptr; }
 SDL_GPUSampler *PosixDevice9::Sun_Sampler() const { return Sun ? Sun->Sampler : nullptr; }
 

@@ -27,6 +27,7 @@ enum class RendererFeature
     TerrainSun, // height-derived per-pixel global terrain light
     TerrainSubdivision, // render-only Catmull-Rom ground geometry
     GroundFoliage, // native grass shader, alpha silhouettes and distance fold
+    SunShafts,
     Count
 };
 

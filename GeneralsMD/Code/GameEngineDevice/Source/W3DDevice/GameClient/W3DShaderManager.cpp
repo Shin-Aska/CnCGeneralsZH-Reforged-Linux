@@ -81,7 +81,7 @@
 #include "GameLogic/DayNightCycle.h"
 #include "Common/GlobalData.h"
 #include "Common/OptionsCatalog.h"
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__linux__)
 #include "Common/EarlyOptions.h"	// findEarlyOptionValue: the sun shafts' hidden tuning keys
 #endif
 #include "Common/GameLOD.h"
@@ -385,11 +385,11 @@ static Real s_hazeLevelRise = PROTO_HAZE_MIN_RISE;
 static Real s_hazeLevelWater = -1.0e6f;
 static Real s_hazeLevelMiddle = 0.0f;
 // Every water area under the sun shafts' layer top, its box and surface, for the shafts, which reach
-// higher than the haze's top: the first DX11_POST_SUN_SHAFT_WATER_AREAS of them the trigger list holds.
+// higher than the haze's top: the first RenderPost::SunShaftWaterAreas of them the trigger list holds.
 // An area above the top has no layer air over it and takes no slot.
 // ponytail: a map with more water areas than that under the top loses the rest (a DEBUG_LOG line says
 // so), so their beds glow; rank by size if one shows.
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__linux__)
 static const Real SUN_SHAFT_TOP = 150.0f;					// world units the dust reaches above the median ground
 static Int s_shaftWaterCount = 0;
 // The look the shafts draw with this map: the SUN_SHAFT_* constants below, or the hidden Options.ini
@@ -400,8 +400,13 @@ struct SunShaftTuning
 };
 static SunShaftTuning s_shaftTuning;
 static void readSunShaftTuning(void);
-static float s_shaftWaterBoxes[DX11_POST_SUN_SHAFT_WATER_AREAS][4];
-static float s_shaftWaterHeights[DX11_POST_SUN_SHAFT_WATER_AREAS];
+#if defined(_WIN32)
+static const unsigned SUN_SHAFT_WATER_AREAS = DX11_POST_SUN_SHAFT_WATER_AREAS;
+#else
+static const unsigned SUN_SHAFT_WATER_AREAS = RenderPost::SunShaftWaterAreas;
+#endif
+static float s_shaftWaterBoxes[SUN_SHAFT_WATER_AREAS][4];
+static float s_shaftWaterHeights[SUN_SHAFT_WATER_AREAS];
 #endif
 
 /** The haze's levels for this map, worked out the first time a frame asks for them on it: the haze's top
@@ -421,7 +426,7 @@ static void updateHazeLevels(WorldHeightMap *map)
 	s_hazeLevelRise = max(s_hazeLevelMiddle + PROTO_HAZE_ABOVE_MIDDLE - low, PROTO_HAZE_MIN_RISE);
 	s_hazeLevelTop = low + s_hazeLevelRise;
 	s_hazeLevelWater = -1.0e6f;
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__linux__)
 	s_shaftWaterCount = 0;
 	readSunShaftTuning();
 #endif
@@ -438,12 +443,12 @@ static void updateHazeLevels(WorldHeightMap *map)
 		const Real surface = (Real)area->getPoint(0)->z;
 		if (surface < s_hazeLevelTop && surface > s_hazeLevelWater)
 			s_hazeLevelWater = surface;
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__linux__)
 		if (surface >= s_hazeLevelMiddle + s_shaftTuning.top)
 			continue;
-		if (s_shaftWaterCount >= DX11_POST_SUN_SHAFT_WATER_AREAS)
+		if (s_shaftWaterCount >= SUN_SHAFT_WATER_AREAS)
 		{
-			DEBUG_LOG(("SUNSHAFTS: water area at %.1f left out, the shafts hold %d\n", surface, (Int)DX11_POST_SUN_SHAFT_WATER_AREAS));
+			DEBUG_LOG(("SUNSHAFTS: water area at %.1f left out, the shafts hold %d\n", surface, (Int)SUN_SHAFT_WATER_AREAS));
 		}
 		else
 		{
@@ -626,7 +631,7 @@ static Bool pushAtmosphere(Bool weatherHaze)
 }
 #endif
 
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__linux__)
 /* The SunShafts option (DX11Post_Set_Sun_Shafts): the sunlight that comes through between objects.  A
 	sunlit surface with cast shadows close on both sides across the sun's bearing (a lane between houses,
 	grass between two tree shadows) takes a warm band in soft streaks along the bearing, the sunlit border
@@ -704,10 +709,18 @@ static void readSunShaftTuning(void)
 
 static void pushSunShafts(Bool denserDust)
 {
+#if defined(_WIN32)
 	DX11PostSunShafts shafts;
+#else
+	RenderPost::SunShaftSettings shafts;
+#endif
 	memset(&shafts, 0, sizeof(shafts));
 	const Int level = TheGlobalData->m_sunShafts;
+#if defined(_WIN32)
 	if (level > 0 && level < SUN_SHAFTS_LEVEL_COUNT && !TheGlobalData->m_classicGraphics && Direct3D11_Present_Is_Enabled()
+#else
+	if (level > 0 && level < SUN_SHAFTS_LEVEL_COUNT && !TheGlobalData->m_classicGraphics && RenderPost::SunShaftsAvailable()
+#endif
 		&& TheTerrainRenderObject != NULL && TheTerrainRenderObject->getMap() != NULL)
 	{
 		updateHazeLevels(TheTerrainRenderObject->getMap());
@@ -758,7 +771,11 @@ static void pushSunShafts(Bool denserDust)
 		shafts.ShallowTop = SUN_SHAFT_GLARE_STEEPEST;
 		shafts.ShallowSpan = SUN_SHAFT_GLARE_SPAN;
 	}
-	DX11Post_Set_Sun_Shafts(shafts);
+#if defined(_WIN32)
+    DX11Post_Set_Sun_Shafts(shafts);
+#else
+    s_nativeEnvironment.Shafts=shafts;
+#endif
 }
 #endif
 
@@ -846,9 +863,14 @@ void W3DShaderManager::pushProtoHaze(void)
     }
     else if (haze == NativePostEnvironmentPolicy::WarmLight) pushProtoHazeFrame();
     m_atmosphereDrawn = pushAtmosphere(haze == NativePostEnvironmentPolicy::Weather);
-    // AO can need shroud even when neither atmosphere nor haze is enabled.
+#if defined(__linux__)
+    pushSunShafts(haze != NativePostEnvironmentPolicy::None);
+    // The fog memory and shafts also need shroud with the post chain and haze off.
+    pushShroudFrame();
+#else
     if (TheGlobalData->m_ambientOcclusion || haze != NativePostEnvironmentPolicy::None || s_nativeEnvironment.Atmosphere.Strength > 0)
         pushShroudFrame();
+#endif
     RenderPost::SetEnvironment(s_nativeEnvironment); // copies/AddRefs before returning
 #endif
 }

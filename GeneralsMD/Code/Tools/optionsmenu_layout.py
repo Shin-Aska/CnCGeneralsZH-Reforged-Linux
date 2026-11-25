@@ -916,6 +916,9 @@ def build_linux(layout):
         layout.find("PageGraphics").children.append(make_control(
             layout.find(CHECK), "CheckUseHardwareRayTracing", "GUI:UseHardwareRayTracing", 0, 0, 1, 1))
     reflow_existing_pages(layout, ("PageDisplay", "PageGraphics"), groups)
+    for node in layout.root.walk():
+        if node.prop("TOOLTIPTEXT") == 'TOOLTIPTEXT = "TOOLTIP:SunShafts";':
+            node.put_prop("TOOLTIPTEXT", '"TOOLTIP:SunShaftsLinux"')
     return layout
 
 
@@ -1154,6 +1157,8 @@ def selfcheck(linux=False):
     controls = set((node.name or "").split(":")[-1] for node in layout.root.walk())
 
     problems = []
+    if linux and "TOOLTIP:SunShaftsLinux" not in keys:
+        problems.append("Linux Sun Shafts tooltip is missing from Patch.str")
     if len(rows) < 9:
         problems.append("only %d catalog rows parsed, the regex has stopped matching" % len(rows))
 

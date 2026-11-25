@@ -1264,11 +1264,6 @@ static Bool validateHardwareRayTracingChoice(GameWindow *widget, Bool immediate)
 // the saved option or infer support from the user's DX11 preference.
 static Bool nativeRendererOptionAvailable(const OptionDef &def, Bool &supported)
 {
-    // Sun shafts currently have a Windows Direct3D 11 provider only.
-    if (strcmp(def.iniKey, "SunShafts") == 0) {
-        supported = FALSE;
-        return TRUE;
-    }
     struct Requirement { const char *Key; RendererFeature Feature; };
     static const Requirement requirements[] = {
         {"MapLight", RendererFeature::AtmosphereHaze},
@@ -1283,7 +1278,8 @@ static Bool nativeRendererOptionAvailable(const OptionDef &def, Bool &supported)
         {"Atmosphere", RendererFeature::AtmosphereHaze},
         {"StructureCollapse", RendererFeature::BuildingCollapse},
         {"HeatHaze", RendererFeature::HeatBlastDistortion},
-        {"GroundFoliage", RendererFeature::GroundFoliage}
+        {"GroundFoliage", RendererFeature::GroundFoliage},
+        {"SunShafts", RendererFeature::SunShafts}
     };
     for (unsigned i = 0; i < ARRAY_SIZE(requirements); ++i) {
         if (strcmp(def.iniKey, requirements[i].Key) == 0) {
@@ -2504,8 +2500,7 @@ static GameWindow *classicGraphicsCheckBox( void )
 	return findOptionWidget( *findOptionDef( "ClassicGraphics" ) );
 }
 
-/** Sun shafts require Windows Direct3D 11 and its sun map. The box stays grey on native renderers,
-	* and follows the Classic Graphics box on Windows. */
+/** Sun shafts follow the implemented renderer provider and the pending Classic choice. */
 static void showSunShaftsAvailable( void )
 {
 	GameWindow *control = findOptionWidget( *findOptionDef( "SunShafts" ) );
@@ -2513,7 +2508,8 @@ static void showSunShaftsAvailable( void )
 #if defined(_WIN32)
 		control->winEnable( TheGlobalData->m_direct3D11 && !GadgetCheckBoxIsChecked( classicGraphicsCheckBox() ) );
 #else
-		control->winEnable( FALSE );
+        control->winEnable(TheDisplay && TheDisplay->supportsRendererFeature(RendererFeature::SunShafts) &&
+            !GadgetCheckBoxIsChecked(classicGraphicsCheckBox()));
 #endif
 }
 

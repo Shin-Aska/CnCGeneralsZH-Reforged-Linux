@@ -1,6 +1,9 @@
 // Scene post dispatch. This interface carries policy without changing backend identity.
 #pragma once
 #include <cstdint>
+#if !defined(_WIN32)
+#include "Platform/SunShaftSettings.h"
+#endif
 struct IDirect3DBaseTexture9;
 struct IDirect3DSurface9;
 namespace RenderPost {
@@ -33,6 +36,9 @@ struct Environment {
     GroundHazeSettings Haze;
     GroundHazeSettings TransitionWarmHaze; // only the complementary warm-light contribution during rain
     AtmosphereSettings Atmosphere;
+#if !defined(_WIN32)
+    SunShaftSettings Shafts = {};
+#endif
     IDirect3DBaseTexture9 *Sky = nullptr, *Shroud = nullptr;
     float ShroudRect[4] = {0,0,1,1};
 };
@@ -43,6 +49,9 @@ void SetEnvironment(const Environment &environment);
 // options and current routing; user-visible feature capabilities are advertised after integration.
 bool EnvironmentAvailable();
 bool DistortionAvailable();
+#if defined(__linux__)
+bool SunShaftsAvailable();
+#endif
 void BeginMain(const Settings &settings);
 bool SetChain(const char *chain);
 unsigned BeginView(bool eligible, float nearPlane, float farPlane, bool reflection = false);
@@ -74,6 +83,7 @@ void SetWarps(IDirect3DDevice9 *, const Warp *, unsigned);
 void SetHeatSplats(IDirect3DDevice9 *, const float *, unsigned);
 bool EnvironmentAvailable(IDirect3DDevice9 *);
 bool DistortionAvailable(IDirect3DDevice9 *);
+bool SunShaftsAvailable(IDirect3DDevice9 *);
 unsigned BeginView(IDirect3DDevice9 *, bool, float, float, bool);
 void EndView(IDirect3DDevice9 *, unsigned);
 void Sky(IDirect3DDevice9 *);

@@ -9,6 +9,7 @@
 #include "SdlPostProcess.h"
 #include "SdlPostAtmosphere.h"
 #include "SdlPostDistortion.h"
+#include "SdlPostSceneEffects.h"
 #include "Platform/RenderParticles.h"
 #include "Platform/RenderEffects.h"
 #include "Platform/RenderTeamGlow.h"
@@ -61,6 +62,14 @@ bool supports_environment(IDirect3DDevice9 *device) {
     return supports_depth_capture(device);
 }
 const bool AtmosphereRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::AtmosphereHaze, supports_environment);
+bool supports_shafts(IDirect3DDevice9 *device) {
+#if defined(__linux__)
+    return supports_environment(device) && supports_ao(device);
+#else
+    return false;
+#endif
+}
+const bool ShaftsRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::SunShafts, supports_shafts);
 const bool DistortionRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::HeatBlastDistortion,
     [](IDirect3DDevice9 *device) { return supports_environment(device) && supports_hdr(device); });
 }
@@ -70,6 +79,8 @@ struct PosixDevice9::PostSession {
     SdlPostProcess Processor;
     SdlPostAtmosphere Atmosphere;
     SdlPostDistortion Distortion;
+    SdlPostSceneEffects SceneEffects;
+    bool ShaftsDone = false;
     bool HeatPending = false, BlastPending = false;
     bool EnvironmentReady = false;
     SdlSceneCaptureCache Captures;
@@ -196,6 +207,7 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     s.Distortion.Abandon(); s.HeatPending = s.BlastPending = false;
     s.InView = s.Entered = s.Routed = false;
     s.Classic = settings.Classic; s.SoftView = {};
+    s.ShaftsDone = false;
     ParticlesAllowed = ModelEffectsAllowed = !settings.Classic;
     s.ModelColour = {}; s.ModelColourRefusedKey = 0; s.FoamView = {}; s.FoamRefusedKey = 0;
     s.CurrentView = {}; s.LastView = {}; s.ViewDepth = 0;
@@ -208,7 +220,8 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     // Sun ray queries write light-space depth, and hardware water has its own capture.
     // Neither needs to route the main view through a copy-only post chain.
     if (!s.RequestedChain && !settings.Classic && (s.WorldAO || settings.IndependentScene || (s.EnvironmentCurrent &&
-        (s.Environment.Haze.Strength > 0 || s.Environment.TransitionWarmHaze.Strength > 0 || s.Environment.Atmosphere.Strength > 0)))) {
+        (s.Environment.Haze.Strength > 0 || s.Environment.TransitionWarmHaze.Strength > 0 || s.Environment.Atmosphere.Strength > 0
+            || s.Environment.Shafts.Strength > 0)))) {
         s.Settings.Count = 1; s.Settings.Chain[0] = DX11_POST_COPY;
     }
     if (++s.Serial == 0) ++s.Serial;
@@ -254,6 +267,7 @@ unsigned PosixDevice9::Begin_Post_View(bool eligible, float nearPlane, float far
         !render_full_texture_to_world(&Transforms[D3DTS_VIEW]._11, &Transforms[D3DTS_PROJECTION]._11,
             target.Width, target.Height, viewport, view.FullTextureWorldFromClip, view.ProjectionScale)) return token;
     if (s.Entered) {
+        s.ShaftsDone = false;
         s.ModelColour = {}; s.ModelColourRefusedKey = 0; s.FoamView = {}; s.FoamRefusedKey = 0;
         s.Atmosphere.Abandon(); s.EnvironmentReady = false;
         s.Distortion.Abandon(); s.HeatPending = s.BlastPending = false;
@@ -430,6 +444,17 @@ void PosixDevice9::Post_Before_Transparent()
         if (Post->EnvironmentReady) {
             if (!Post->Environment.Haze.BeforeWater) Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
             Post->Atmosphere.Apply_Transition_Warm_Haze(*Gpu, Post->Scene, inputs);
+        }
+        if (!Post->ShaftsDone && Post->EnvironmentCurrent && Post->Environment.Shafts.Strength>0) {
+            SDL_GPUTexture *sunMap=nullptr;float sunFromWorld[16],bias=0,strength=0;
+            if (Read_Sun_Post_View(sunMap,sunFromWorld,bias,strength)) {
+                std::string error;
+                SDL_GPUTexture *heights=TerrainHeights ? Mirrors->Texture(TerrainHeights,error) : nullptr;
+                Post->ShaftsDone=Post->SceneEffects.Sun_Shafts(*Gpu,Post->Scene,inputs,Post->Environment.Shafts,
+                    sunMap,sunFromWorld,bias,strength,heights,TerrainSun+33);
+            }
+        }
+        if (Post->EnvironmentReady) {
             Post->Atmosphere.Apply_Atmosphere(*Gpu, Post->Scene, inputs);
         }
     }
@@ -464,6 +489,10 @@ void PosixDevice9::Release_Post()
 {
     if (!Post || !Gpu) return;
     Clear_Hardware_Sun(true);
+    if (!Post->SceneEffects.Release(*Gpu)) {
+        Gpu->Discard_Pending_Work_For_Teardown();
+        Post->SceneEffects.Release(*Gpu);
+    }
     if (!Post->Distortion.Release(*Gpu)) {
         Gpu->Discard_Pending_Work_For_Teardown();
         if (!Post->Distortion.Release(*Gpu)) std::fprintf(stderr, "PosixDevice9: distortion teardown: %s\n", Post->Distortion.Error().c_str());
@@ -671,6 +700,7 @@ bool OwnsCurrentScene(IDirect3DDevice9 *device) { return device && static_cast<P
 }
 
 namespace RenderPost {
+bool SunShaftsAvailable(IDirect3DDevice9 *d) { return supports_shafts(d); }
 bool DistortionAvailable(IDirect3DDevice9 *d) { return supports_environment(d) && supports_hdr(d); }
 bool EnvironmentAvailable(IDirect3DDevice9 *d) {
     return supports_depth_capture(d);

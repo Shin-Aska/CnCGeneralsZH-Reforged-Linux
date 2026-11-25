@@ -22744,3 +22744,7 @@ END
 GUI:HardwareRayTracingUnavailable
 "Le ray tracing matériel est indisponible avec le périphérique graphique et le moteur de rendu actuels. Le jeu utilisera le rendu standard des ombres et des reflets."
 END
+
+TOOLTIP:SunShaftsLinux
+"Le soleil bas tombe en faisceaux à travers la poussière entre les bâtiments et les arbres, et l'air s'éclaire un peu vers le soleil. Plus fort le matin et le soir. Disponible avec Direct3D 11 ou SDL GPU si le Rendu classique est désactivé. S'applique quand vous cliquez sur Accepter."
+END

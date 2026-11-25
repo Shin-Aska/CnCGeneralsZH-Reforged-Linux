@@ -240,6 +240,7 @@ public:
 	SdlGpuFrame * Get_Gpu() const { return Gpu; }
 	void Begin_Post(const RenderPost::Settings &settings);
 	void Set_Post_Environment(const RenderPost::Environment &environment);
+	bool Read_Sun_Post_View(struct SDL_GPUTexture *&, float sunFromWorld[16], float &bias, float &strength);
 	bool Merge_Hardware_Sun_Depth(const struct SdlTarget &, const float *viewProjection, bool submit = true);
 	void Set_Post_Warps(const RenderPost::Warp *, unsigned);
 	void Set_Post_Heat(const float *, unsigned);

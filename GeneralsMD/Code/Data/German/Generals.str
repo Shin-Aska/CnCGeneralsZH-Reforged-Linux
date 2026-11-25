@@ -21232,3 +21232,7 @@ END
 GUI:HardwareRayTracingUnavailable
 "Hardware-Raytracing ist mit dem aktuellen Grafikgerät und Renderer nicht verfügbar. Das Spiel verwendet die Standarddarstellung für Schatten und Reflexionen."
 END
+
+TOOLTIP:SunShaftsLinux
+"Tiefes Sonnenlicht fällt in Bahnen durch den Staub zwischen Gebäuden und Bäumen, und die Luft leuchtet zur Sonne hin ein wenig. Am stärksten morgens und abends. Verfügbar mit Direct3D 11 oder SDL GPU, wenn die Klassik-Grafik ausgeschaltet ist. Gilt, sobald du Annehmen drückst."
+END

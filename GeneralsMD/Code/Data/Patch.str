@@ -7772,3 +7772,7 @@ END
 GUI:HardwareRayTracingUnavailable
 "Hardware ray tracing is unavailable with the current graphics device and renderer. The game will use its standard shadow and reflection paths."
 END
+
+TOOLTIP:SunShaftsLinux
+"Low sunlight falls in bands through the dust between buildings and trees, and the air glows a little toward the sun. Strongest at morning and evening. Available with Direct3D 11 or SDL GPU when Classic Graphics is off. Applies when you press Accept."
+END

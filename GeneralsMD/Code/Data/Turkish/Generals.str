@@ -21761,3 +21761,7 @@ END
 GUI:HardwareRayTracingUnavailable
 "Geçerli grafik aygıtı ve işleyici ile donanım hızlandırmalı ışın izleme kullanılamıyor. Oyun gölgeler ve yansımalar için standart çizim yöntemlerini kullanacak."
 END
+
+TOOLTIP:SunShaftsLinux
+"Alçak güneşin ışığı binaların ve ağaçların arasındaki tozdan şerit şerit süzülür, güneşe doğru hava hafifçe parlar. En çok sabah ve akşam görünür. Klasik Grafikler kapalıyken Direct3D 11 veya SDL GPU ile kullanılabilir. Kabul Et'e basınca uygulanır."
+END

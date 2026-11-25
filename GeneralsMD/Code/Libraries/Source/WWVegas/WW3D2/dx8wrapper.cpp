@@ -6189,6 +6189,12 @@ SurfaceClass * DX8Wrapper::Copy_Surface_To_System_Memory(IDirect3DSurface9 * sou
 }
 
 namespace RenderPost {
+#if defined(__linux__)
+bool SunShaftsAvailable() {
+    return SunShaftsAvailable(DX8Wrapper::_Get_D3D_Device());
+}
+#endif
+
 bool DistortionAvailable() {
 #if defined(_WIN32)
     return Direct3D11_Present_Is_Enabled();
