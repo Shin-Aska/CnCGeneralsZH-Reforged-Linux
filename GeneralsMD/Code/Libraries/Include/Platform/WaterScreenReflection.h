@@ -1,6 +1,6 @@
 // Screen-space reflection for Modern map water. Render-only.
 //
-// Four ways to reflect the scene; ZH_WATER_SSR overrides the live setting when it names one:
+// Five ways to reflect the scene; ZH_WATER_SSR overrides the live setting when it names one:
 //   "legacy", "mirror", "0" the original planar reflection pass alone
 //   "ssr", "1", "replace"  no mirror pass; the reflected ray is traced through the pre-water scene snapshot
 //   "hybrid"               the legacy reflection plus screen-space reflection
@@ -18,13 +18,20 @@
 namespace WaterScreenReflection {
 bool Supported(); // Queries the current backend; false before a GPU device exists.
 
-enum Mode { Mirror, ScreenSpace, Hybrid, PathTraced, SkyOnly };
+// Values 0..3 are persisted. Legacy value 4 migrates to the single experimental mode.
+// SkyOnly is a diagnostic/disabled state, never a menu preference.
+enum Mode { Mirror = 0, ScreenSpace = 1, Hybrid = 2, PathTraced = 3, HardwarePathTraced = 4, SkyOnly = 5 };
+inline bool IsPathTraced(Mode mode) { return mode == PathTraced || mode == HardwarePathTraced; }
+inline bool IsHardwarePathTraced(Mode mode) { return mode == HardwarePathTraced; }
+inline Mode EffectivePathMode(Mode selected, bool hardwareAvailable) {
+    return selected == HardwarePathTraced && !hardwareAvailable ? PathTraced : selected;
+}
 
 // Map-water targets; the sea keeps its separate reflection allocation.
 constexpr unsigned LegacyMirrorSize = 512;
 constexpr unsigned HybridMirrorSize = 1024;
 inline unsigned MirrorSize(Mode mode, int detail = 1) {
-	const unsigned high = mode==Hybrid || mode==PathTraced ? HybridMirrorSize : LegacyMirrorSize;
+	const unsigned high = mode==Hybrid || IsPathTraced(mode) ? HybridMirrorSize : LegacyMirrorSize;
 	return detail==0 ? high/2 : high;
 }
 
@@ -43,15 +50,17 @@ inline bool Parse(const char *value, Mode &mode)
 	return true;
 }
 
-inline Mode Resolve(const char *environment, int setting, bool enabled = true)
+inline Mode Resolve(const char *environment, int setting, bool enabled = true, bool hardwarePathOverride = false)
 {
 	if (!enabled) return SkyOnly;
+	if (hardwarePathOverride) return PathTraced;
 	Mode mode;
 	if (Parse(environment, mode)) return mode;
 	switch (setting) {
 		case 0: return Mirror;
 		case 1: return ScreenSpace;
 		case 3: return PathTraced;
+		case 4: return PathTraced;
 		default: return Hybrid;
 	}
 }
@@ -62,6 +71,7 @@ inline Mode Next(Mode mode)
 		case Mirror: return ScreenSpace;
 		case ScreenSpace: return Hybrid;
 		case Hybrid: return PathTraced;
+		case PathTraced: return Mirror;
 		default: return Mirror;
 	}
 }
@@ -71,6 +81,14 @@ inline const char *CachedEnvironment()
 	static const char *const environment = std::getenv("ZH_WATER_SSR");
 	return environment;
 }
+// The explicit launch override shares the persisted mode's routing without changing the preference.
+inline bool HardwarePathOverride() {
+    const char *value = std::getenv("ZH_HARDWARE_WATER_PATH_TRACING");
+    return value && std::strcmp(value, "1") == 0;
+}
+inline Mode ResolveRuntime(int setting, bool enabled = true) {
+    return Resolve(CachedEnvironment(), setting, enabled, HardwarePathOverride());
+}
 inline bool Traces(Mode mode) { return mode == ScreenSpace || mode == Hybrid; }
 inline bool UsesMirror(Mode mode) { return mode == Mirror || mode == Hybrid; }
 inline const char *Name(Mode mode)
@@ -79,7 +97,8 @@ inline const char *Name(Mode mode)
 		case Mirror: return "legacy";
 		case ScreenSpace: return "SSR";
 		case Hybrid: return "hybrid (legacy + SSR)";
-		case PathTraced: return "path traced (experimental)";
+		case PathTraced: return "Path Tracing (Experimental)";
+		case HardwarePathTraced: return "Path Tracing (Experimental)";
 		default: return "sky only";
 	}
 }

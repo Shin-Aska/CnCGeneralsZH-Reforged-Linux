@@ -19150,7 +19150,7 @@ GUI:WaterReflection3
 END
 
 TOOLTIP:WaterReflection
-"Pour l’eau moderne lorsque les reflets de scène sont activés. Classique utilise les reflets d’origine. SSR reflète le contenu visible à l’écran. Hybride combine les deux et est le mode par défaut. Le tracé de rayons est une option expérimentale plus lente qui suit la géométrie de la scène. Appliqué quand vous cliquez sur Accepter."
+"Eau moderne avec reflets de scène. Hybride par défaut. Le tracé de chemin expérimental utilise le réglage matériel de Graphismes, sinon le logiciel. Appliqué avec Accepter."
 END
 
 CONTROLBAR:ToolTipEvacuateAt

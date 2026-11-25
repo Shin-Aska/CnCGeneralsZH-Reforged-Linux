@@ -19286,7 +19286,7 @@ GUI:WaterReflection3
 END
 
 TOOLTIP:WaterReflection
-"Sahne yansımaları açıkken modern su içindir. Klasik, özgün yansımaları kullanır. SSR, ekranda görünen içeriği yansıtır. Hibrit ikisini birleştirir ve varsayılandır. Yol izleme, sahne geometrisini izleyen deneysel ve daha yavaş bir seçenektir. Kabul Et'e basınca uygulanır."
+"Sahne yansımaları açık Modern su. Varsayılan Karma. Deneysel yol izleme Grafik bölümündeki donanım ayarını, kullanılamazsa yazılımı kullanır. Kabul ile uygulanır."
 END
 
 GUI:SocketRedirected

@@ -6193,7 +6193,7 @@ public:
         using namespace WaterScreenReflection;
         const auto saved=WaterPerformanceSettings::Applied();
         const int mode=TheGlobalData->m_waterReflection;
-        for(int preferred:{0,1,2,3}) {
+        for(int preferred:{0,1,2,3,4}) {
             TheWritableGlobalData->m_waterReflection=preferred;
             TheWritableGlobalData->m_waterReflectionEnabled=FALSE;
             TheWritableGlobalData->m_waterFftResolution=1;
@@ -6214,7 +6214,7 @@ public:
             updateRenderTargetTextures(NULL);
             const Mode expected=Resolve(CachedEnvironment(),preferred);
             CHECK(m_waterReflectionMode==expected);
-            CHECK(bool(m_reflectionReused)==(UsesMirror(expected)||expected==PathTraced));
+            CHECK(bool(m_reflectionReused)==(UsesMirror(expected)||IsPathTraced(expected)));
         }
         for(int index:{0,1,2}) {
             TheWritableGlobalData->m_waterFftResolution=index;
@@ -6300,14 +6300,14 @@ public:
         synchronizeWaterStyle();
         // The first frame returning to either mirror mode must refresh a stationary view.
         // A process-wide environment override keeps the resolved mode fixed instead.
-        for(int setting:{0,1,2,3,0,2,1,0}) {
+        for(int setting:{0,1,2,3,4,0,2,1,0}) {
             const Mode previous=m_waterReflectionMode;
             TheWritableGlobalData->m_waterReflection=setting;
             const Mode expected=Resolve(CachedEnvironment(),setting);
             seedPresentation();
             updateRenderTargetTextures(NULL);
             CHECK(m_waterReflectionMode==expected);
-            CHECK(bool(m_reflectionReused)==(previous!=expected && (UsesMirror(expected) || expected==PathTraced)));
+            CHECK(bool(m_reflectionReused)==(previous!=expected && (UsesMirror(expected) || IsPathTraced(expected))));
             m_reflectionReused=FALSE;checkUnchanged();
             updateRenderTargetTextures(NULL);checkUnchanged();
             CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_drawnMotionEnabled);
@@ -6658,11 +6658,11 @@ TEST(water_full_mirror_admits_hybrid_and_experimental_fallback_for_modern_linux_
 #if defined(__linux__)
                     for (WaterScreenReflection::Mode mode : {
                         WaterScreenReflection::Mirror, WaterScreenReflection::ScreenSpace,
-                        WaterScreenReflection::Hybrid, WaterScreenReflection::PathTraced, WaterScreenReflection::SkyOnly}) {
+                        WaterScreenReflection::Hybrid, WaterScreenReflection::PathTraced, WaterScreenReflection::HardwarePathTraced, WaterScreenReflection::SkyOnly}) {
                         water.setReflectionMode(mode);
                         CHECK_EQ(bool(query.isModernFullMirror()),
                             modern && rendering && type==WaterRenderObjClass::WATER_TYPE_0_TRANSLUCENT
-                            && (mode==WaterScreenReflection::Hybrid || mode==WaterScreenReflection::PathTraced));
+                            && (mode==WaterScreenReflection::Hybrid || WaterScreenReflection::IsPathTraced(mode)));
                     }
 #else
                     CHECK(!query.isModernFullMirror());

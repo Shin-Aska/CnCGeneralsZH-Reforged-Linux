@@ -136,13 +136,16 @@ OPTION_BOOL_ACCESSORS( m_vsync )
 OPTION_INT_ACCESSORS( m_frameRateLimit )
 OPTION_INT_ACCESSORS( m_waterStyle )
 #if defined(__linux__)
+static Int get_m_waterReflection() { return TheGlobalData->m_waterReflection==4 ? 3 : TheGlobalData->m_waterReflection; }
+static void set_m_waterReflection(Int value) { TheWritableGlobalData->m_waterReflection=value==4 ? 3 : value; }
 static Int get_m_useHardwareRayTracing() { return TheGlobalData->m_useHardwareRayTracing; }
 static void set_m_useHardwareRayTracing(Int value) {
     TheWritableGlobalData->m_useHardwareRayTracing=value!=0;
     HardwareRayTracing::SetRequested(value!=0);
 }
-#endif
+#else
 OPTION_INT_ACCESSORS( m_waterReflection )
+#endif
 OPTION_BOOL_ACCESSORS( m_waterReflectionEnabled )
 OPTION_BOOL_ACCESSORS( m_waterShoreWaveTurning )
 OPTION_BOOL_ACCESSORS( m_waterWaveFiltering )
@@ -561,6 +564,7 @@ const OptionDef TheOptionCatalog[] =
 
 	// Modern water reads the mode each frame and refreshes its reflection target on a change.
 	// Keep this independent of WaterStyle so Classic can retain a choice for a later Modern switch.
+	// One experimental path-tracing selection uses the global hardware opt-in when available.
 	{ "WaterReflection", OPT_WND( "ComboBoxWaterReflection" ), "GUI:WaterReflection",
 		OPTION_ENUM, APPLY_LIVE, 0, WATER_REFLECTION_COUNT - 1,
 		get_m_waterReflection, set_m_waterReflection },
@@ -1201,6 +1205,12 @@ AsciiString formatOptionValue( const OptionDef& def, Int value )
 //-----------------------------------------------------------------------------
 void saveAcceptedWaterPreference( UserPreferences& pref, const OptionDef& def, Int value )
 {
+#if defined(__linux__)
+    if (strcmp(def.iniKey,"WaterReflection")==0) {
+        pref[AsciiString(def.iniKey)]=formatOptionValue(def,value);
+        return;
+    }
+#endif
 	if( strcmp( def.iniKey, "WaterShoreWaveTurning" ) != 0
 		&& strcmp( def.iniKey, "WaterWaveFiltering" ) != 0
 		&& strcmp( def.iniKey, "WaterFftResolution" ) != 0
@@ -1272,6 +1282,13 @@ void loadOptionsFromPreferences( UserPreferences& pref )
 			set_m_waterWaveFiltering( quality >= 2 );
 	}
 
+#if defined(__linux__)
+    // Legacy mode4 selected hardware water only. Keep its experimental mode without
+    // silently opting the player into the new global ray-tracing effects.
+    const auto oldReflection=pref.find(AsciiString("WaterReflection"));
+    if (oldReflection!=pref.end() && atoi(oldReflection->second.str())==4)
+        pref["WaterReflection"]="3";
+#endif
 	for( Int i = 0; i < TheOptionCatalogCount; ++i )
 	{
 		const OptionDef& def = TheOptionCatalog[ i ];

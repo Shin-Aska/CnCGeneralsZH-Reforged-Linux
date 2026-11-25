@@ -554,6 +554,18 @@ int main( int argc, char *argv[] )
 				s_windowRequest.windowed = TRUE;
 				s_windowRequest.hidden = TRUE;
 			}
+            if (strcasecmp(argv[i], "-hardwareWaterPathTracing") == 0)
+            {
+                setenv("ZH_HARDWARE_WATER_PATH_TRACING", "1", 1);
+                setenv("ZH_GPU_RAY_QUERY", "1", 1);
+                fprintf(stderr, "generals: experimental hardware Modern water Path traced capture requested\n");
+            }
+            if (strcasecmp(argv[i], "-hardwareWaterReflections") == 0)
+            {
+                setenv("ZH_HARDWARE_WATER_REFLECTIONS", "1", 1);
+                setenv("ZH_GPU_RAY_QUERY", "1", 1);
+                fprintf(stderr, "generals: experimental hardware one-bounce Modern water reflections requested\n");
+            }
             if (strcasecmp(argv[i], "-hardwareRaySunShadows") == 0)
             {
                 setenv("ZH_HARDWARE_SUN_SHADOW", "1", 1);

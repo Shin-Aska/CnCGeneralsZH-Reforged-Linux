@@ -3982,8 +3982,14 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 		{
 			if( TheWritableGlobalData )
 			{
+#if defined(__linux__)
+				WaterScreenReflection::Mode mode = WaterScreenReflection::ResolveRuntime(TheWritableGlobalData->m_waterReflection);
+                const Bool hardwareOverride = WaterScreenReflection::HardwarePathOverride();
+				const Bool overridden = hardwareOverride || WaterScreenReflection::Parse(WaterScreenReflection::CachedEnvironment(), mode);
+#else
 				WaterScreenReflection::Mode mode = WaterScreenReflection::Resolve(NULL, TheWritableGlobalData->m_waterReflection);
 				const Bool overridden = WaterScreenReflection::Parse(WaterScreenReflection::CachedEnvironment(), mode);
+#endif
 				if( !overridden )
 				{
 					mode = WaterScreenReflection::Next(mode);
@@ -3992,7 +3998,11 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 				UnicodeString name;
 				name.translate(WaterScreenReflection::Name(mode));
 				TheInGameUI->message( UnicodeString( u"Water reflection: %s%s%s" ), name.str(),
+#if defined(__linux__)
+					hardwareOverride ? u" (-hardwareWaterPathTracing override)" : overridden ? u" (ZH_WATER_SSR override)" : u"",
+#else
 					overridden ? u" (ZH_WATER_SSR override)" : u"",
+#endif
 					TheWritableGlobalData->m_waterStyle == 0 ? u" (applies to Modern water)" : u"" );
 			}
 			disp = DESTROY_MESSAGE;

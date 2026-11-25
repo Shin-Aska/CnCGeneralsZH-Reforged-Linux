@@ -591,7 +591,7 @@ Bool WaterRenderObjClass::isModernFullMirror() const
 	// also used if path tracing fails, admits ordinary scene models and terrain.
 	return m_renderingMirror && m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT
 		&& (m_waterReflectionMode==WaterScreenReflection::Hybrid
-			|| m_waterReflectionMode==WaterScreenReflection::PathTraced);
+			|| WaterScreenReflection::IsPathTraced(m_waterReflectionMode));
 #else
 	return FALSE;
 #endif
@@ -925,7 +925,9 @@ if (WaterScreenReflection::Supported() && m_waterTrackSystem) m_waterTrackSystem
 	}
 
 #if defined(__linux__)
-	if (m_waterReflectionMode==WaterScreenReflection::PathTraced) {
+	if (WaterScreenReflection::IsPathTraced(m_waterReflectionMode) ||
+        (WaterPathTracing::HardwareRequested() && WaterPerformanceSettings::Applied().sceneReflections &&
+            WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device()))) {
 		if (!m_waterPathScene) {
 			m_waterPathScene=new W3DWaterPathScene;
 			m_waterPathSchedule.Reset();m_waterPathHasView=FALSE;
@@ -1991,7 +1993,7 @@ void WaterRenderObjClass::ensureMapReflectionTarget(void)
 		return;
 #if defined(__linux__)
 	if (m_useModernWater && !WaterScreenReflection::UsesMirror(m_waterReflectionMode)
-		&& m_waterReflectionMode!=WaterScreenReflection::PathTraced)
+		&& !WaterScreenReflection::IsPathTraced(m_waterReflectionMode))
 		return;
 #endif
 	const Int size=mapReflectionTargetSize();
@@ -2023,13 +2025,13 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	if (!m_useModernWater) return;
 	updateModernWaterTextures();
 #if defined(__linux__)
-	const WaterScreenReflection::Mode mode = WaterScreenReflection::Resolve(
-		WaterScreenReflection::CachedEnvironment(), TheGlobalData ? TheGlobalData->m_waterReflection : 2,
+	const WaterScreenReflection::Mode mode = WaterScreenReflection::ResolveRuntime(
+		TheGlobalData ? TheGlobalData->m_waterReflection : 2,
 		WaterPerformanceSettings::Applied().sceneReflections);
-	const Bool pathReady = mode==WaterScreenReflection::PathTraced && m_waterPathReady;
+	const Bool pathReady = m_waterPathReady;
 	const Bool reflection = (m_pReflectionTexture || pathReady) && !m_renderingMirror &&
 		m_reflectionAreaMax.X > m_reflectionAreaMin.X && m_reflectionAreaMax.Y > m_reflectionAreaMin.Y &&
-		(WaterScreenReflection::UsesMirror(mode) || mode==WaterScreenReflection::PathTraced);
+		(WaterScreenReflection::UsesMirror(mode) || WaterScreenReflection::IsPathTraced(mode) || pathReady);
 #else
     const Bool pathReady = FALSE;
     const Bool reflection = m_pReflectionTexture && !m_renderingMirror &&
@@ -2068,7 +2070,7 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 		materialOptics.x = max(materialOptics.x, WaterUnderwaterClarity::Strength);
 #if defined(__linux__)
 	materialParameters.w = pathReady ? 2.0f
-		: (WaterScreenReflection::Traces(mode) || mode==WaterScreenReflection::PathTraced ? 1.0f : 0.0f);
+		: (WaterScreenReflection::Traces(mode) || WaterScreenReflection::IsPathTraced(mode) ? 1.0f : 0.0f);
 #endif
 	setModernWaterConstants(ModernWaterMaterial::RegisterColor, materialColor, 1);
 	setModernWaterConstants(ModernWaterMaterial::RegisterParameters, materialParameters, 1);
@@ -2961,8 +2963,8 @@ WaterRenderObjClass::WaterRenderObjClass(void)
 	m_useModernWater = wantsModernWater();
 #endif
 #if defined(__linux__)
-	m_waterReflectionMode = WaterScreenReflection::Resolve(
-		WaterScreenReflection::CachedEnvironment(), TheGlobalData ? TheGlobalData->m_waterReflection : 2,
+	m_waterReflectionMode = WaterScreenReflection::ResolveRuntime(
+		TheGlobalData ? TheGlobalData->m_waterReflection : 2,
 		!TheGlobalData || TheGlobalData->m_waterReflectionEnabled);
 	m_waterPathScene = NULL;
 	m_waterPathReady = FALSE;
@@ -4293,14 +4295,14 @@ void WaterRenderObjClass::synchronizeWaterReflection(void)
 		WaterPerformanceSettings::Apply(TheGlobalData->m_waterReflectionEnabled,
 			TheGlobalData->m_waterFftResolution, TheGlobalData->m_waterRefractionQuality,
 			TheGlobalData->m_waterReflectionDetail);
-	const WaterScreenReflection::Mode mode = WaterScreenReflection::Resolve(
-		WaterScreenReflection::CachedEnvironment(), TheGlobalData ? TheGlobalData->m_waterReflection : 2,
+	const WaterScreenReflection::Mode mode = WaterScreenReflection::ResolveRuntime(
+		TheGlobalData ? TheGlobalData->m_waterReflection : 2,
 		WaterPerformanceSettings::Applied().sceneReflections);
 	WaterPerformanceSettings::Applied().sceneColourRequired = WaterPerformanceSettings::SceneColourRequired(
 		WaterPerformanceSettings::Applied().refraction, WaterScreenReflection::Traces(mode));
 	if (mode != m_waterReflectionMode)
 	{
-		if (m_waterReflectionMode == WaterScreenReflection::PathTraced)
+		if (WaterScreenReflection::IsPathTraced(m_waterReflectionMode))
 		{
 			WaterPathTracing::Clear(DX8Wrapper::_Get_D3D_Device());
 			delete m_waterPathScene;
@@ -4309,7 +4311,7 @@ void WaterRenderObjClass::synchronizeWaterReflection(void)
 		}
 		// The mirror may have sat unused while the scene moved. Refresh it on the first
 		// frame back, even when the camera is still where the old reflection was drawn.
-		if (m_useModernWater && (WaterScreenReflection::UsesMirror(mode) || mode==WaterScreenReflection::PathTraced))
+		if (m_useModernWater && (WaterScreenReflection::UsesMirror(mode) || WaterScreenReflection::IsPathTraced(mode)))
 			m_reflectionReused = TRUE;
 		m_waterReflectionMode = mode;
 	}
@@ -4320,8 +4322,11 @@ void WaterRenderObjClass::synchronizeWaterReflection(void)
 		m_reflectionAreaMin.Set(0.0f,0.0f);
 		m_reflectionAreaMax.Set(0.0f,0.0f);
 	}
-	const Bool pathTracing = m_useModernWater && mode == WaterScreenReflection::PathTraced;
-	if (!pathTracing && m_waterPathScene)
+	const Bool pathTracing = m_useModernWater && (WaterScreenReflection::IsPathTraced(mode) ||
+        (WaterPathTracing::HardwareRequested() && WaterPerformanceSettings::Applied().sceneReflections &&
+            WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device())));
+	if (!pathTracing && m_waterPathScene && (!WaterPathTracing::HardwareRequested() ||
+        !m_useModernWater || !WaterPerformanceSettings::Applied().sceneReflections))
 	{
 		WaterPathTracing::Clear(DX8Wrapper::_Get_D3D_Device());
 		delete m_waterPathScene;
@@ -4380,7 +4385,9 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 #if defined(__linux__)
 	synchronizeWaterReflection();
 	const WaterScreenReflection::Mode mode=m_waterReflectionMode;
-	const Bool pathTracing=m_useModernWater && mode==WaterScreenReflection::PathTraced;
+	const Bool pathTracing=m_useModernWater && (WaterScreenReflection::IsPathTraced(mode) ||
+        (WaterPathTracing::HardwareRequested() && WaterPerformanceSettings::Applied().sceneReflections &&
+            WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device())));
 #else
 	const Bool pathTracing = FALSE;
 #endif
@@ -4516,6 +4523,10 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 #if defined(__linux__)
 	if (pathTracing && updatePathTracedReflection(cam))
 		return;
+    // A refused hardware override retains the selected SSR/Sky behavior. Mirror/Hybrid
+    // retain their planar capture, and PathTraced already retried its software tracer.
+    if (m_useModernWater && !WaterScreenReflection::UsesMirror(mode) && !WaterScreenReflection::IsPathTraced(mode))
+        return;
 #endif
 	if (!m_pReflectionTexture) return;
 	renderMirror(cam, m_reflectionLevel);
@@ -4568,6 +4579,13 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
 	const Bool viewChanged = !m_waterPathHasView
 		|| memcmp(&view,&m_waterPathView,sizeof(view))!=0;
 	const uint64_t nowMs = uint64_t(Clock_Ticks())/(uint64_t(Clock_Ticks_Per_Second())/1000);
+    const Bool hardwarePathRequested=WaterScreenReflection::IsPathTraced(m_waterReflectionMode) &&
+        (HardwareRayTracing::Requested() || WaterPathTracing::HardwarePathRequested());
+    const Bool hardwareStatic=hardwarePathRequested &&
+        HardwareRayTracing::Available(DX8Wrapper::_Get_D3D_Device()) &&
+        WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device(),true);
+    const Bool hardwareOneBounce=!hardwarePathRequested && WaterPathTracing::HardwareRequested()
+        && WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device());
 	if (m_waterPathSchedule.ShouldRefresh(nowMs,viewChanged))
 	{
 		if (!m_waterPathScene->Update(m_parentScene,TheTerrainRenderObject,this,&view))
@@ -4576,8 +4594,17 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
 		m_waterPathView = view;
 		m_waterPathHasView = TRUE;
 	}
-	m_waterPathReady = WaterPathTracing::Prepare(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
-		m_waterPathScene->Revision(),&m_waterPathScene->Materials());
+    m_waterPathReady = FALSE;
+    if (hardwareStatic) {
+        m_waterPathReady = WaterPathTracing::PrepareHardwarePath(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
+            m_waterPathScene->Revision(),&m_waterPathScene->Materials());
+    } else if (hardwareOneBounce)
+        m_waterPathReady = WaterPathTracing::PrepareHardware(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
+            m_waterPathScene->Revision(),&m_waterPathScene->Materials());
+    if (!m_waterPathReady && WaterScreenReflection::IsPathTraced(m_waterReflectionMode)) {
+        m_waterPathReady = WaterPathTracing::Prepare(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
+            m_waterPathScene->Revision(),&m_waterPathScene->Materials());
+    }
 	return m_waterPathReady;
 }
 #endif

@@ -24272,6 +24272,38 @@ TEST(water_reflections_default_to_hybrid_and_persist_each_mode)
     loadOptionsFromPreferences(pref);
     CHECK_EQ(reflection->get(), 3);
 
+#if defined(__linux__)
+    // Legacy hardware-water mode keeps the experiment without opting into global effects.
+    const OptionDef *hardware = findOptionDef("UseHardwareRayTracing");
+    CHECK(hardware != NULL);
+    CHECK(!scratch->m_useHardwareRayTracing);
+    pref["WaterReflection"]="4";
+    loadOptionsFromPreferences(pref);
+    CHECK_EQ(scratch->m_waterReflection,3);
+    CHECK(!scratch->m_useHardwareRayTracing);
+    saveOptionsToPreferences(pref);
+    CHECK_STR(pref["WaterReflection"].str(),"3");
+    CHECK_STR(pref["UseHardwareRayTracing"].str(),"no");
+    pref["WaterReflection"]="4";
+    pref["UseHardwareRayTracing"]="yes";
+    loadOptionsFromPreferences(pref);
+    CHECK_EQ(scratch->m_waterReflection,3);
+    CHECK(scratch->m_useHardwareRayTracing);
+    hardware->set(0);
+    saveOptionsToPreferences(pref);
+    CHECK_STR(pref["UseHardwareRayTracing"].str(),"no");
+#else
+    CHECK(findOptionDef("UseHardwareRayTracing") == NULL);
+    pref["WaterReflection"] = "4";
+    pref["UseHardwareRayTracing"] = "yes";
+    loadOptionsFromPreferences(pref);
+    CHECK_EQ(scratch->m_waterReflection, 3);
+    CHECK_STR(pref["WaterReflection"].str(), "4");
+    CHECK_STR(pref["UseHardwareRayTracing"].str(), "yes");
+#endif
+    scratch->m_waterReflectionEnabled = FALSE;
+    CHECK(WaterScreenReflection::Resolve(NULL,3,false)==WaterScreenReflection::SkyOnly);
+
     delete scratch;
     TheWritableGlobalData = saved;
 }

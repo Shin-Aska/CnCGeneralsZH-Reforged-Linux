@@ -15870,11 +15870,11 @@ GUI:WaterReflection2
 END
 
 GUI:WaterReflection3
-"Pathtracing"
+"Pfadverfolgung"
 END
 
 TOOLTIP:WaterReflection
-"Für modernes Wasser, wenn Szenenreflexionen aktiviert sind. Klassisch nutzt die Originalreflexionen. SSR spiegelt sichtbare Bildschirminhalte. Hybrid kombiniert beides und ist die Standardeinstellung. Pathtracing ist eine experimentelle, langsamere Option, die Szenengeometrie nachzeichnet. Wird nach Klick auf Annehmen angewendet."
+"Modernes Wasser mit Szenenreflexionen. Hybrid ist Standard. Experimentelle Pfadverfolgung nutzt die Hardware-Option unter Grafik, sonst Software. Gilt nach Übernehmen."
 END
 
 GUI:SlotEasyAI
