@@ -25,6 +25,8 @@
 #include "ffvertex.h"
 #include "engineshader.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterCleanSpectrum.h"
+#include "SdlWaterRayFilter.h"
 
 #include <SDL3/SDL.h>
 #include <cstring>
@@ -80,7 +82,8 @@ CombinerDescription pixelDescription(unsigned mode, bool alpha, bool receives)
 }
 }
 
-RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsigned pipelineLimit, unsigned budgetMS)
+RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsigned pipelineLimit, unsigned budgetMS,
+    const RenderWarmupWater &waterOptions)
 {
     RenderWarmupStats result;
     if (!Gpu || !Programs || !Pipelines || !pipelineLimit || !budgetMS) return result;
@@ -95,15 +98,24 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
         return stop;
     };
     bool shadersOnly = true;
+    const bool fftWater = modernWater && WaterFftSampling::Enabled();
+    const bool cleanWater = fftWater && WaterCleanSpectrum::Enabled();
+    const bool rayWater = modernWater && waterOptions.ScreenSpace && SdlWaterRayFilterSupported(Gpu->Device());
+    const bool hdrWater = cleanWater && waterOptions.HdrScene &&
+        SDL_GPUTextureSupportsFormat(Gpu->Device(), SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT,
+            SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
     auto warm = [&](const VertexPipelineDescription &v, const CombinerDescription &p, unsigned blend,
                     unsigned cull, int enginePixel = ENGINE_SHADER_NONE, bool fft = false,
                     bool caster = false, int engineVertex = ENGINE_SHADER_NONE, bool waterOpenSea = false) {
         if (limited()) return;
         if (!shadersOnly) ++result.Attempts;
+        const bool mapWater = enginePixel == ENGINE_SHADER_WATER_TRAPEZOID;
+        const bool cleanMain = mapWater && cleanWater;
         const SdlProgram &vs = engineVertex != ENGINE_SHADER_NONE ? Programs->Engine_Vertex_Program(engineVertex)
-            : fft ? Programs->Water_Vertex_Program(v) : Programs->Vertex_Program(v);
+            : fft ? Programs->Water_Vertex_Program(v, cleanMain, cleanMain) : Programs->Vertex_Program(v);
         const SdlProgram &ps = caster ? Programs->Sun_Pixel_Program(p, enginePixel)
-            : enginePixel != ENGINE_SHADER_NONE ? Programs->Engine_Pixel_Program(enginePixel, p.PixelPipeline, waterOpenSea)
+            : enginePixel != ENGINE_SHADER_NONE
+                ? Programs->Engine_Pixel_Program(enginePixel, p.PixelPipeline, waterOpenSea, cleanMain, mapWater && rayWater)
             : Programs->Pixel_Program(p);
         if (!vs.Shader || !ps.Shader) { ++result.Failed; return; }
         if (shadersOnly) return;
@@ -113,15 +125,18 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
         rs[D3DRS_ZENABLE] = (v.FVF & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW ? D3DZB_FALSE : D3DZB_TRUE;
         rs[D3DRS_ZWRITEENABLE] = blend ? 0 : 1;
         rs[D3DRS_ZFUNC] = D3DCMP_LESSEQUAL;
-        rs[D3DRS_COLORWRITEENABLE] = 0xF;
+        // The main water pass preserves the terrain's destination alpha.
+        rs[D3DRS_COLORWRITEENABLE] = D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE;
+        if (!cleanMain) rs[D3DRS_COLORWRITEENABLE] |= D3DCOLORWRITEENABLE_ALPHA;
         rs[D3DRS_ALPHABLENDENABLE] = blend != 0;
         rs[D3DRS_SRCBLEND] = D3DBLEND_SRCALPHA;
         rs[D3DRS_DESTBLEND] = blend == 2 ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA;
         rs[D3DRS_BLENDOP] = D3DBLENDOP_ADD;
         SdlPipelineKey key;
         std::string refusal;
-        if (!Sdl_Pipeline_Key(rs, D3DPT_TRIANGLELIST, vs.Shader, ps.Shader, v.FVF,
-            caster ? 0 : SdlGpuFrame::Target_Format(),
+        const unsigned colour = cleanMain && hdrWater ? unsigned(SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT)
+            : SdlGpuFrame::Target_Format();
+        if (!Sdl_Pipeline_Key(rs, D3DPT_TRIANGLELIST, vs.Shader, ps.Shader, v.FVF, caster ? 0 : colour,
             caster ? unsigned(SDL_GPU_TEXTUREFORMAT_D32_FLOAT) : Gpu->Depth_Format(), key, refusal)
             || !Pipelines->Pipeline(key)) ++result.Failed;
     };
@@ -135,12 +150,14 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
             water.Stages[i].TextureTransformFlags = D3DTTFF_COUNT2;
         }
         const int waterPixel = modernWater ? ENGINE_SHADER_WATER_TRAPEZOID : ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID;
-        if (shadersOnly) {
-            warm(water, pixelDescription(0, false, false), 1, D3DCULL_NONE, waterPixel, modernWater && WaterFftSampling::Enabled());
+        auto warmWater = [&](unsigned cull) {
+            const unsigned blend = modernWater && waterOptions.Additive ? 2 : 1;
+            warm(water, pixelDescription(0, false, false), blend, cull, waterPixel, fftWater);
             if (modernWater)
-                warm(water, pixelDescription(0, false, false), 1, D3DCULL_NONE,
-                    waterPixel, WaterFftSampling::Enabled(), false, ENGINE_SHADER_NONE, true);
-        }
+                warm(water, pixelDescription(0, false, false), blend, cull, waterPixel, fftWater,
+                    false, ENGINE_SHADER_NONE, true);
+        };
+        if (shadersOnly || cleanWater) warmWater(D3DCULL_NONE);
 
         // Common opaque/alpha-tested unit and building meshes, including the sun-receiving variants.
         const unsigned formats[] = {D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1,
@@ -170,13 +187,8 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
                                 warm(vertexDescription(fvf, mode ? 2 : 1, true, lights),
                                     pixelDescription(mode, alpha, receives), 0, cull);
             }
-            if (!shadersOnly && fvf == formats[0])
-                for (unsigned cull : {D3DCULL_NONE, D3DCULL_CCW}) {
-                    warm(water, pixelDescription(0, false, false), 1, cull, waterPixel, modernWater && WaterFftSampling::Enabled());
-                    if (modernWater)
-                        warm(water, pixelDescription(0, false, false), 1, cull,
-                            waterPixel, WaterFftSampling::Enabled(), false, ENGINE_SHADER_NONE, true);
-                }
+            if (!shadersOnly && !cleanWater && fvf == formats[0])
+                for (unsigned cull : {D3DCULL_NONE, D3DCULL_CCW}) warmWater(cull);
         }
 
         // Environment-mapped and scrolling materials use a different vertex program with the same
@@ -223,7 +235,7 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
     return result;
 }
 
-RenderWarmupStats Preload_Render_Pipelines(IDirect3DDevice9 *device, bool modernWater)
+RenderWarmupStats Preload_Render_Pipelines(IDirect3DDevice9 *device, bool modernWater, const RenderWarmupWater &water)
 {
-    return device ? static_cast<PosixDevice9 *>(device)->Warm_Up_Render_Pipelines(modernWater) : RenderWarmupStats{};
+    return device ? static_cast<PosixDevice9 *>(device)->Warm_Up_Render_Pipelines(modernWater, 192, 3000, water) : RenderWarmupStats{};
 }

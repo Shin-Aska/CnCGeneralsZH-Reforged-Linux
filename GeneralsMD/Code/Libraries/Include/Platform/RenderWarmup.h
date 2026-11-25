@@ -28,8 +28,17 @@ struct RenderWarmupStats
     bool Limited = false;
 };
 
+#if !defined(_WIN32)
+struct RenderWarmupWater
+{
+    bool ScreenSpace = false;
+    bool HdrScene = false;
+    bool Additive = false;
+};
+#endif
+
 #if defined(_WIN32)
 inline RenderWarmupStats Preload_Render_Pipelines(IDirect3DDevice9 *, bool) { return {}; }
 #else
-RenderWarmupStats Preload_Render_Pipelines(IDirect3DDevice9 *device, bool modernWater);
+RenderWarmupStats Preload_Render_Pipelines(IDirect3DDevice9 *device, bool modernWater, const RenderWarmupWater &water = {});
 #endif

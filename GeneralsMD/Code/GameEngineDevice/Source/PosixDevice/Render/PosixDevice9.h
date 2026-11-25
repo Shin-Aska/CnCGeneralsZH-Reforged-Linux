@@ -302,7 +302,8 @@ public:
 	void Set_Terrain_Relight(bool enabled) { TerrainRelight = enabled && Holds_Terrain_Heights(); }
 	bool Terrain_Relight_Receives(int vertexProgram, int pixelProgram, const struct SdlTarget &) const;
 	bool Build_Terrain_Sun_Constants(struct SdlEnginePixelConstants &) const;
-	RenderWarmupStats Warm_Up_Render_Pipelines(bool modernWater, unsigned pipelineLimit = 192, unsigned budgetMS = 3000);
+	RenderWarmupStats Warm_Up_Render_Pipelines(bool modernWater, unsigned pipelineLimit = 192, unsigned budgetMS = 3000,
+		const RenderWarmupWater &water = {});
 #if defined(__linux__)
 	// Standalone preview only; injects exact sampled inputs for the currently bound target.
 	bool Inject_Water_Snapshot(const std::vector<uint8_t> &bgra, const std::vector<float> &depth);

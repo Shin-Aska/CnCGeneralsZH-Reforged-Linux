@@ -98,6 +98,11 @@ static void resetSmoothMotionLiveRate(void);
 #include "Platform/SleepMilliseconds.h"
 #include "Platform/RenderWarmup.h"
 #if defined(__linux__)
+#include "Platform/WaterPerformanceSettings.h"
+#include "Platform/WaterScreenReflection.h"
+#include "WW3D2/postprocess.h"
+#endif
+#if defined(__linux__)
 #include "Platform/RenderTiming.h"
 #endif
 #if !defined(_WIN32)
@@ -5684,7 +5689,29 @@ void W3DDisplay::preloadRenderPipelines()
 	if (!TheGlobalData->m_assetPreloading || TheGlobalData->m_noRenderDevice) return;
 	const char *enabled = getenv("ZH_RENDER_PRELOAD");
 	if (enabled && enabled[0] == '0') return;
+#if defined(__linux__)
+	const bool modernWater = TheGlobalData->m_waterStyle == 1;
+	RenderWarmupWater water;
+	auto &waterConfiguration = WaterPerformanceSettings::Applied();
+	const auto previousWaterConfiguration = waterConfiguration;
+	if (modernWater) {
+		WaterPerformanceSettings::Apply(TheGlobalData->m_waterReflectionEnabled, TheGlobalData->m_waterFftResolution,
+			TheGlobalData->m_waterRefractionQuality, TheGlobalData->m_waterReflectionDetail);
+		waterConfiguration.activeFftResolution = waterConfiguration.requestedFftResolution;
+		water.ScreenSpace = WaterScreenReflection::Traces(WaterScreenReflection::ResolveRuntime(
+			TheGlobalData->m_waterReflection, waterConfiguration.sceneReflections));
+		water.Additive = TheWaterTransparency && TheWaterTransparency->m_additiveBlend;
+		DX11PostEffect chain[DX11_POST_CHAIN_LIMIT];
+		unsigned count = 0;
+		water.HdrScene = !TheGlobalData->m_classicGraphics &&
+			DX11Post_Parse_Chain(TheGlobalData->m_direct3D11PostChain.str(), chain, count) &&
+			count && chain[0] == DX11_POST_BLOOM;
+	}
+	const RenderWarmupStats stats = Preload_Render_Pipelines(DX8Wrapper::_Get_D3D_Device(), modernWater, water);
+	waterConfiguration = previousWaterConfiguration;
+#else
 	const RenderWarmupStats stats = Preload_Render_Pipelines(DX8Wrapper::_Get_D3D_Device(), TheGlobalData->m_waterStyle == 1);
+#endif
 	DEBUG_LOG(("RENDER PRELOAD: %u programs, %u pipelines, %u attempts, %u unavailable, %.0f ms%s\n",
 		stats.Programs, stats.Pipelines, stats.Attempts, stats.Failed, stats.Milliseconds,
 		stats.Limited ? " (budget reached)" : ""));
