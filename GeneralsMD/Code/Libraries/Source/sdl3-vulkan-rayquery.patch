@@ -1,0 +1,215 @@
+Local Zero Hour Reforged SDL 3.4.16 Vulkan ray query extension.
+This is a downstream private bridge, not an upstream SDL contribution.
+Opt-in property zhr.vulkan.ray_query enables Vulkan 1.2 plus supported ray-query
+features. Ordinary SDL device creation is unchanged. Implementation sidecars
+are maintained beside this patch and copied by Tools/vendor.sh. The private
+command guard checks device identity in every mode and follows SDL debug-only
+submitted/pass bookkeeping validation when command buffers are recycled.
+Sidecars also provide a water closest-hit compute layout (80-byte push constants,
+RGBA32F hit output and TLAS), retaining the original sun-shadow ABI.
+Full water-path sidecars add a separate 112-byte layout for primary, sun and
+continuation transport, with sampled packed geometry and two RGBA32F outputs.
+
+Optional property zhr.vulkan.ray_query_optional probes loader API support without
+changing SDL adapter ranking; device augmentation failure retries the same adapter
+with original features/extensions. Missing native functions clear the capability.
+
+Optional hardware capability excludes CPU/OTHER only after normal adapter selection.
+
+--- a/src/gpu/vulkan/SDL_gpu_vulkan.c
++++ b/src/gpu/vulkan/SDL_gpu_vulkan.c
+@@ -1116,6 +1116,8 @@
+ 
+ struct VulkanRenderer
+ {
++    bool zhrRayRequested, zhrRayOptional, zhrRayEnabled;
++    Uint32 zhrInstanceApiVersion;
+     VkInstance instance;
+     VkPhysicalDevice physicalDevice;
+     VkPhysicalDeviceProperties2KHR physicalDeviceProperties;
+@@ -11979,6 +11981,19 @@
+                              ? features->desiredApiVersion
+                              : VK_MAKE_VERSION(1, 0, 0);
+ 
++    /* Optional capability never changes SDL's physical-device admission/ranking. Only
++       the instance version is raised, and only where the loader and custom API agree. */
++    Uint32 zhrOriginalInstanceApi = appInfo.apiVersion;
++    if (renderer->zhrRayOptional && !renderer->zhrRayRequested &&
++        (!features->usesCustomVulkanOptions || appInfo.apiVersion >= VK_API_VERSION_1_2)) {
++        PFN_vkEnumerateInstanceVersion enumerateVersion = (PFN_vkEnumerateInstanceVersion)
++            vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion");
++        Uint32 loaderVersion = VK_API_VERSION_1_0;
++        if (enumerateVersion && enumerateVersion(&loaderVersion) == VK_SUCCESS &&
++            loaderVersion >= VK_API_VERSION_1_2 && appInfo.apiVersion < VK_API_VERSION_1_2) {
++            appInfo.apiVersion = VK_API_VERSION_1_2;
++        }
++    }
+     createFlags = 0;
+ 
+     originalInstanceExtensionNames = SDL_Vulkan_GetInstanceExtensions(&instanceExtensionCount);
+@@ -12085,6 +12100,12 @@
+     }
+ 
+     vulkanResult = vkCreateInstance(&createInfo, NULL, &renderer->instance);
++    if (vulkanResult != VK_SUCCESS && renderer->zhrRayOptional && !renderer->zhrRayRequested &&
++        appInfo.apiVersion != zhrOriginalInstanceApi) {
++        appInfo.apiVersion = zhrOriginalInstanceApi;
++        vulkanResult = vkCreateInstance(&createInfo, NULL, &renderer->instance);
++    }
++    renderer->zhrInstanceApiVersion = appInfo.apiVersion;
+     SDL_stack_free((char *)instanceExtensionNames);
+ 
+     if (vulkanResult != VK_SUCCESS) {
+@@ -12496,6 +12517,10 @@
+     VkPhysicalDeviceFeatures haveDeviceFeatures;
+     VkPhysicalDevicePortabilitySubsetFeaturesKHR portabilityFeatures;
+     const char **deviceExtensions;
++    VkPhysicalDeviceAccelerationStructureFeaturesKHR zhrAS = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
++    VkPhysicalDeviceRayQueryFeaturesKHR zhrRQ = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
++    VkPhysicalDeviceBufferDeviceAddressFeatures zhrBDA = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
++    const char *zhrExtensions[] = { VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME };
+ 
+     VkDeviceQueueCreateInfo queueCreateInfo;
+     float queuePriority = 1.0f;
+@@ -12558,10 +12583,51 @@
+     deviceCreateInfo.ppEnabledLayerNames = NULL;
+     deviceCreateInfo.enabledExtensionCount = GetDeviceExtensionCount(
+         &renderer->supports);
++    VkPhysicalDeviceType zhrDeviceType = renderer->physicalDeviceProperties.properties.deviceType;
++    bool zhrHardware = zhrDeviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ||
++        zhrDeviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ||
++        zhrDeviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU;
++    /* Keep normally selected software adapters usable, but never advertise optional
++       hardware ray queries on CPU/OTHER devices even if software exposes the bits. */
++    if ((renderer->zhrRayRequested || renderer->zhrRayOptional) &&
++        (!renderer->zhrRayOptional || renderer->zhrRayRequested || zhrHardware) &&
++        renderer->zhrInstanceApiVersion >= VK_API_VERSION_1_2 &&
++        renderer->physicalDeviceProperties.properties.apiVersion >= VK_API_VERSION_1_2 &&
++        renderer->vkGetPhysicalDeviceFeatures2) {
++        /* Vulkan 1.2 supplies BDA, descriptor indexing, SPIR-V 1.4 and float
++           controls dependencies. The three remaining extensions must be advertised. */
++        Uint32 count = 0;
++        renderer->vkEnumerateDeviceExtensionProperties(renderer->physicalDevice, NULL, &count, NULL);
++        VkExtensionProperties *exts = SDL_calloc(count, sizeof(*exts));
++        if (exts && renderer->vkEnumerateDeviceExtensionProperties(renderer->physicalDevice, NULL, &count, exts) == VK_SUCCESS) {
++            Uint32 found = 0;
++            for (Uint32 j = 0; j < SDL_arraysize(zhrExtensions); ++j) {
++                for (Uint32 k = 0; k < count; ++k) {
++                    if (!SDL_strcmp(exts[k].extensionName, zhrExtensions[j])) { ++found; break; }
++                }
++            }
++            if (found == SDL_arraysize(zhrExtensions)) {
++                VkPhysicalDeviceFeatures2 query = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
++                query.pNext = &zhrAS; zhrAS.pNext = &zhrRQ; zhrRQ.pNext = &zhrBDA;
++                renderer->vkGetPhysicalDeviceFeatures2(renderer->physicalDevice, &query);
++                renderer->zhrRayEnabled = zhrAS.accelerationStructure && zhrRQ.rayQuery && zhrBDA.bufferDeviceAddress;
++            }
++        }
++        SDL_free(exts);
++    }
+     deviceExtensions = SDL_stack_alloc(
+         const char *,
+-        deviceCreateInfo.enabledExtensionCount);
++        deviceCreateInfo.enabledExtensionCount + (renderer->zhrRayEnabled ? 3 : 0));
+     CreateDeviceExtensionArray(&renderer->supports, deviceExtensions);
++    Uint32 zhrOriginalExtensionCount = deviceCreateInfo.enabledExtensionCount;
++    if (renderer->zhrRayEnabled) {
++        for (Uint32 j = 0; j < 3; ++j) {
++            bool duplicate = false;
++            for (Uint32 k = 0; k < deviceCreateInfo.enabledExtensionCount; ++k)
++                if (!SDL_strcmp(deviceExtensions[k], zhrExtensions[j])) { duplicate = true; break; }
++            if (!duplicate) deviceExtensions[deviceCreateInfo.enabledExtensionCount++] = zhrExtensions[j];
++        }
++    }
+     deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions;
+ 
+     VkPhysicalDeviceFeatures2 featureList;
+@@ -12625,11 +12691,44 @@
+         deviceCreateInfo.pEnabledFeatures = &features->desiredVulkan10DeviceFeatures;
+     }
+ 
++    const void *zhrOriginalChain = deviceCreateInfo.pNext;
++    VkBool32 zhrOriginalBDA = features->desiredVulkan12DeviceFeatures.bufferDeviceAddress;
++    bool zhrUsesVulkan12Features = features->usesCustomVulkanOptions && minor >= 2;
++    if (renderer->zhrRayEnabled) {
++        /* Append to SDL's unmodified feature chain; avoid a duplicate BDA feature
++           structure when its Vulkan 1.2 aggregate is already in that chain. */
++        SDL_zero(zhrAS); SDL_zero(zhrRQ); SDL_zero(zhrBDA);
++        zhrAS.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
++        zhrRQ.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
++        zhrBDA.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
++        zhrAS.accelerationStructure = zhrRQ.rayQuery = zhrBDA.bufferDeviceAddress = VK_TRUE;
++        zhrAS.pNext = &zhrRQ;
++        if (zhrUsesVulkan12Features) {
++            features->desiredVulkan12DeviceFeatures.bufferDeviceAddress = VK_TRUE;
++            zhrRQ.pNext = (void *)zhrOriginalChain;
++        } else {
++            zhrRQ.pNext = &zhrBDA;
++            zhrBDA.pNext = (void *)zhrOriginalChain;
++        }
++        deviceCreateInfo.pNext = &zhrAS;
++    }
+     vulkanResult = renderer->vkCreateDevice(
+         renderer->physicalDevice,
+         &deviceCreateInfo,
+         NULL,
+         &renderer->logicalDevice);
++    if (vulkanResult != VK_SUCCESS && renderer->zhrRayEnabled && renderer->zhrRayOptional &&
++        !renderer->zhrRayRequested) {
++        /* Same selected adapter, exactly SDL's original extensions/features. An
++           optional capability can never prevent the baseline game device opening. */
++        renderer->zhrRayEnabled = false;
++        deviceCreateInfo.pNext = zhrOriginalChain;
++        deviceCreateInfo.enabledExtensionCount = zhrOriginalExtensionCount;
++        features->desiredVulkan12DeviceFeatures.bufferDeviceAddress = zhrOriginalBDA;
++        renderer->logicalDevice = VK_NULL_HANDLE;
++        vulkanResult = renderer->vkCreateDevice(renderer->physicalDevice, &deviceCreateInfo,
++            NULL, &renderer->logicalDevice);
++    }
+     SDL_stack_free((void *)deviceExtensions);
+     CHECK_VULKAN_ERROR_AND_RETURN(vulkanResult, vkCreateDevice, 0);
+ 
+@@ -12642,6 +12741,19 @@
+                              #func);
+ #include "SDL_gpu_vulkan_vkfuncs.h"
+ 
++    if (renderer->zhrRayEnabled) {
++        const char *required[] = {
++            "vkCreateAccelerationStructureKHR", "vkDestroyAccelerationStructureKHR",
++            "vkGetAccelerationStructureBuildSizesKHR", "vkGetAccelerationStructureDeviceAddressKHR",
++            "vkCmdBuildAccelerationStructuresKHR", "vkGetBufferDeviceAddress", "vkCmdPushConstants"
++        };
++        for (Uint32 j = 0; j < SDL_arraysize(required); ++j) {
++            if (!renderer->vkGetDeviceProcAddr(renderer->logicalDevice, required[j])) {
++                renderer->zhrRayEnabled = false; break;
++            }
++        }
++        if (!renderer->vkGetPhysicalDeviceProperties2KHR) renderer->zhrRayEnabled = false;
++    }
+     renderer->vkGetDeviceQueue(
+         renderer->logicalDevice,
+         renderer->queueFamilyIndex,
+@@ -12709,6 +12821,16 @@
+ 
+     // Handle opt-in device features
+     VULKAN_INTERNAL_AddOptInVulkanOptions(props, renderer, features);
++    /* Private local fork: opt-in ray query uses Vulkan 1.2 core BDA/SPIR-V dependencies. */
++    renderer->zhrRayRequested = SDL_GetBooleanProperty(props, "zhr.vulkan.ray_query", false);
++    renderer->zhrRayOptional = SDL_GetBooleanProperty(props, "zhr.vulkan.ray_query_optional", false);
++    if (renderer->zhrRayRequested) {
++        features->usesCustomVulkanOptions = true;
++        features->desiredApiVersion = VK_API_VERSION_1_2;
++        features->desiredVulkan11DeviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
++        features->desiredVulkan12DeviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
++    }
++
+ 
+     renderer->requireHardwareAcceleration = SDL_GetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_REQUIRE_HARDWARE_ACCELERATION_BOOLEAN, false);
+ 
+@@ -13111,4 +13233,6 @@
+     VULKAN_CreateDevice
+ };
+ 
++#include "SDL_gpu_vulkan_rayquery.inc"
++
+ #endif // SDL_GPU_VULKAN

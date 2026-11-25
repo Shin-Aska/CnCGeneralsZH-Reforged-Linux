@@ -44,6 +44,17 @@ printf '// Zero Hour Reforged: altered\n' > "$sources/Compression/LZHCompress/Co
 printf '// Zero Hour Reforged: C only\n// Zero Hour Reforged: GSI_UNIX\n' \
   > "$sources/GameSpy/include/gamespy/gsplatform.h"
 printf '// ZH_SDL_GPU_METAL_WINDOWLESS\n' > "$sources/SDL3/src/gpu/metal/SDL_gpu_metal.m"
+# The private Vulkan hook verifies a known, already-patched source hash and copies
+# its tracked sidecars on every run. Use the real sidecars with a synthetic SDL
+# source file. The hash stub reports the expected patched source hash.
+# No upstream source, compiler, patch application, or network access is required.
+mkdir -p "$sources/SDL3/src/gpu/vulkan"
+printf '// synthetic patched Vulkan dependency sentinel\n' \
+  > "$sources/SDL3/src/gpu/vulkan/SDL_gpu_vulkan.c"
+cp "$code"/Libraries/Source/SDL_gpu_vulkan_{rayquery,water_ray_filter}.{h,inc} "$sources/"
+VENDOR_TEST_SDL_HASH=$(sed -nE "s/^  if \[ .* != '([0-9a-f]{64})' \]; then$/\1/p" "$fixture/Tools/vendor.sh")
+[ "${#VENDOR_TEST_SDL_HASH}" -eq 64 ] || fail 'cannot find current private SDL Vulkan source hash'
+export VENDOR_TEST_SDL_HASH
 printf '#define MBEDTLS_VERSION_STRING         "3.6.7"\n' \
   > "$sources/mbedtls/include/mbedtls/build_info.h"
 
@@ -59,6 +70,8 @@ cat > "$temporary/bin/sha256sum" <<'HASH'
 case "${*: -1}" in
   */FFmpeg/ffmpeg-8.1.2.tar.xz)
     printf '%s  %s\n' '464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c' "${*: -1}" ;;
+  */SDL3/src/gpu/vulkan/SDL_gpu_vulkan.c)
+    printf '%s  %s\n' "$VENDOR_TEST_SDL_HASH" "${*: -1}" ;;
   *) echo 'unexpected fixture hash request' >&2; exit 1 ;;
 esac
 HASH

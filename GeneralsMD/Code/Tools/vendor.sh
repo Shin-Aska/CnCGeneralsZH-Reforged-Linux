@@ -475,6 +475,40 @@ install_sdl3_patch() {
   step "sdl3-metal-windowless.patch -> Libraries/Source/SDL3"
 }
 
+# Private Vulkan ray-query extension; the tracked patch is deliberately separate
+# from upstream SDL, whose source directory is ignored. Sidecars stay reviewable.
+install_sdl3_rayquery_patch() {
+  local destination="$libraries/Source/SDL3"
+  local source="$destination/src/gpu/vulkan/SDL_gpu_vulkan.c"
+  local patch="$libraries/Source/sdl3-vulkan-rayquery.patch"
+  # Exact SDL 3.4.16 source states: pristine, previous private bridge, current bridge.
+  # An ignored checkout may already carry the earlier patch; upgrade it explicitly.
+  # Unknown local edits fail without being overwritten or mistaken for a new version.
+  local hash
+  hash=$(sha256_of "$source")
+  case "$hash" in
+    83750ff683d9f242ef431b155042ece67e9f99fa04698315e59debda019c5d85)
+      GIT_CEILING_DIRECTORIES="$libraries/Source" \
+        git -C "$destination" -c core.autocrlf=false apply "$patch" ;;
+    986236ff208a9bf436c3d4feb8d47eb85f21727007e37df20f24d5ef5629247d)
+      GIT_CEILING_DIRECTORIES="$libraries/Source" \
+        git -C "$destination" -c core.autocrlf=false apply \
+        "$libraries/Source/sdl3-vulkan-rayquery-optional-migration.patch" ;;
+    0f3205b56c401267c5be002cd618b31f15cd0351188133e6b0376154d460df6d) ;;
+    *)
+      echo "[vendor] ERROR: unrecognized SDL Vulkan source SHA256 $hash; local edits preserved" >&2
+      return 1 ;;
+  esac
+  if [ "$(sha256_of "$source")" != '0f3205b56c401267c5be002cd618b31f15cd0351188133e6b0376154d460df6d' ]; then
+    echo "[vendor] ERROR: SDL Vulkan ray-query patch result SHA256 mismatch" >&2
+    return 1
+  fi
+  cp -f "$libraries/Source/SDL_gpu_vulkan_rayquery.h" "$destination/src/gpu/vulkan/"
+  cp -f "$libraries/Source/SDL_gpu_vulkan_rayquery.inc" "$destination/src/gpu/vulkan/"
+  cp -f "$libraries/Source/SDL_gpu_vulkan_water_ray_filter.h" "$destination/src/gpu/vulkan/"
+  cp -f "$libraries/Source/SDL_gpu_vulkan_water_ray_filter.inc" "$destination/src/gpu/vulkan/"
+}
+
 # --- miniaudio 0.11.25, the one header and its one implementation file: audio beneath C4's port of
 # MilesAudioManager (decision 3). POSIX only, like SDL3. Copied file by file, so its
 # committed .gitignore is never disturbed; upstream's CMakeLists builds extras this does not want.
@@ -755,6 +789,7 @@ install_gamespy_patch
 install_gamespy_unix_patch
 install_sdl3
 install_sdl3_patch
+install_sdl3_rayquery_patch
 install_miniaudio
 install_glslang
 install_spirv_cross
