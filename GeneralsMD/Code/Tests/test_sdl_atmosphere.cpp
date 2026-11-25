@@ -1,5 +1,8 @@
 // Standalone exact sky/haze/fade fixtures. Producer policy and world/particle ordering are integrated elsewhere.
 #include "SdlPostAtmosphere.h"
+#include "SdlPostSceneEffects.h"
+#include "postsceneeffects.h"
+#include "sdl3target.h"
 #include "SdlPostShader.h"
 #include "SdlPipelineCache.h"
 #include "sdl3shadercompile.h"
@@ -25,6 +28,20 @@ static void cpu()
         CHECK(source.find(id==POST_SHADER_SKY?"register(s3, space2)":"register(s2, space2)")!=std::string::npos);
         CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));CHECK(!msl.empty());
     }
+    const char *effects[]={SHROUD_EASE_SHADER_BODY,SHROUD_SOFTEN_SHADER_BODY,SHROUD_MEMORY_SHADER_BODY,
+        SUN_SHAFTS_SHADER_BODY,SUN_SHAFTS_BLUR_SHADER_BODY,SUN_SHAFTS_COMPOSITE_SHADER_BODY};
+    for (const char *body:effects) {
+        std::string source=std::string(PostShader_Pixel_Prologue())+body,error,msl;
+        size_t at=0;while((at=source.find("VertexOutput",at))!=std::string::npos){source.replace(at,12,"Input");at+=5;}
+        std::vector<unsigned char> spirv;
+        CHECK(SDL3_Shader_Retarget(source,false));
+        CHECK(SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error));
+        if(spirv.empty())std::printf("scene effect compile: %s\n",error.c_str());
+        CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));
+        unsigned samplers=0,uniforms=0;SDL3_Shader_Slots(spirv,false,samplers,uniforms);
+        CHECK(samplers<=5 && uniforms<=2);
+    }
+    CHECK(sizeof(PostSceneEffectConstants)==864);
     CHECK(sizeof(PostProcessConstants)==352);
 }
 static SdlPostSettings post_settings(bool hdr=false)
@@ -172,6 +189,62 @@ static void waterHaze(SdlGpuFrame &frame)
     }
     CHECK(module.Release(frame));CHECK(post.Release(frame));CHECK(frame.Flush());
     SDL_ReleaseGPUShader(frame.Device(),vertex);frame.Release_After_Batch(sampled,nullptr);frame.Release_After_Batch(black,nullptr);
+    CHECK(frame.Flush());
+}
+static void sceneEffects(SdlGpuFrame &frame)
+{
+    SdlPostSceneEffects effects;
+    auto *cells=texture(frame,2,1,SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM);
+    auto *preview=texture(frame,8,4,SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM);
+    uint32_t values[]={0xff000000,0xffffffff};upload(frame,cells,2,1,values,sizeof(values));
+    CHECK(effects.Soften_Shroud(frame,cells,2,1,1,0,true,.5f,true));
+    const int32_t rect[]={0,0,8,4};
+    auto softPixels=[&]() {
+        frame.Record_Blit(effects.Soft_Shroud(),rect,preview,rect,false);
+        return read(frame,{preview,nullptr,8,4,0,SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM});
+    };
+    auto soft=softPixels();
+    CHECK(component(soft,8,0,1)<component(soft,8,3,1));
+    CHECK(component(soft,8,3,1)>0 && component(soft,8,4,1)<255); // centred cubic edge, no hard cell step
+    values[0]=values[1]=0xff808080;upload(frame,cells,2,1,values,sizeof(values));
+    CHECK(effects.Soften_Shroud(frame,cells,2,1,2,0,true,.5f,true));
+    auto *sampled=texture(frame,33,25,SDL_GPU_TEXTUREFORMAT_R32_FLOAT);
+    SdlTarget scene=frame.Back_Buffer_Target();
+    std::vector<uint32_t> colour(33*25,0x60cc1a33);upload(frame,scene.Colour,33,25,colour.data(),unsigned(colour.size()*4));
+    depth(frame,sampled,33,25,.5f,1.f);
+    const float matrix[]={64,0,0,0, 0,64,0,0, 200,0,-100,0, 0,0,20,1};
+    SdlPostAtmosphereViews views;views.Shroud.Texture=effects.Soft_Shroud();
+    views.ShroudRect[0]=views.ShroudRect[1]=-1000;views.ShroudRect[2]=views.ShroudRect[3]=.0005f;
+    auto in=capture(frame,scene,sampled,matrix,views);
+    const auto before=read(frame,scene);
+    CHECK(effects.Memory(frame,scene,in));auto after=read(frame,scene);alpha(after);
+    CHECK(component(after,33,3,3)<component(before,33,3,3));
+    CHECK(component(after,33,3,3,1)>component(before,33,3,3,1));
+    CHECK(component(after,33,30,3)==component(before,33,30,3)); // sky keeps its colour
+    auto stale=in;--stale.Capture.Generation;CHECK(!effects.Memory(frame,scene,stale));
+    values[0]=values[1]=0xffffffff;upload(frame,cells,2,1,values,sizeof(values));
+    CHECK(effects.Soften_Shroud(frame,cells,2,1,2,.1f,true,.5f,false));
+    soft=softPixels();CHECK(component(soft,8,3,1)>180 && component(soft,8,3,1)<254);
+    CHECK(effects.Soften_Shroud(frame,cells,2,1,2,.5f,false,.5f,false));
+    soft=softPixels();CHECK(component(soft,8,3,1)==255);
+    depth(frame,sampled,33,25,.5f,.5f);in=capture(frame,scene,sampled,matrix,{});
+    auto *sun=texture(frame,16,16,SDL_GPU_TEXTUREFORMAT_R32_FLOAT);std::vector<float> clearSun(256,1.f);
+    upload(frame,sun,16,16,clearSun.data(),unsigned(clearSun.size()*4));
+    const float sunMatrix[]={.001f,0,0,0, 0,.001f,0,0, 0,0,-.001f,0, 0,0,.5f,1};
+    RenderPost::SunShaftSettings shafts{};shafts.Strength=1;shafts.Colour[0]=shafts.Colour[1]=shafts.Colour[2]=1;
+    shafts.Top=150;shafts.Falloff=60;shafts.Samples=6;shafts.Scale=.02f;shafts.Radius=60;shafts.StreakLength=100;
+    shafts.TowardSun[0]=1;shafts.ShallowTop=.6f;shafts.ShallowSpan=.3f;shafts.DarkCap=.35f;shafts.ShadedMost=1;
+    const auto open=read(frame,scene);
+    CHECK(effects.Sun_Shafts(frame,scene,in,shafts,sun,sunMatrix,.0001f,.6f,nullptr,nullptr));
+    CHECK(read(frame,scene)==open); // open ground has no lift or dimming
+    shafts.Glare=.05f;
+    CHECK(effects.Sun_Shafts(frame,scene,in,shafts,sun,sunMatrix,.0001f,.6f,nullptr,nullptr));
+    after=read(frame,scene);alpha(after);CHECK(component(after,33,16,12)>component(open,33,16,12));
+    shafts.Strength=0;CHECK(!effects.Sun_Shafts(frame,scene,in,shafts,sun,sunMatrix,.0001f,.6f,nullptr,nullptr));
+    CHECK(read(frame,scene)==after);
+    CHECK(effects.Soften_Shroud(frame,nullptr,0,0,0,0,false,0,false));CHECK(!effects.Soft_Shroud());
+    CHECK(effects.Release(frame));
+    for(auto *resource:{cells,preview,sampled,sun})frame.Release_After_Batch(resource,nullptr);
     CHECK(frame.Flush());
 }
 static int gpu()
@@ -384,7 +457,7 @@ static int gpu()
         CHECK(!released.Textures && !released.Shaders && !released.Pipelines && !released.Samplers);
         frame->Release_After_Batch(sampled,nullptr);frame->Release_After_Batch(replacement,nullptr);frame->Release_After_Batch(fog,nullptr);frame->Release_After_Batch(black,nullptr);CHECK(frame->Flush());
     }
-    CHECK(frame->Resize(33,25));waterHaze(*frame);
+    CHECK(frame->Resize(33,25));waterHaze(*frame);sceneEffects(*frame);
     delete frame;SDL_Quit();return failures?1:0;
 }
 int main(int argc,char **argv)

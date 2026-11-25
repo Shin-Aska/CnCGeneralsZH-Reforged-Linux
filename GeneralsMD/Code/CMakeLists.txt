@@ -1499,11 +1499,13 @@ if(ZH_PLATFORM_POSIX)
   list(FILTER POSIXD3D9_SOURCES EXCLUDE REGEX "/SdlHazardCloud[^/]*\\.cpp$")
   list(FILTER POSIXD3D9_SOURCES EXCLUDE REGEX "/SdlReachOverlay[^/]*\\.cpp$")
   list(REMOVE_ITEM POSIXD3D9_SOURCES
-    ${ZH_POSIX_RENDER_DIR}/SdlHardwareRayTracing.cpp)
+    ${ZH_POSIX_RENDER_DIR}/SdlHardwareRayTracing.cpp
+    ${ZH_POSIX_RENDER_DIR}/SdlPostSceneEffects.cpp)
   add_library(posixd3d9 STATIC ${POSIXD3D9_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/ParticleGpuShader.cpp)
   target_sources(posixd3d9 PRIVATE
-    ${ZH_POSIX_RENDER_DIR}/SdlHardwareRayTracing.cpp)
+    ${ZH_POSIX_RENDER_DIR}/SdlHardwareRayTracing.cpp
+    ${ZH_POSIX_RENDER_DIR}/SdlPostSceneEffects.cpp)
   set_target_properties(posixd3d9 PROPERTIES CXX_STANDARD 17)
   target_include_directories(posixd3d9 PUBLIC ${ZH_POSIX_D3D9_INCLUDE}
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include
