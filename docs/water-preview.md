@@ -364,13 +364,27 @@ The synthetic comparison renders separate 512 and 1024 targets. Existing scene b
 keep their captured resolution and demonstrate the filtering change only.
 
 In the Linux game, turn off **Options → Graphics → Classic graphics** and restart, then select
-**Modern** under **Water style**. **Options → Effects → Reflections → Water reflection** selects
-Legacy, SSR, Hybrid or Path traced. **Accept** applies the change live and saves `WaterReflection`
-to Options.ini (`0`, `1`, `2` or `3`, respectively). Hybrid remains the default when the
-preference is absent. These modes apply to **Modern** water, selected under Graphics;
-Classic water keeps its original rendering.
+**Modern** under **Water style**. **Options → Water → Water reflection** selects
+Legacy, SSR, Hybrid or **Path Tracing (Experimental)**. **Accept** applies the change live and saves
+`WaterReflection=0..3`. Hybrid remains the default. The Water page requires the Modern SDL renderer.
 
-**Ctrl+Shift+W** cycles Legacy → SSR → Hybrid → Path traced → Legacy live as a session-only
+**Graphics → Image → Hardware Ray Tracing** also controls acceleration for Modern water.
+Checking it tests the active Vulkan device. **Accept** applies a successful choice.
+See [Linux hardware ray tracing and lighting](linux.md#hardware-ray-tracing-and-lighting)
+for the shared setting and sun shadows.
+
+- **SSR and Hybrid** use Vulkan ray queries to skip empty stretches of the screen-space
+  search when hardware acceleration is available. Hybrid also combines those results
+  with its planar reflection.
+- **Path Tracing (Experimental)** uses Vulkan ray queries for the primary reflection,
+  sun visibility and diffuse bounce. With hardware off or unavailable, it traces the
+  same effect using software shaders. Its reflection texture uses **Reflection detail**.
+  The SSR and Hybrid screen-space search uses the main render resolution.
+
+Old `WaterReflection=4` preferences migrate to `3` and respect the separate hardware setting.
+The diagnostic `-hardwareWaterPathTracing` override requests hardware for the current session.
+
+**Ctrl+Shift+W** cycles Legacy → SSR → Hybrid → Path Tracing (Experimental) → Legacy live as a session-only
 override. With Classic water selected, the key still cycles the setting for the next
 switch to Modern water.
 Bind `CYCLE_WATER_REFLECTION` in CommandMap.ini to choose another key; a command bound

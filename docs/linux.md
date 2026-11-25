@@ -131,17 +131,36 @@ switch has been removed; old `WaterMovementBehavior` preferences are ignored and
 when you next Accept the options menu.
 
 **Options → Water → Reflections → Water reflection** selects **Legacy**, **SSR**,
-**Hybrid** or **Path traced (experimental)** for Modern water. **Accept** applies the choice during the current game and
-saves it for later sessions; no restart is needed. Choose Modern under
-**Graphics → Water style** to use these modes.
+**Hybrid** or **Path Tracing (Experimental)**. **Accept** applies the choice during
+the current game and saves it for later sessions.
 
 Hybrid is the default and combines the improved 1024×1024 planar capture with
 screen-space reflections. Legacy preserves the original 512×512 planar rendering.
 SSR uses only the current screen, so hidden or off-screen objects can be missing.
-Path traced is an optional water-only experiment with approximate materials and incomplete
-scene coverage. It builds a scene BVH on the CPU and traces on the GPU, accumulating
-a stationary view over 64 frames. Hybrid remains the default.
+Path tracing is a water-only experiment with approximate materials and incomplete
+scene coverage. A stationary view can accumulate up to 64 samples.
 See the [reflection guide](water-preview.md#reflections) for details and preview controls.
+
+## Hardware ray tracing and lighting
+
+On Linux with SDL Vulkan, **Options → Graphics → Image → Hardware Ray Tracing**
+starts off. Checking it tests the current graphics device. **Accept** saves a
+successful choice. A failed test clears the checkbox and shows a message. The
+game checks saved enables again when it starts.
+
+- **Sun shadows** use hardware ray queries for eligible static buildings when
+  mapped shadows are active. Other casters use the shadow map. With hardware ray
+  tracing off or unavailable, the full pass uses mapped shadows.
+- **Modern water** uses hardware queries to speed up the screen-space search
+  in SSR and Hybrid. Hybrid also draws its planar reflection. **Path Tracing (Experimental)**
+  uses hardware ray queries when available and otherwise traces with software
+  shaders. See the [water reflection guide](water-preview.md#reflections).
+
+**Options → Display → Picture → Sun Shafts** offers **Off**, **Low** and **High**
+with Classic graphics off. The SDL renderer also softens fog-of-war edges
+automatically with Classic graphics off on supported devices. Both effects are
+independent of the hardware ray tracing checkbox. Fog smoothing affects only the
+picture. The game still uses the same visibility rules.
 
 ## Weather
 
