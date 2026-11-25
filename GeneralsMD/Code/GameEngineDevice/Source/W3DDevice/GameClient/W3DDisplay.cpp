@@ -64,6 +64,12 @@ static void resetSmoothMotionLiveRate(void);
 #include "Common/GlobalData.h"
 #include "Common/Monitors.h"
 #include "Common/OptionsCatalog.h"
+#if defined(__linux__)
+#include "Common/UserPreferences.h"
+#include "Platform/HardwareRaySun.h"
+#include "GameClient/MessageBox.h"
+#include <cstdlib>
+#endif
 #include "dx8wrapper.h"
 #include "ffprobe.h"
 #include "ffshadercache.h"
@@ -1318,6 +1324,19 @@ void W3DDisplay::init( void )
 		WWMath::Shutdown();
 		throw ERROR_INVALID_D3D;	// GameEngine::init shows ERROR:D3DFailureMessage, what the player can try
 	}
+#if defined(__linux__)
+    if (TheWritableGlobalData->m_useHardwareRayTracing) {
+        std::string error;
+        if (!HardwareRayTracing::Probe(error)) {
+            findOptionDef("UseHardwareRayTracing")->set(0);
+            UserPreferences preferences; preferences.load("Options.ini");
+            preferences["UseHardwareRayTracing"]="no";
+            preferences.write();
+            HardwareRayTracing::QueueUnavailableNotice();
+            DEBUG_LOG(("Hardware ray tracing saved enable refused: %s\n",error.c_str()));
+        }
+    }
+#endif
 	if( deviceTry > 1 )
 	{
 		DEBUG_LOG(("W3DDisplay::init - render device on try %d (adapter %d) after %u ms\n",
@@ -2727,6 +2746,14 @@ CinematicAnimationClockMode CinematicCameraModeForClientUpdate()
 
 void W3DDisplay::draw( void )
 {
+#if defined(__linux__)
+    if (TheWindowManager && TheGameText && TheInGameUI && TheGlobalData &&
+        !TheGlobalData->m_loadScreenRender && !std::getenv("ZH_UNATTENDED") &&
+        HardwareRayTracing::TakeUnavailableNotice())
+        MessageBoxOk(TheGameText->fetch("GUI:UseHardwareRayTracing"),
+            TheGameText->fetch("GUI:HardwareRayTracingUnavailable"),NULL);
+#endif
+
 #if !defined(_WIN32)
     if (TheGlobalData) RenderLighting::AllowTeamGlow(TheGlobalData->m_teamGlow != FALSE);
 #endif

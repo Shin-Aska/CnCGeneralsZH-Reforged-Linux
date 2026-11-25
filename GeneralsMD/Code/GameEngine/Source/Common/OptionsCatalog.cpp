@@ -24,6 +24,9 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 
 #include "Common/OptionsCatalog.h"
+#if defined(__linux__)
+#include "Platform/HardwareRaySun.h"
+#endif
 #include "Common/AudioAffect.h"
 #include "Common/GameAudio.h"
 #include "Common/GameEngine.h"
@@ -132,6 +135,13 @@ OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_BOOL_ACCESSORS( m_vsync )
 OPTION_INT_ACCESSORS( m_frameRateLimit )
 OPTION_INT_ACCESSORS( m_waterStyle )
+#if defined(__linux__)
+static Int get_m_useHardwareRayTracing() { return TheGlobalData->m_useHardwareRayTracing; }
+static void set_m_useHardwareRayTracing(Int value) {
+    TheWritableGlobalData->m_useHardwareRayTracing=value!=0;
+    HardwareRayTracing::SetRequested(value!=0);
+}
+#endif
 OPTION_INT_ACCESSORS( m_waterReflection )
 OPTION_BOOL_ACCESSORS( m_waterReflectionEnabled )
 OPTION_BOOL_ACCESSORS( m_waterShoreWaveTurning )
@@ -535,6 +545,13 @@ const OptionDef TheOptionCatalog[] =
 	{ "FrameRateLimit",						OPT_WND( "ComboBoxFrameRateLimit" ), "GUI:FrameRateLimit",
 		OPTION_ENUM, APPLY_LIVE, 0, FRAME_RATE_LIMIT_COUNT - 1,
 		get_m_frameRateLimit, set_m_frameRateLimit },
+
+#if defined(__linux__)
+    // The options menu validates a pending enable on the active graphics device.
+    { "UseHardwareRayTracing", OPT_WND( "CheckUseHardwareRayTracing" ), "GUI:UseHardwareRayTracing",
+        OPTION_BOOL, APPLY_LIVE, 0, 1,
+        get_m_useHardwareRayTracing, set_m_useHardwareRayTracing },
+#endif
 
 	// Water selects a complete surface path, including geometry and reflections. The water
 	// object applies it at the next frame boundary, including while the options menu is paused.
@@ -1265,6 +1282,9 @@ void loadOptionsFromPreferences( UserPreferences& pref )
 
 		def.set( parseOptionValue( def, it->second ) );
 	}
+#if defined(__linux__)
+    HardwareRayTracing::SetRequested(TheWritableGlobalData->m_useHardwareRayTracing!=FALSE);
+#endif
 }
 
 //-----------------------------------------------------------------------------

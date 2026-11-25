@@ -7760,3 +7760,15 @@ END
 ERROR:D3DFailureMessage
 "The graphics card did not start.\n\nUpdate the graphics driver. Close overlays and other fullscreen programs. Do not start the game over remote desktop or on a locked screen. Restart the PC, or start the game with -win."
 END
+
+GUI:UseHardwareRayTracing
+"Hardware Ray Tracing"
+END
+
+TOOLTIP:UseHardwareRayTracing
+"Uses Vulkan ray tracing to accelerate supported water reflections and sun shadows. Checks your graphics device when selected. Press Accept to apply."
+END
+
+GUI:HardwareRayTracingUnavailable
+"Hardware ray tracing is unavailable with the current graphics device and renderer. The game will use its standard shadow and reflection paths."
+END

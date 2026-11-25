@@ -713,6 +713,9 @@ GlobalData::GlobalData()
 	m_smoothMotion = LOGICFRAMES_PER_SECOND < 60;
 	m_smoothMotionAnyDisplay = FALSE;
 	m_waterStyle = 0;				// classic by default; modern water is an explicit option
+#if defined(__linux__)
+	m_useHardwareRayTracing = FALSE;
+#endif
 	m_waterReflection = 2;		// Hybrid once Modern is explicitly selected
 	m_waterReflectionEnabled = TRUE;
 	m_waterShoreWaveTurning = TRUE; // Preserve the existing Modern water appearance.

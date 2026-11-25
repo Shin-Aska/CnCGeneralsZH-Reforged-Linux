@@ -89,6 +89,12 @@ else
 	# the fork's own models: their names and bytes are in the multiplayer INI CRC
 	copy Art/W3D Art/W3D
 	copy Window Window
+	# The Windows master stays unchanged. Derive Linux's device option while staging,
+	# so development and every Linux package ship the same catalog-matched screen.
+	if [ "$(uname -s)" = Linux ] && [ -f "$data/Window/Menus/OptionsMenuClassic.wnd" ]; then
+		python3 "$(dirname "${BASH_SOURCE[0]}")/optionsmenu_layout.py" --linux \
+			"$data/Window/Menus/OptionsMenuClassic.wnd" "$out/Window/Menus/OptionsMenuClassic.wnd"
+	fi
 	if [ -n "$run" ] && [ -d "$run" ]; then
 		for big in "$run"/Reforged*.big; do
 			[ -f "$big" ] && ln -s "$(cd "$(dirname "$big")" && pwd)/$(basename "$big")" "$out/$(basename "$big")"

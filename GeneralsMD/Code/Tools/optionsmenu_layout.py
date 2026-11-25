@@ -36,6 +36,7 @@ optionsmenu_selfcheck.
 """
 
 import os
+import copy
 import re
 import sys
 
@@ -830,7 +831,7 @@ def update_water_page(layout):
     return layout
 
 
-def reflow_existing_pages(layout, page_names):
+def reflow_existing_pages(layout, page_names, group_layout=None):
     """Apply group changes to tracked tabbed masters as well as original EA layouts."""
     templates = dict((name, layout.find(name)) for name in (CHECK, LABEL, "ButtonDefaults"))
     controls = {}
@@ -840,7 +841,7 @@ def reflow_existing_pages(layout, page_names):
             if not short(child).startswith("GroupHeading"):
                 controls[short(child)] = child
         page.children = []
-    for page_name, groups in GROUP_LAYOUT:
+    for page_name, groups in (GROUP_LAYOUT if group_layout is None else group_layout):
         if page_name not in page_names:
             continue
         page = layout.find(page_name)
@@ -895,6 +896,27 @@ def build_hdassets_footer(layout, template):
     width, gap = 176, 8
     for index, name in enumerate(("ButtonDefaults", "ButtonHDAssets", "ButtonBack", "ButtonAccept")):
         layout.find(name).place(INNER_LEFT + index * (width + gap), BUTTON_TOP, width, BUTTON_HEIGHT)
+
+
+def configure_linux_layout(groups):
+    """Move one checkbox to make room for Linux's device-specific opt-in."""
+    for page, page_groups in groups:
+        for title, controls in page_groups:
+            for i, control in enumerate(controls):
+                if control == ("check", "CheckTeamGlow"):
+                    controls[i] = ("check", "CheckUseHardwareRayTracing")
+            if page == "PageDisplay" and any(c == ("check", "CheckRagdoll") for c in controls):
+                controls.append(("check", "CheckTeamGlow"))
+
+
+def build_linux(layout):
+    groups = copy.deepcopy(GROUP_LAYOUT)
+    configure_linux_layout(groups)
+    if not layout.find("CheckUseHardwareRayTracing"):
+        layout.find("PageGraphics").children.append(make_control(
+            layout.find(CHECK), "CheckUseHardwareRayTracing", "GUI:UseHardwareRayTracing", 0, 0, 1, 1))
+    reflow_existing_pages(layout, ("PageDisplay", "PageGraphics"), groups)
+    return layout
 
 
 def build(layout):
@@ -1123,10 +1145,12 @@ def overlaps(layout):
     return found
 
 
-def selfcheck():
-    rows = read_catalog()
+def selfcheck(linux=False):
+    rows = [row for row in read_catalog() if linux or row["ini"] != "UseHardwareRayTracing"]
     keys = read_strings()
     layout = wndlayout.load(LAYOUT)
+    if linux:
+        layout = build_linux(layout)
     controls = set((node.name or "").split(":")[-1] for node in layout.root.walk())
 
     problems = []
@@ -1285,8 +1309,13 @@ def selfcheck():
 
 
 def main(argv):
+    linux = "--linux" in argv
+    argv = [arg for arg in argv if arg != "--linux"]
     if len(argv) == 2 and argv[1] == "selfcheck":
-        return selfcheck()
+        if linux:
+            return selfcheck(True)
+        result = selfcheck()
+        return result or selfcheck(True)
 
     if len(argv) != 3:
         print(__doc__)
@@ -1294,7 +1323,7 @@ def main(argv):
 
     layout = wndlayout.load(argv[1])
     # Validate before opening the output, including when the tracked master is also the input.
-    result = build(layout).text().replace("\r\n", "\n").encode("latin-1")
+    result = (build_linux(layout) if linux else build(layout)).text().replace("\r\n", "\n").encode("latin-1")
     with open(argv[2], "wb") as output:
         output.write(result)
     print("%s: %d windows" % (argv[2], sum(1 for _ in layout.root.walk())))

@@ -22732,3 +22732,15 @@ END
 TOOLTIP:OnlineStagingPlayerInfo
 "\n Ping : %d ms \n %d victoires/%d défaites \n %d déconnexions \n Armée favorite : %ls"
 END
+
+GUI:UseHardwareRayTracing
+"Tracé matériel"
+END
+
+TOOLTIP:UseHardwareRayTracing
+"Utilise le ray tracing Vulkan pour accélérer les reflets de l’eau et les ombres du soleil compatibles. Vérifie le périphérique graphique à l’activation. Cliquez sur Accepter pour appliquer le réglage."
+END
+
+GUI:HardwareRayTracingUnavailable
+"Le ray tracing matériel est indisponible avec le périphérique graphique et le moteur de rendu actuels. Le jeu utilisera le rendu standard des ombres et des reflets."
+END

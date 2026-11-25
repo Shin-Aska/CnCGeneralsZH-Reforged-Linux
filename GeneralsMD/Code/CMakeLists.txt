@@ -2365,6 +2365,8 @@ if(ZH_PLATFORM_POSIX)
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh ${CMAKE_CURRENT_SOURCE_DIR}/Data
             ${CMAKE_CURRENT_SOURCE_DIR}/../Run ${CMAKE_BINARY_DIR}/overlay
     DEPENDS ${ZH_OVERLAY_INPUTS} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/Tools/optionsmenu_layout.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/Tools/wndlayout.py
     COMMENT "Staging the fork's overlay (P1)" VERBATIM)
   add_custom_target(zh_overlay ALL DEPENDS ${CMAKE_BINARY_DIR}/overlay.staged)
   if(TARGET water_preview)
@@ -2428,6 +2430,8 @@ if(ZH_PLATFORM_POSIX)
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh ${CMAKE_CURRENT_SOURCE_DIR}/Data ""
             ${CMAKE_BINARY_DIR}/overlay-dev --dev
     DEPENDS ${ZH_OVERLAY_INPUTS} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/Tools/optionsmenu_layout.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/Tools/wndlayout.py
     COMMENT "Staging the development-only overlay (P1)" VERBATIM)
   add_custom_target(zh_overlay_dev ALL DEPENDS ${CMAKE_BINARY_DIR}/overlay-dev.staged)
 

@@ -59,6 +59,9 @@
 #include "Platform/WaterFftGeometry.h"
 #include "Platform/WaterScreenReflection.h"
 #if defined(__linux__)
+#include "Platform/HardwareRaySun.h"
+#endif
+#if defined(__linux__)
 #include "Platform/WaterPathTracing.h"
 #include "W3DWaterPathScene.h"
 #include "Platform/WaterFftSampling.h"
@@ -1585,6 +1588,20 @@ bool Supported()
 #endif
 }
 }
+#if defined(__linux__)
+namespace HardwareRayTracing {
+namespace { bool noticePending=false; }
+void QueueUnavailableNotice() { noticePending=true; }
+bool TakeUnavailableNotice() { const bool pending=noticePending; noticePending=false; return pending; }
+bool Probe(std::string &error) {
+#if defined(__linux__)
+    return Probe(DX8Wrapper::_Get_D3D_Device(),error);
+#else
+    error="hardware ray tracing requires the SDL Vulkan device"; return false;
+#endif
+}
+}
+#endif
 // The SDL water's reflections, tiers and Water page: Linux only, the one SDL host that draws Modern water.
 namespace WaterScreenReflection {
 bool Supported()

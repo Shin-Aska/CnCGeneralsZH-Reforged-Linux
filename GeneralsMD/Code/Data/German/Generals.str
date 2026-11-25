@@ -21220,3 +21220,15 @@ END
 MAP:USA03xMapName
 "Letzte Runde"
 END
+
+GUI:UseHardwareRayTracing
+"HW-Raytracing"
+END
+
+TOOLTIP:UseHardwareRayTracing
+"Beschleunigt unterstützte Wasserreflexionen und Sonnenschatten mit Vulkan-Raytracing. Beim Einschalten prüft das Spiel das Grafikgerät. Gilt, sobald du Annehmen drückst."
+END
+
+GUI:HardwareRayTracingUnavailable
+"Hardware-Raytracing ist mit dem aktuellen Grafikgerät und Renderer nicht verfügbar. Das Spiel verwendet die Standarddarstellung für Schatten und Reflexionen."
+END

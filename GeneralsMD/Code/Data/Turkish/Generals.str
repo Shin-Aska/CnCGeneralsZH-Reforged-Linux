@@ -21749,3 +21749,15 @@ END
 OBJECT:ApocalypseZombieBrute
 "Dev Zombi"
 END
+
+GUI:UseHardwareRayTracing
+"Don. ışın iz."
+END
+
+TOOLTIP:UseHardwareRayTracing
+"Vulkan ışın izleme ile desteklenen su yansımalarını ve güneş gölgelerini hızlandırır. Açıldığında oyun grafik aygıtını denetler. Kabul Et'e basınca uygulanır."
+END
+
+GUI:HardwareRayTracingUnavailable
+"Geçerli grafik aygıtı ve işleyici ile donanım hızlandırmalı ışın izleme kullanılamıyor. Oyun gölgeler ve yansımalar için standart çizim yöntemlerini kullanacak."
+END

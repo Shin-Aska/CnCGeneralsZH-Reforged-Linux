@@ -229,6 +229,9 @@ public:
 	Bool m_smoothMotionAnyDisplay;	// -smoothmotion: the same whatever the display's refresh rate
 	Int m_waterStyle;					// "WaterStyle": 0 = Classic, 1 = Modern (when supported); applied between render frames
 	Int m_waterReflection;			// "WaterReflection": 0 = Legacy, 1 = SSR, 2 = Hybrid, 3 = experimental path tracing; Modern water
+#if defined(__linux__)
+	Bool m_useHardwareRayTracing; // Global opt-in, validated on the current Vulkan GPU before enabling
+#endif
 	Bool m_waterReflectionEnabled; // "WaterReflectionEnabled": scene reflections on/off; remembers the selected mode
 	Bool m_waterShoreWaveTurning; // "WaterShoreWaveTurning": waves turn toward the shore
 	Bool m_waterWaveFiltering; // "WaterWaveFiltering": filter distant waves and sun glints

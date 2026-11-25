@@ -85,6 +85,9 @@
 #include "Platform/ModernWaterBuild.h"
 #include "Platform/RendererCapabilities.h"
 #include "Platform/WaterScreenReflection.h"
+#if defined(__linux__)
+#include "Platform/HardwareRaySun.h"
+#endif
 //added by saad
 //used to access a messagebox that does "ok" and "cancel"
 #include "GameClient/MessageBox.h"
@@ -1238,6 +1241,24 @@ static GameWindow *findOptionWidget( const OptionDef& def )
 		NULL, TheNameKeyGenerator->nameToKey( AsciiString( def.widgetName ) ) );
 }
 
+#if defined(__linux__)
+// Probe only a pending enable. Success remains cached on the actual device; Cancel
+// leaves the saved/live opt-in unchanged. Unsupported adapters remain clickable.
+static Bool validateHardwareRayTracingChoice(GameWindow *widget, Bool immediate)
+{
+    if (!widget || !GadgetCheckBoxIsChecked(widget)) return TRUE;
+    std::string error;
+    if (HardwareRayTracing::Probe(error)) return TRUE;
+    GadgetCheckBoxSetChecked(widget,FALSE);
+    DEBUG_LOG(("Hardware ray tracing enable refused: %s\n",error.c_str()));
+    if (immediate)
+        MessageBoxOk(TheGameText->fetch("GUI:UseHardwareRayTracing"),
+            TheGameText->fetch("GUI:HardwareRayTracingUnavailable"),NULL);
+    else HardwareRayTracing::QueueUnavailableNotice();
+    return FALSE;
+}
+#endif
+
 #if !defined(_WIN32)
 // Query individual implemented providers through Display. This does not change
 // the saved option or infer support from the user's DX11 preference.
@@ -1441,6 +1462,11 @@ static void readCatalogWidgets( OptionPreferences &out )
 				value = clampOptionValue( def, GadgetSliderGetPosition( widget ) );
 				break;
 		}
+
+#if defined(__linux__)
+        if (strcmp(def.iniKey,"UseHardwareRayTracing")==0 && value &&
+            !validateHardwareRayTracingChoice(widget,FALSE)) value=0;
+#endif
 
 		// Only the file moves.  This run keeps the archives, the tile and the shadow pass it started with,
 		// and everything that asks GlobalData has to go on agreeing with them until the next start.
@@ -3633,6 +3659,12 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 				setDefaults();
 				showClassicDefaults();
 			}
+#if defined(__linux__)
+            else if (controlID == NAMEKEY("OptionsMenu.wnd:CheckUseHardwareRayTracing"))
+            {
+                validateHardwareRayTracingChoice(control,TRUE);
+            }
+#endif
 			else if( control == classicGraphicsCheckBox() )
 			{
 				showClassicGraphicsChoice();
