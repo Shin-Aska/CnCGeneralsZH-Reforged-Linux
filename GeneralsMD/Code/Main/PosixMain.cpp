@@ -554,6 +554,12 @@ int main( int argc, char *argv[] )
 				s_windowRequest.windowed = TRUE;
 				s_windowRequest.hidden = TRUE;
 			}
+            if (strcasecmp(argv[i], "-hardwareRaySunShadows") == 0)
+            {
+                setenv("ZH_HARDWARE_SUN_SHADOW", "1", 1);
+                setenv("ZH_GPU_RAY_QUERY", "1", 1);
+                fprintf(stderr, "generals: experimental hardware ray-query static-building sun shadows requested\n");
+            }
 			if (strcasecmp( argv[i], "-offscreen" ) == 0)
 			{
 				s_windowRequest.windowed = TRUE;

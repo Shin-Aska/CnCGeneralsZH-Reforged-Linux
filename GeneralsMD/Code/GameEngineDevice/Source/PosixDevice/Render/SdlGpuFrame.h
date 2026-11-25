@@ -201,6 +201,8 @@ public:
 
 	/// Runs what is recorded into the back buffer.  False when the GPU refused the work.
 	bool Flush();
+	/// Monotonic proof that no consumed/retained Flush failure occurred during a capture.
+	uint64_t Flush_Failure_Serial() const { return FlushFailureSerial; }
 	/// CPU work or deferred retirements still owned by this batch, including uploads and copies.
 	bool Has_Pending_Work() const;
 	/// Owner-only final teardown: stop recording first, attempt Flush, then discard any remaining CPU
@@ -468,6 +470,7 @@ private:
 	std::vector<struct SDL_GPUFence *> FlushFences;
 	unsigned int FlushLimit;			///< the most allowed in flight (ZH_GPU_FLUSH_LIMIT; 0: no limit)
 	unsigned int FlushesTotal;
+	uint64_t FlushFailureSerial = 0;
 	unsigned int FlushInFlightMost;
 	unsigned int FlushWaits;
 	/// The most draws one batch records before the next draw flushes it.  A Direct3D 9 driver submits a full

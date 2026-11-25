@@ -79,6 +79,10 @@
 #include "Platform/RenderTypes.h"
 #include "Platform/SunShadowMode.h"
 #include "Platform/SunShadow.h"
+#if defined(__linux__)
+#include "Platform/HardwareRaySun.h"
+#include "../W3DHardwareSunScene.h"
+#endif
 #include "Lib/Clock.h"		// Clock_Ticks: QueryPerformanceCounter on Windows, a monotonic clock elsewhere
 #include "GameClient/ParticleSys.h"
 #include "W3DDevice/GameClient/W3DParticleSys.h"
@@ -88,6 +92,9 @@
 #include "Common/LogicThread.h"
 #include <algorithm>
 #include <cstddef>
+#if defined(__linux__)
+#include <cstring>
+#endif
 #include <vector>
 
 #ifdef _INTERNAL
@@ -4174,6 +4181,9 @@ enum CasterVerdict
 };
 static std::vector<RenderObjClass *> s_casters;
 static std::vector<UnsignedByte> s_casterVerdicts;
+#if defined(__linux__)
+static std::vector<UnsignedByte> s_hardwareSunCasters;
+#endif
 
 /** What goes into the map is what stands in the sun's box, not what the tactical camera can see.
 		Culling by the camera meant a tank just off the left of the screen stopped casting, so its shadow
@@ -4471,7 +4481,11 @@ static void wholeMapSunBox( const Vector3 &toSun, Vector3 *focus, Real *halfWidt
 		still what it was.  The box is square and goes round what the tactical camera can see,
 		which is the ground the player can see; a cascade is only worth it once the box has to cover
 		more than one view.  SHADOW-MAP-PLAN.md phase 1. */
+#if defined(__linux__)
+void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera, SceneClass *hardwareScene )
+#else
 void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
+#endif
 {
 	// A failed, disabled or empty pass must not expose the previous view's shadow.
 	SunShadow::Clear(DX8Wrapper::_Get_D3D_Device());
@@ -4487,6 +4501,35 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 #else
 	const Bool geometryShadows = TRUE;
 	const Bool captureShadows = m_shadowList != NULL;
+#endif
+#if defined(__linux__)
+	std::unique_lock<std::recursive_mutex> liveModels(LogicThread::g_liveModelLock, std::defer_lock);
+	size_t registeredCasters = 0;
+	const auto collectEnabledCasters = [&] {
+		s_casters.clear();
+		registeredCasters = 0;
+#if defined(__linux__)
+		W3DVolumetricShadow *first = TheGlobalData->m_useShadowVolumes ? m_shadowList : NULL;
+#else
+		W3DVolumetricShadow *first = m_shadowList;
+#endif
+		for (W3DVolumetricShadow *shadow = first; shadow; shadow = shadow->m_next) {
+			++registeredCasters;
+			RenderObjClass *root = shadow->getRenderObject();
+			if (root && shadow->isRenderEnabled() && !shadow->isInvisibleEnabled()) s_casters.push_back(root);
+		}
+	};
+	uint64_t hardwareSnapshot = 0;
+	bool hardwareDepthCommitted = false;
+	unsigned hardwareCastersSkipped = 0;
+	unsigned hardwareGatherDrawn = 0, hardwareCompleteDrawn = 0;
+	Int64 hardwareLockStart = 0;
+	// Save the enclosing main view before changing the device to the sun view.
+	// Caster selection follows the ordinary mapped gather and pose below.
+	const bool hardwareCandidate = hardwareScene && mode == SunShadow::Mode::Mapped
+		&& TheGlobalData->m_shadowMap && TheGlobalData->m_useShadowVolumes
+		&& HardwareRaySun::Available(DX8Wrapper::_Get_D3D_Device());
+	if (!hardwareCandidate) W3DHardwareSunPrepare(NULL, NULL, 0);
 #endif
 	static bool modeReported = false;
 	static SunShadow::Mode lastMode = SunShadow::Mode::Legacy;
@@ -4715,15 +4758,17 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	const SunShadowCasterCull casterCull={seen,toSun,lowestReceiver,SHADOW_MAP_CASTER_PAD,filterReach,SHADOW_MAP_OVERLAY_REACH,cullToFrame,
 		mirrorReads ? &mirrorSeen : NULL};
 
-#if defined(__linux__)
-	W3DVolumetricShadow *firstCaster = TheGlobalData->m_useShadowVolumes ? m_shadowList : NULL;
-#else
+#if !defined(__linux__)
 	W3DVolumetricShadow *firstCaster = m_shadowList;
 #endif
 	beginSmokeMap( transform, halfWidth, farClip );
 	/* A tick running beside the render can reach a live model through
 		 getDrawModulesFlushed and set its state or read its bones, so it waits here from the casters'
 		 gathering to the end of their poses (LogicThread::g_liveModelLock). */
+#if defined(__linux__)
+	if (!liveModels.owns_lock()) liveModels.lock();
+	collectEnabledCasters();
+#else
 	std::unique_lock<std::recursive_mutex> liveModels( LogicThread::g_liveModelLock );
 	s_casters.clear();
 	for (W3DVolumetricShadow *shadow = firstCaster; shadow; shadow = shadow->m_next)
@@ -4732,7 +4777,11 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		if (robj != NULL && shadow->isRenderEnabled() && !shadow->isInvisibleEnabled())
 			s_casters.push_back( robj );
 	}
+#endif
 	s_casterVerdicts.resize( s_casters.size() );
+#if defined(__linux__)
+	s_hardwareSunCasters.assign(s_casters.size(), 0);
+#endif
 
 	{
 		ShadowPassJob job;
@@ -4753,12 +4802,71 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		if (s_casterVerdicts[ c ] == CASTER_OUT_OF_VIEW)
 			++castersOutOfView;
 	}
+#if defined(__linux__)
+	if (hardwareCandidate) {
+		hardwareLockStart = Clock_Ticks();
+		static std::vector<RenderObjClass *> visibleCasters;
+		static std::vector<RenderObjClass *> previousRefusal;
+		static SceneClass *refusedScene = nullptr;
+		static unsigned deferredFrames = 0;
+		visibleCasters.clear();
+		for (size_t c = 0; c < s_casters.size(); ++c)
+			if (s_casterVerdicts[c] == CASTER_DRAWN) visibleCasters.push_back(s_casters[c]);
+
+		// Revisit rejected caster sets when the view exposes a new set or after
+		// a short interval, so model edits and animations can re-enter hardware.
+		if (refusedScene == hardwareScene && previousRefusal == visibleCasters && deferredFrames < 7) {
+			++deferredFrames;
+		} else {
+			W3DHardwareSunPrepare(hardwareScene, visibleCasters.data(), visibleCasters.size());
+			hardwareSnapshot = W3DHardwareSunSnapshotId();
+			deferredFrames = 0;
+			refusedScene = hardwareSnapshot ? nullptr : hardwareScene;
+			if (refusedScene) previousRefusal = visibleCasters;
+			else previousRefusal.clear();
+		}
+		if (hardwareSnapshot) {
+			// VIEW first waits in render_state, before the separate D3D9 deferred queue.
+			// Publish that exact canonical transform without applying a pending scene
+			// shader over the sun's explicit raster states. PROJECTION was set directly.
+			const Matrix4x4 deviceSunView = Matrix4x4(view).Transpose();
+			DX8Wrapper::_Set_DX8_Transform(D3DTS_VIEW, deviceSunView);
+			DX8Wrapper::Flush_Deferred_D3D9_State();
+			D3DMATRIX actualView;
+			IDirect3DDevice9 *device = DX8Wrapper::_Get_D3D_Device();
+			const bool exactView = device && device->GetTransform(D3DTS_VIEW, &actualView) == D3D_OK
+				&& std::memcmp(&actualView, &deviceSunView, sizeof(actualView)) == 0;
+			// Refusal precedes any omission or RT depth write; all casters stay mapped.
+			hardwareDepthCommitted = exactView && HardwareRaySun::CommitMappedDepth(device);
+			if (!exactView) fprintf(stderr, "HardwareRaySun: canonical sun view publication refused; full mapped capture\n");
+		}
+	}
+	if (hardwareSnapshot) {
+		for (size_t c = 0; c < s_casters.size(); ++c) {
+			if (s_casterVerdicts[c] != CASTER_DRAWN) continue;
+			++hardwareGatherDrawn;
+			if (W3DHardwareSunHasCompleteCaster(s_casters[c], hardwareSnapshot)) {
+				++hardwareCompleteDrawn;
+				if (hardwareDepthCommitted) {
+					s_hardwareSunCasters[c] = 1;
+					++hardwareCastersSkipped;
+				}
+			}
+		}
+	}
+	const Int64 hardwareLockFrequency = hardwareSnapshot ? Clock_Ticks_Per_Second() : 0;
+	const double hardwareLockMS = hardwareLockFrequency > 0 ?
+		1000.0 * double(Clock_Ticks() - hardwareLockStart) / double(hardwareLockFrequency) : 0;
+#endif
 	liveModels.unlock();
 
 	for (size_t c = 0; c < s_casters.size(); ++c)
 	{
 		if (s_casterVerdicts[ c ] != CASTER_DRAWN)
 			continue;
+#if defined(__linux__)
+		if (s_hardwareSunCasters[c]) continue; // current attachment already owns this exact complete root
+#endif
 		RenderObjClass *robj = s_casters[ c ];
 
 		/* An own stealthed unit in the cloak's glass casts no shadow once its fade is past the middle,
@@ -4800,6 +4908,17 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		robj->Render( sunInfo );
 		++castersCounted;
 	}
+#if defined(__linux__)
+	if (hardwareSnapshot) {
+		static unsigned reports = 0;
+		if (++reports == 1 || reports % 120 == 0)
+			fprintf(stderr, "HardwareRaySun: current-depth commit=%u snapshot=%llu skipped=%u/%zu live-lock-ms=%.3f registered=%zu complete=%zu gather-drawn=%u complete-drawn=%u mapped-drawn=%d\n",
+				unsigned(hardwareDepthCommitted), (unsigned long long)hardwareSnapshot,
+				hardwareCastersSkipped, s_casters.size(), hardwareLockMS, registeredCasters,
+				W3DHardwareSunCompleteCasterCount(hardwareSnapshot), hardwareGatherDrawn,
+				hardwareCompleteDrawn, castersCounted);
+	}
+#endif
 	// Trees have no volume-shadow entry: batched foliage and object palms used
 	// separate flattened silhouettes. Capture their actual geometry in the sun map.
 	sunInfo.drawEffect = DRAW_EFFECT_NONE;

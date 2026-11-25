@@ -186,6 +186,14 @@ public:
 	void Set_Sun_Caster_Effect(unsigned effect, const float parameters[4]);
 	void Get_Sun_Caster_Effect(unsigned &effect, float parameters[4]) const;
 	void Set_Smoke_Glow(bool glow) { SmokeGlow = glow; }
+    bool Hardware_Sun_Available() const;
+    bool Prepare_Hardware_Sun(const float *positions, uint32_t vertexCount, uint64_t revision,
+        const float towardsSun[3], float strength, const std::vector<uint32_t> &meshTriangleEnds,
+        const std::vector<uint32_t> &buildingTriangleEnds);
+    bool Hardware_Sun_Owns();
+    bool Commit_Hardware_Sun_Depth();
+    bool Hardware_Sun_Owns_Target(const struct SdlTarget &target) const;
+    void Clear_Hardware_Sun(bool release = false);
 	bool Begin_Sun_Shadow(unsigned size);
 	// Optional submission status is independent of whether the shadow image can be used.
 	bool End_Sun_Shadow(bool *submission_ok = NULL);
@@ -232,6 +240,7 @@ public:
 	SdlGpuFrame * Get_Gpu() const { return Gpu; }
 	void Begin_Post(const RenderPost::Settings &settings);
 	void Set_Post_Environment(const RenderPost::Environment &environment);
+	bool Merge_Hardware_Sun_Depth(const struct SdlTarget &, const float *viewProjection, bool submit = true);
 	void Set_Post_Warps(const RenderPost::Warp *, unsigned);
 	void Set_Post_Heat(const float *, unsigned);
 	bool Current_Gpu_Target(struct SdlTarget &target, std::string &error) { return Gpu && Resolve_Target(target, error); }
@@ -477,6 +486,7 @@ protected:
 	float SunCasterCorner[2] = {0, 0};	///< the sun map's corner texel, so the cloak's noise stays on the world
 	bool Sun_Camera_Space() const;
 	bool Sun_Target(struct SdlTarget &target) const;
+	void Update_Sun_Shadow_Matrix();
 	unsigned SunExclusions = 0;
 	unsigned SunSceneDepth = 0, SunSceneExclusions = 0;
 	uint64_t SunSceneGeneration = 0;

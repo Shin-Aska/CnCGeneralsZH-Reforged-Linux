@@ -33,11 +33,14 @@ struct PosixDevice9::SunCapture {
 #undef FIELD
     SdlTarget Target = {};
     float ViewProjection[16] = {};
+    float CommittedViewProjection[16] = {};
     unsigned FirstDraw = 0, Draws = 0;
     bool Receiving = false;
+    bool HardwareDepthCommitted = false;
     bool SmokeFilled = false;
     float SmokeStrength = 0;
     uint64_t SceneGeneration = 0;
+    uint64_t FlushFailureSerial = 0;
     SdlTarget Scene = {};
     D3DMATRIX SceneView = {}, SceneProjection = {};
     D3DVIEWPORT9 SceneViewport = {};
@@ -96,6 +99,7 @@ bool PosixDevice9::Begin_Sun_Shadow(unsigned size)
     Sun = std::make_shared<SunCapture>(*this);
     Sun->Target = target;
     Sun->FirstDraw = DrawsRecorded;
+    Sun->FlushFailureSerial = Gpu->Flush_Failure_Serial();
     SunActive = true;
     SunCasterEffect = DRAW_EFFECT_NONE;
     SunFailed = false;
@@ -112,10 +116,8 @@ bool PosixDevice9::Sun_Target(SdlTarget &target) const
     return true;
 }
 
-bool PosixDevice9::End_Sun_Shadow(bool *submission_ok)
+void PosixDevice9::Update_Sun_Shadow_Matrix()
 {
-    if (submission_ok) *submission_ok = false;
-    if (!SunActive || !Sun) return false;
     const float *view = &Transforms[D3DTS_VIEW]._11;
     const float *projection = &Transforms[D3DTS_PROJECTION]._11;
     multiply(view, projection, Sun->ViewProjection);
@@ -125,9 +127,58 @@ bool PosixDevice9::End_Sun_Shadow(bool *submission_ok)
         Sun->ViewProjection[row*4] += Sun->ViewProjection[row*4+3] / Sun->Target.Width;
         Sun->ViewProjection[row*4+1] -= Sun->ViewProjection[row*4+3] / Sun->Target.Height;
     }
+}
+
+bool PosixDevice9::Commit_Hardware_Sun_Depth()
+{
+    if (!Gpu || !SunActive || !Sun || SunFailed || SunSceneExclusions
+        || SunShadow::RequestedMode() != SunShadow::Mode::Mapped
+        || Sun->HardwareDepthCommitted || DrawsRecorded != Sun->FirstDraw) return false;
+    Update_Sun_Shadow_Matrix();
+    // Begin's D32 clear stays ahead of the atomically queued merge and raster draws.
+    // Queries write a separate R32 texture, so replay needs no intervening submit.
+    // Allocation/pipeline changes retain their own reader-flush lifetime barriers.
+    const bool recorded = Merge_Hardware_Sun_Depth(Sun->Target, Sun->ViewProjection, false);
+    if (Gpu->Flush_Failure_Serial() != Sun->FlushFailureSerial) SunFailed = true;
+    const bool committed = recorded && !SunFailed;
+    // Native packets preserve the frame target themselves; make the continuation
+    // explicit as raster casters must load and min-compose with this same attachment.
+    Gpu->Set_Target(Sun->Target);
+    Sun->HardwareDepthCommitted = committed;
+    if (committed) std::memcpy(Sun->CommittedViewProjection, Sun->ViewProjection, sizeof(Sun->ViewProjection));
+    return committed;
+}
+
+bool PosixDevice9::End_Sun_Shadow(bool *submission_ok)
+{
+    if (submission_ok) *submission_ok = false;
+    if (!SunActive || !Sun) return false;
+    Update_Sun_Shadow_Matrix();
+    if (Sun->HardwareDepthCommitted) {
+        const bool exact = std::memcmp(Sun->CommittedViewProjection, Sun->ViewProjection,
+            sizeof(Sun->ViewProjection)) == 0;
+        // Omitted casters are valid only for the committed matrix. No receiver has
+        // sampled yet: refuse mapped ownership and retain the full volume fallback.
+        if (!exact) {
+            SunFailed = true;
+            std::fprintf(stderr, "HardwareRaySun: committed sun matrix changed before End; volume fallback\n");
+        }
+        static const bool verify = [] {
+            const char *value = std::getenv("ZH_HARDWARE_SUN_VERIFY_MATRIX");
+            return value && std::strcmp(value, "1") == 0;
+        }();
+        if (verify) {
+            static unsigned reports = 0;
+            if (++reports == 1 || reports % 120 == 0)
+                std::fprintf(stderr, "HardwareRaySun: pre-commit/End matrix agreement=%s\n", exact ? "exact" : "FAILED");
+        }
+    }
     Sun->Draws = DrawsRecorded - Sun->FirstDraw;
     // Submission failure must reach the stencil fallback before the engine decides who owns shadows.
     const bool submitted = Gpu->Flush();
+    // Flush consumes failed recorded/submitted batches. A successful final flush
+    // cannot hide an earlier failure that lost the queued clear or native merge.
+    if (Gpu->Flush_Failure_Serial() != Sun->FlushFailureSerial) SunFailed = true;
     SunActive = false;
     SunCasterEffect = DRAW_EFFECT_NONE;
     Sun->Restore(*this);
@@ -135,8 +186,13 @@ bool PosixDevice9::End_Sun_Shadow(bool *submission_ok)
     std::string error;
     const bool restored = Resolve_Target(scene, error);
     if (restored) Gpu->Set_Target(scene);
-    if (submission_ok) *submission_ok = submitted;
+    if (submission_ok) *submission_ok = submitted && !SunFailed;
+    // Direct-device callers may still use the additive path. The engine commits
+    // before selecting casters; never merge its static depth twice at End.
+    if (submitted && restored && !SunFailed && !Sun->HardwareDepthCommitted)
+        Merge_Hardware_Sun_Depth(Sun->Target, Sun->ViewProjection);
     SunReady = submitted && restored && !SunFailed;
+    if (!SunReady) Clear_Hardware_Sun();
     return SunReady;
 }
 
@@ -313,6 +369,7 @@ bool PosixDevice9::Enter_Sun_Scene(bool eligible)
     const bool owns = eligible && SunSceneDepth == 0;
     ++SunSceneDepth;
     if (owns) {
+        Clear_Hardware_Sun();
         Clear_Sun_Shadow();
         SunReceiversAtSceneStart = SunSolidReceivers + SunGroundReceivers;
         ++SunSceneGeneration;
@@ -327,6 +384,7 @@ void PosixDevice9::Leave_Sun_Scene(bool eligible)
     if (!eligible && SunSceneExclusions) --SunSceneExclusions;
     --SunSceneDepth;
     if (eligible) {
+        Clear_Hardware_Sun();
         TerrainLighting.Committed = false;
         Clear_Sun_Shadow(); // recorded draws already own their constants/bindings
     }

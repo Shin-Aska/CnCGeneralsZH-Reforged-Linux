@@ -1724,7 +1724,13 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 		!ShaderClass::Is_Backface_Culling_Inverted() &&
 		Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE)
 	{
+#if defined(__linux__)
+		// The manager holds the live-model snapshot through current-depth commit and
+		// caster selection; terrain-only and nested views cannot replace any roots.
+		TheW3DVolumetricShadowManager->renderShadowMap(rinfo.Camera, m_drawTerrainOnly ? NULL : this);
+#else
 		TheW3DVolumetricShadowManager->renderShadowMap(rinfo.Camera);
+#endif
 		// Before the frame for the same reason: it has to lie under all of it.  The pass above has just
 		// handed the backend the camera it needs.
 		if (TheGlobalData->m_atmosphere)

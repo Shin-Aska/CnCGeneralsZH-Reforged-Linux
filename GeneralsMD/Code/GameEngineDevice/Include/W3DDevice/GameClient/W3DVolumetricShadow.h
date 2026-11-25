@@ -36,6 +36,9 @@
 ///@todo Make the 100 below a 'better' number. Was 32, increased because of overcomplex models.
 #define MAX_SHADOW_CASTER_MESHES	160	//number of meshes allowed in animated hierarchy (must be <256 since index is a byte).
 
+#if defined(__linux__)
+class SceneClass;
+#endif
 class W3DShadowGeometry;	//forward reference
 class W3DShadowGeometryManager;	//forward reference
 struct Geometry;	//forward reference
@@ -80,7 +83,11 @@ public:
 
 	/// Draw every caster into the sun's depth buffer, before the frame itself is drawn.  Nothing
 	/// reads that buffer yet; SHADOW-MAP-PLAN.md phase 2 is what makes it a shadow.
+#if defined(__linux__)
+	void renderShadowMap( CameraClass &sceneCamera, SceneClass *hardwareScene = NULL );
+#else
 	void renderShadowMap( CameraClass &sceneCamera );
+#endif
 	void ReleaseResources(void);
 	Bool ReAcquireResources(void);
 

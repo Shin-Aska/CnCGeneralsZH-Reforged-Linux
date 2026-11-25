@@ -1904,7 +1904,14 @@ if(ZH_PLATFORM_POSIX)
 
   # BinkVideoPlayer.cpp, unchanged: W3DGameClient makes it on every platform, so it lives with w3ddevice
   list(APPEND W3DDEVICE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/VideoDevice/Bink/BinkVideoPlayer.cpp)
+  # Keep the experimental Linux collector explicit so adding it also regenerates existing builds.
+  list(REMOVE_ITEM W3DDEVICE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/W3DHardwareSunScene.cpp)
   add_library(w3ddevice STATIC ${W3DDEVICE_SOURCES})
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(w3ddevice PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/W3DHardwareSunScene.cpp)
+  endif()
   set(ZH_POSIX_RENDER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
   # Linux and macOS share the SDL cloud backend; retain the fork preview helpers.
   target_sources(w3ddevice PRIVATE

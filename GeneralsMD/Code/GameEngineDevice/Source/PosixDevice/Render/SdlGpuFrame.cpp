@@ -1647,6 +1647,7 @@ bool SdlGpuFrame::Flush()
 	const Uint64 start = SDL_GetTicksNS();
 	SDL_GPUCommandBuffer * commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
 	if (commands == NULL) {
+		++FlushFailureSerial;
 		return false;
 	}
 	const bool recorded = Record_Batch(commands);
@@ -1655,6 +1656,7 @@ bool SdlGpuFrame::Flush()
 	FlushMs += (double)(SDL_GetTicksNS() - start) / 1.0e6;
 	++Flushes;
 	++FlushesTotal;
+	if (!submitted || !recorded) ++FlushFailureSerial;
 	return submitted && recorded;
 }
 

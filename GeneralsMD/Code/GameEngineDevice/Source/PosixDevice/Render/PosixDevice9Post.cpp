@@ -1,6 +1,11 @@
 // Explicit main-scene ownership. Mirrors, sun capture and arbitrary render textures keep their targets.
 #include "PosixDevice9.h"
 #include "SdlGpuFrame.h"
+#include "SdlHardwareSunShadow.h"
+#include "Platform/HardwareRaySun.h"
+#if defined(__linux__)
+#include "../../../../Libraries/Source/SDL_gpu_vulkan_rayquery.h"
+#endif
 #include "SdlPostProcess.h"
 #include "SdlPostAtmosphere.h"
 #include "SdlPostDistortion.h"
@@ -20,6 +25,8 @@
 #include <cmath>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
+#include <chrono>
 
 namespace {
 SdlGpuFrame *provider_frame(IDirect3DDevice9 *device) { return device ? static_cast<PosixDevice9 *>(device)->Get_Gpu() : nullptr; }
@@ -84,6 +91,33 @@ struct PosixDevice9::PostSession {
     IDirect3DSurface9 *StandInSurface = nullptr;
     SDL_GPUTexture *StandInCopy = nullptr;
     unsigned CopyWidth = 0, CopyHeight = 0, CopyFormat = 0;
+
+    std::unique_ptr<SdlHardwareSunShadow> HardwareSun;
+    SdlMainViewSnapshot HardwareView;
+    SdlMainViewSnapshot SunPreflightView, SunPreflightOwner;
+    D3DVIEWPORT9 SunPreflightViewport = {};
+    uint64_t SunPreflightScene = 0;
+    bool SunPreflightValid = false;
+    bool MatchesSunPreflight(SdlGpuFrame *frame, uint64_t device, uint64_t scene) const {
+        return SunPreflightValid && SunPreflightScene==scene && SunPreflightView.DeviceGeneration==device &&
+            SunPreflightView.FrameSerial==frame->Scene_Frame() && SunPreflightView.Capture.Generation==frame->Scene_Generation() &&
+            CurrentView.Pass==SdlSceneView::Main && CurrentView.ViewKey==SunPreflightOwner.ViewKey &&
+            CurrentView.DeviceGeneration==SunPreflightOwner.DeviceGeneration &&
+            CurrentView.FrameSerial==SunPreflightOwner.FrameSerial &&
+            CurrentView.Capture.Same_Identity(SunPreflightOwner.Capture) &&
+            CurrentView.Target.Colour==SunPreflightOwner.Target.Colour && CurrentView.Target.Depth==SunPreflightOwner.Target.Depth &&
+            CurrentView.Target.Width==SunPreflightOwner.Target.Width && CurrentView.Target.Height==SunPreflightOwner.Target.Height &&
+            !std::memcmp(CurrentView.ViewProjection,SunPreflightOwner.ViewProjection,sizeof(CurrentView.ViewProjection)) &&
+            !std::memcmp(CurrentView.WorldFromClip,SunPreflightOwner.WorldFromClip,sizeof(CurrentView.WorldFromClip)) &&
+            !std::memcmp(CurrentView.Viewport,SunPreflightOwner.Viewport,sizeof(CurrentView.Viewport)) &&
+            !std::memcmp(CurrentView.Scissor,SunPreflightOwner.Scissor,sizeof(CurrentView.Scissor));
+    }
+    D3DVIEWPORT9 HardwareViewport = {};
+    uint64_t HardwareRevision = 0, HardwareScene = 0, HardwareBuilds = 0;
+    float HardwareLight[3] = {}, HardwareStrength = 0;
+    bool HardwareOwned = false, HardwareDone = false, HardwareRetryMapped = false;
+    bool HardwareDumped = false, HardwareLogged = false;
+    std::string HardwareError, HardwareReportedError;
 
     bool inputs(PosixDevice9 &device, SdlGpuFrame &frame, SdlSceneCapturePhase phase, SdlPostSceneInputs &result) {
         result = {};
@@ -171,6 +205,8 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     s.WorldAO = settings.WorldAO && !settings.Classic;
     s.Settings = {};
     s.RequestedChain = !settings.Classic && DX11Post_Parse_Chain(settings.Chain, s.Settings.Chain, s.Settings.Count) && s.Settings.Count;
+    // Sun ray queries write light-space depth, and hardware water has its own capture.
+    // Neither needs to route the main view through a copy-only post chain.
     if (!s.RequestedChain && !settings.Classic && (s.WorldAO || settings.IndependentScene || (s.EnvironmentCurrent &&
         (s.Environment.Haze.Strength > 0 || s.Environment.TransitionWarmHaze.Strength > 0 || s.Environment.Atmosphere.Strength > 0)))) {
         s.Settings.Count = 1; s.Settings.Chain[0] = DX11_POST_COPY;
@@ -427,6 +463,7 @@ void PosixDevice9::Finish_Post(bool fallback)
 void PosixDevice9::Release_Post()
 {
     if (!Post || !Gpu) return;
+    Clear_Hardware_Sun(true);
     if (!Post->Distortion.Release(*Gpu)) {
         Gpu->Discard_Pending_Work_For_Teardown();
         if (!Post->Distortion.Release(*Gpu)) std::fprintf(stderr, "PosixDevice9: distortion teardown: %s\n", Post->Distortion.Error().c_str());
@@ -448,12 +485,189 @@ void PosixDevice9::Release_Post()
 void PosixDevice9::Invalidate_Post_Route()
 {
     if (!Post) return;
+    Clear_Hardware_Sun(true);
     Post->Atmosphere.Abandon(); Post->EnvironmentReady = false;
     Post->Distortion.Abandon(); Post->HeatPending = Post->BlastPending = false;
     Post->ModelColour = {}; Post->ModelColourRefusedKey = 0; Post->FoamView = {}; Post->FoamRefusedKey = 0;
     Post->Routed = Post->InView = Post->Entered = false;
     Post->CurrentView = {}; Post->LastView = {}; Post->ViewDepth = 0;
     Post->StandInSurface = nullptr; Post->StandInTexture = nullptr;
+}
+
+bool PosixDevice9::Hardware_Sun_Available() const
+{
+#if defined(__linux__)
+    const bool available = (HardwareRaySun::Requested() || (HardwareRayTracing::Requested()
+        && HardwareRayTracing::Available(const_cast<PosixDevice9 *>(this)))) && Gpu && Post && !Post->Classic && Post->InView &&
+        Post->CurrentView.Pass == SdlSceneView::Main && SunSceneDepth == 1 && !SunSceneExclusions &&
+        ZHR_SDLRayQuerySupported(Gpu->Device(), nullptr, 0);
+    if (!SunActive && Post) {
+        // A failed late preparation must not expose the previous frame's scene.
+        Post->SunPreflightValid=false;
+        Post->HardwareOwned=Post->HardwareDone=false;
+        Post->HardwareView={};
+    }
+    if (!available) return false;
+    if (SunActive) return Post->MatchesSunPreflight(Gpu,GpuDeviceGeneration,SunSceneGeneration);
+    SdlMainViewSnapshot view;
+    if (!const_cast<PosixDevice9*>(this)->Read_Main_View(view,false,SdlSceneCapturePhase::OpaqueScene)) return false;
+    Post->SunPreflightView=view;
+    Post->SunPreflightOwner=Post->CurrentView;
+    Post->SunPreflightViewport=Viewport;
+    Post->SunPreflightScene=SunSceneGeneration;
+    Post->SunPreflightValid=true;
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool PosixDevice9::Prepare_Hardware_Sun(const float *positions, uint32_t vertexCount, uint64_t revision,
+    const float towardsSun[3], float strength, const std::vector<uint32_t> &meshTriangleEnds,
+    const std::vector<uint32_t> &buildingTriangleEnds)
+{
+    if (!Hardware_Sun_Available() || !Post || Post->Classic || !Post->InView ||
+        SunSceneDepth != 1 || SunSceneExclusions || !positions ||
+        !vertexCount || vertexCount % 3 || !revision || !towardsSun || !std::isfinite(strength) || strength <= 0) return false;
+    PostSession &s = *Post;
+    s.HardwareOwned = s.HardwareDone = false;
+    float lengthSquared = 0;
+    for (unsigned i = 0; i < 3; ++i) {
+        if (!std::isfinite(towardsSun[i])) return false;
+        lengthSquared += towardsSun[i] * towardsSun[i];
+    }
+    if (lengthSquared < 1e-8f) return false;
+    SdlMainViewSnapshot view;
+    auto refused = [&](const std::string &message) {
+        if (message != s.HardwareReportedError) std::fprintf(stderr, "HardwareRaySun: preflight refused: %s; mapped fallback\n", message.c_str());
+        s.HardwareReportedError = message;
+        s.HardwareError = message;
+        s.HardwareSun.reset(); s.HardwareRevision = 0;
+        return false;
+    };
+    if (SunActive) {
+        if (!s.MatchesSunPreflight(Gpu,GpuDeviceGeneration,SunSceneGeneration))
+            return refused("late geometry lost saved main-view provenance");
+        view=s.SunPreflightView;
+    } else if (!Read_Main_View(view, false, SdlSceneCapturePhase::OpaqueScene))
+        return refused("main-view preflight identity/target metadata unavailable");
+    if (!s.HardwareSun || s.HardwareRevision != revision) {
+        const bool existing = bool(s.HardwareSun);
+        if (existing) {
+            if (!s.HardwareSun->UpdateGeometry(positions, vertexCount, nullptr, vertexCount,
+                    s.HardwareError, meshTriangleEnds, buildingTriangleEnds))
+                return refused(s.HardwareError);
+        } else {
+            s.HardwareSun.reset(SdlHardwareSunShadow::Create(*Gpu, positions, vertexCount, nullptr, vertexCount,
+                s.HardwareError, meshTriangleEnds, buildingTriangleEnds));
+            if (!s.HardwareSun) return refused(s.HardwareError);
+        }
+        s.HardwareRevision = revision;
+        ++s.HardwareBuilds;
+        s.HardwareLogged = s.HardwareDumped = false;
+        std::fprintf(stderr, "HardwareRaySun: %s revision=%llu vertices=%u triangles=%u scene-builds=%llu pipeline=%s\n",
+            s.HardwareSun->Diagnostics().c_str(), (unsigned long long)revision, vertexCount, vertexCount / 3,
+            (unsigned long long)s.HardwareBuilds, existing ? "reused" : "created");
+    }
+    s.HardwareView = view;
+    s.HardwareViewport = SunActive ? s.SunPreflightViewport : Viewport;
+    s.HardwareScene = SunSceneGeneration;
+    std::memcpy(s.HardwareLight, towardsSun, sizeof(s.HardwareLight));
+    s.HardwareStrength = strength < 1 ? strength : 1;
+    s.HardwareError.clear();
+    return true;
+}
+
+bool PosixDevice9::Hardware_Sun_Owns_Target(const SdlTarget &target) const
+{
+    if (!Gpu || !Post || !Post->HardwareOwned || !Post->HardwareSun || !Post->InView ||
+        Post->CurrentView.Pass != SdlSceneView::Main || SunActive || SunSceneDepth != 1 || SunSceneExclusions) return false;
+    const PostSession &s = *Post;
+    const SdlMainViewSnapshot &view = s.HardwareView;
+    return s.HardwareScene == SunSceneGeneration && view.DeviceGeneration == GpuDeviceGeneration &&
+        view.FrameSerial == Gpu->Scene_Frame() && view.Capture.Generation == Gpu->Scene_Generation() &&
+        view.ViewKey == s.CurrentView.ViewKey && target.Colour == view.Target.Colour &&
+        target.Depth == view.Target.Depth && target.Width == view.Target.Width && target.Height == view.Target.Height &&
+        std::memcmp(&Viewport, &s.HardwareViewport, sizeof(Viewport)) == 0;
+}
+
+bool PosixDevice9::Hardware_Sun_Owns()
+{
+    if (!Gpu || !Post || !Post->HardwareOwned) return false;
+    SdlTarget target = {}; std::string error;
+    return Resolve_Target(target, error) && Hardware_Sun_Owns_Target(target);
+}
+
+void PosixDevice9::Clear_Hardware_Sun(bool release)
+{
+    if (!Post) return;
+    if (release && SunSceneExclusions) return; // Nested-view invalidation cannot retire the main scene.
+    Post->HardwareOwned = Post->HardwareDone = false;
+    Post->HardwareView = {};
+    Post->SunPreflightValid = false;
+    if (release) {
+        Post->HardwareSun.reset(); Post->HardwareRevision = 0;
+        Post->HardwareRetryMapped = false;
+        Post->HardwareDumped = Post->HardwareLogged = false;
+    }
+}
+
+bool PosixDevice9::Merge_Hardware_Sun_Depth(const SdlTarget &target,const float *viewProjection, bool submit)
+{
+    if (!Gpu || !Post || !Post->HardwareSun || Post->HardwareDone ||
+        Post->Classic || Post->HardwareScene!=SunSceneGeneration || SunSceneExclusions || !viewProjection
+        || !Post->InView || Post->CurrentView.Pass != SdlSceneView::Main
+        || Post->HardwareView.DeviceGeneration != GpuDeviceGeneration
+        || Post->HardwareView.FrameSerial != Gpu->Scene_Frame()
+        || Post->HardwareView.Capture.Generation != Gpu->Scene_Generation()
+        || Post->HardwareView.ViewKey != Post->CurrentView.ViewKey
+        || (!HardwareRaySun::Requested() && !HardwareRayTracing::Requested())) return false;
+    auto &s=*Post;s.HardwareDone=true;
+    float inverse[16];
+    bool merged=render_inverse(viewProjection,inverse)
+        && s.HardwareSun->RenderSunDepth(target,inverse,s.HardwareError)
+        && s.HardwareSun->MergeSunDepth(target,s.HardwareError,submit);
+    s.HardwareOwned=merged;
+    if (!merged) {
+        if (s.HardwareError!=s.HardwareReportedError) {
+            std::fprintf(stderr,"HardwareRaySun: sun-depth merge refused: %s; mapped coverage retained\n",s.HardwareError.c_str());
+            s.HardwareReportedError=s.HardwareError;
+        }
+        return false;
+    }
+    if (!s.HardwareLogged) {
+        std::fprintf(stderr,"HardwareRaySun: %s closest static depth revision=%llu scene=%llu size=%ux%u\n",
+            submit ? "submitted" : "queued",
+            (unsigned long long)s.HardwareRevision,(unsigned long long)s.HardwareScene,target.Width,target.Height);
+        s.HardwareLogged=true;
+    }
+    return true;
+}
+
+namespace HardwareRaySun {
+bool Requested()
+{
+#if defined(__linux__)
+    const char *value = std::getenv("ZH_HARDWARE_SUN_SHADOW");
+    return value && std::strcmp(value, "1") == 0;
+#else
+    return false;
+#endif
+}
+bool Available(IDirect3DDevice9 *device) { return device && static_cast<PosixDevice9 *>(device)->Hardware_Sun_Available(); }
+bool PrepareScene(IDirect3DDevice9 *device, const float *positions, uint32_t vertexCount,
+    uint64_t revision, const float towardsSun[3], float strength,
+    const std::vector<uint32_t> &meshTriangleEnds, const std::vector<uint32_t> &buildingTriangleEnds)
+{
+    return device && static_cast<PosixDevice9 *>(device)->Prepare_Hardware_Sun(positions, vertexCount,
+        revision, towardsSun, strength, meshTriangleEnds, buildingTriangleEnds);
+}
+bool CommitMappedDepth(IDirect3DDevice9 *device)
+{
+    return device && static_cast<PosixDevice9 *>(device)->Commit_Hardware_Sun_Depth();
+}
+void Invalidate(IDirect3DDevice9 *device) { if (device) static_cast<PosixDevice9 *>(device)->Clear_Hardware_Sun(true); }
+bool OwnsCurrentScene(IDirect3DDevice9 *device) { return device && static_cast<PosixDevice9 *>(device)->Hardware_Sun_Owns(); }
 }
 
 namespace RenderPost {
