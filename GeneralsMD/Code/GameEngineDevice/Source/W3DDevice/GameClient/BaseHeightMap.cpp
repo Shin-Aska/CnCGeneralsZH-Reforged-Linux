@@ -188,6 +188,9 @@ Int BaseHeightMapRenderObjClass::freeMapResources(void)
 	freeScorchBuffers();
 #endif
 	freeSkirt();
+#if defined(__linux__)
+	freeShoreLineChunks();
+#endif
 	REF_PTR_RELEASE(m_vertexMaterialClass);
 	REF_PTR_RELEASE(m_stageZeroTexture);
 	REF_PTR_RELEASE(m_stageOneTexture);
@@ -284,11 +287,13 @@ BaseHeightMapRenderObjClass::~BaseHeightMapRenderObjClass(void)
 		delete [] m_shoreLineTilePositions;
 		m_shoreLineTilePositions = NULL;
 	}
+#if !defined(__linux__)
 	if (m_shoreLineSortInfos)
 	{
 		delete [] m_shoreLineSortInfos;
 		m_shoreLineSortInfos = NULL;
 	}
+#endif
 }
 
 //=============================================================================
@@ -311,11 +316,13 @@ BaseHeightMapRenderObjClass::BaseHeightMapRenderObjClass(void)
 	m_minHeight=0;
 	m_shoreLineTilePositions=NULL;
 	m_numShoreLineTiles=0;
+#if !defined(__linux__)
 	m_shoreLineSortInfos=NULL;
 	m_shoreLineSortInfosSize=0;
 	m_shoreLineSortInfosXMajor=TRUE;
 	m_shoreLineTileSortMaxCoordinate=0;
 	m_shoreLineTileSortMinCoordinate=0;
+#endif
 	m_numVisibleShoreLineTiles=0;
 	m_shoreLineTilePositionsSize=0;
 	m_currentMinWaterOpacity = -1.0f;
@@ -1147,6 +1154,9 @@ Bool BaseHeightMapRenderObjClass::takeDrawnInputs(Int x0, Int y0, Int x1, Int y1
 		for (Int x = x0; x <= x1 + 1; x++) {
 			const size_t at = (size_t)y*width + x;
 			if (m_drawnHeights[at] != data[at]) {
+#if defined(__linux__)
+				invalidateShoreLineChunks(x - 2, y - 2, x + 2, y + 2);
+#endif
 				m_drawnHeights[at] = data[at];
 				moved = TRUE;
 			}
@@ -1161,6 +1171,9 @@ Bool BaseHeightMapRenderObjClass::takeDrawnInputs(Int x0, Int y0, Int x1, Int y1
 			const UnsignedByte value = flip ? 1 : 0;
 			UnsignedByte &kept = m_drawnFlip[(size_t)y*m_drawnFlipWidth + x];
 			if (kept != value) {
+#if defined(__linux__)
+				invalidateShoreLineChunks(x, y, x + 1, y + 1);
+#endif
 				kept = value;
 				moved = TRUE;
 			}
@@ -1515,6 +1528,7 @@ void BaseHeightMapRenderObjClass::setShoreLineDetail(void)
 	updateShorelineTiles(0,0,m_mapDX-1,m_mapDY-1,m_map);
 }
 
+#if !defined(__linux__)
 /** This is an extra pre-process of shoreline data to make it more efficient for runtime culling.  It is not
 used by the world builder since it modifies the terrain too frequently.  The function also assumes that updateShoreLineTiles()
 was previously called and inserted the tiles in the correctly sorted order.
@@ -1618,6 +1632,7 @@ void BaseHeightMapRenderObjClass::recordShoreLineSortInfos(void)
 	}
 }
 
+#endif
 void BaseHeightMapRenderObjClass::updateShorelineTile(Int i, Int j, Int border, WorldHeightMap *pMap)
 {
 	Int waterSide;
@@ -1676,6 +1691,9 @@ void BaseHeightMapRenderObjClass::updateShorelineTile(Int i, Int j, Int border, 
 water.*/
 void BaseHeightMapRenderObjClass::updateShorelineTiles(Int minX, Int minY, Int maxX, Int maxY, WorldHeightMap *pMap)
 {
+#if defined(__linux__)
+	invalidateShoreLineChunks(minX, minY, maxX, maxY);
+#endif
 	Int border = pMap->getBorderSizeInline();
 
 	//Clamp region to valid terrain tiles
@@ -1694,6 +1712,15 @@ void BaseHeightMapRenderObjClass::updateShorelineTiles(Int minX, Int minY, Int m
 		m_shoreLineTilePositionsSize = DEFAULT_MAX_MAP_SHORELINE_TILES;
 	}
 	
+#if defined(__linux__)
+	// Compact the old list in one pass. Chunk membership is rebuilt from the updated list.
+	m_numShoreLineTiles = std::remove_if(m_shoreLineTilePositions, m_shoreLineTilePositions + m_numShoreLineTiles,
+		[=](const shoreLineTileInfo &tile) {
+			const Int x = tile.m_xy & 0xffff;
+			const Int y = tile.m_xy >> 16;
+			return x >= minX && x < maxX && y >= minY && y < maxY;
+		}) - m_shoreLineTilePositions;
+#else
 	//First remove any existing extra blend tiles within this partial region
 	for (Int j=0; j<m_numShoreLineTiles; j++)
 	{	Int x = m_shoreLineTilePositions[j].m_xy & 0xffff;
@@ -1706,10 +1733,16 @@ void BaseHeightMapRenderObjClass::updateShorelineTiles(Int minX, Int minY, Int m
 			j--;	//look at current tile again since it was removed.
 		}
 	}
+#endif
 
 	if (TheWaterTransparency->m_transparentWaterDepth == 0 || !TheGlobalData->m_showSoftWaterEdge)
 		return;
 
+#if defined(__linux__)
+	for (Int y = minY; y < maxY; ++y)
+		for (Int x = minX; x < maxX; ++x)
+			updateShorelineTile(x, y, border, pMap);
+#else
 	//we want to add the tiles in a certain order to make culling faster
 	//by default they are inserted in x-order
 	Bool shoreLineSortInfosXMajor=FALSE;
@@ -1734,6 +1767,7 @@ void BaseHeightMapRenderObjClass::updateShorelineTiles(Int minX, Int minY, Int m
 			}
 
 	recordShoreLineSortInfos();
+#endif
 }
 
 /** Generate a lookup table for arbitrary angled impassable area viewing. */
@@ -1811,6 +1845,9 @@ Int BaseHeightMapRenderObjClass::initHeightData(Int x, Int y, WorldHeightMap *pM
 {	
 
 	REF_PTR_SET(m_map, pMap);	//update our heightmap pointer in case it changed since last call.
+#if defined(__linux__)
+	m_shoreLineChunksValid = FALSE;
+#endif
 	// a device reset re-inits the same map from inside the overlap window, beside a tick that may be
 	// flattening cells the drawn map takes only after it
 	if (pMap && !LogicThread::isInsideWindow())
@@ -3006,6 +3043,235 @@ void BaseHeightMapRenderObjClass::addShoreLineTile(const shoreLineTileInfo *shor
 	indexCount += 24;
 }
 
+#if defined(__linux__)
+Bool BaseHeightMapRenderObjClass::terrainChunkInView(const FrustumClass &frustum, const Vector3 &low, const Vector3 &high)
+{
+	// A unit of slack covers rounding at the edges of the camera frustum.
+	const Vector3 slack(1.0f, 1.0f, 1.0f);
+	AABoxClass box;
+	box.Init(MinMaxAABoxClass(low - slack, high + slack));
+	return CollisionMath::Overlap_Test(frustum, box) != CollisionMath::OUTSIDE;
+}
+
+void BaseHeightMapRenderObjClass::freeShoreLineChunks(void)
+{
+	for (ShoreLineChunk &chunk : m_shoreLineChunks) {
+		REF_PTR_RELEASE(chunk.vertices);
+		REF_PTR_RELEASE(chunk.indices);
+	}
+	m_shoreLineChunks.clear();
+	m_shoreLineChunksValid = FALSE;
+}
+
+void BaseHeightMapRenderObjClass::invalidateShoreLineChunks(Int minX, Int minY, Int maxX, Int maxY)
+{
+    if (m_shoreLineChunks.empty()) return;
+    const Int side = VERTEX_BUFFER_TILE_LENGTH;
+    const Int columns = (m_shoreLineChunkRegion.hi.x + side - 1) / side;
+    minX = max(minX, 0); minY = max(minY, 0);
+    maxX = min(maxX, m_shoreLineChunkRegion.hi.x);
+    maxY = min(maxY, m_shoreLineChunkRegion.hi.y);
+    if (minX >= maxX || minY >= maxY) return;
+    for (Int row = minY / side; row <= (maxY - 1) / side; ++row) {
+        for (Int column = minX / side; column <= (maxX - 1) / side; ++column) {
+            ShoreLineChunk &chunk = m_shoreLineChunks[row * columns + column];
+            REF_PTR_RELEASE(chunk.vertices);
+            REF_PTR_RELEASE(chunk.indices);
+            chunk.dirty = TRUE;
+        }
+    }
+}
+
+void BaseHeightMapRenderObjClass::groupShoreLineChunks(const IRegion2D &region)
+{
+    const Int side = VERTEX_BUFFER_TILE_LENGTH;
+    const Int columns = (region.hi.x + side - 1) / side;
+    const Int rows = (region.hi.y + side - 1) / side;
+    if (!m_shoreLineChunksValid) {
+        freeShoreLineChunks();
+        m_shoreLineChunks.resize(static_cast<size_t>(columns) * rows);
+    }
+    for (ShoreLineChunk &chunk : m_shoreLineChunks)
+        if (chunk.dirty) chunk.tiles.clear();
+    for (Int i = 0; i < m_numShoreLineTiles; ++i) {
+        const shoreLineTileInfo &tile = m_shoreLineTilePositions[i];
+        const Int x = tile.m_xy & 0xffff, y = tile.m_xy >> 16;
+        ShoreLineChunk &chunk = m_shoreLineChunks[(y / side) * columns + x / side];
+        if (!chunk.dirty) continue;
+        Vector3 low(tile.verts[0], tile.verts[1], tile.verts[2]);
+        Vector3 high(tile.verts[6], tile.verts[7], tile.verts[2]);
+        for (Int b = 0; b < 3; ++b) for (Int a = 0; a < 3; ++a) {
+            const Real z = m_subdivided ? drawnHalfZ(2*x + a, 2*y + b) : tile.verts[((a > 0) ? (b > 0 ? 2 : 1) : (b > 0 ? 3 : 0))*3 + 2];
+            low.Z = min(low.Z, z); high.Z = max(high.Z, z);
+        }
+        if (chunk.tiles.empty()) { chunk.low = low; chunk.high = high; }
+        else { chunk.low.Update_Min(low); chunk.high.Update_Max(high); }
+        // Own the record: compacting the source list after a local edit cannot invalidate it.
+        chunk.tiles.push_back(tile);
+    }
+    for (ShoreLineChunk &chunk : m_shoreLineChunks) chunk.dirty = FALSE;
+}
+
+Bool BaseHeightMapRenderObjClass::fillShoreLineChunk(ShoreLineChunk &chunk)
+{
+	// Each cell has at most nine vertices and 24 indices, so a full 32-cell terrain chunk
+	// fits in both of the legacy 16-bit buffer counts.
+	static_assert(VERTEX_BUFFER_TILE_LENGTH * VERTEX_BUFFER_TILE_LENGTH * 24 <= 0xffff);
+	const Int tiles = static_cast<Int>(chunk.tiles.size());
+	const Int vertices = tiles * (m_subdivided ? 9 : 4);
+	const Int indices = tiles * (m_subdivided ? 24 : 6);
+	chunk.vertices = NEW_REF(DX8VertexBufferClass, (DX8_FVF_XYZNDUV2, vertices, DX8VertexBufferClass::USAGE_DEFAULT));
+	chunk.indices = NEW_REF(DX8IndexBufferClass, (indices));
+
+	Int vertexCount = 0;
+	Int indexCount = 0;
+	{
+		DX8VertexBufferClass::WriteLockClass vertexLock(chunk.vertices);
+		DX8IndexBufferClass::WriteLockClass indexLock(chunk.indices);
+		VertexFormatXYZNDUV2 *vb = reinterpret_cast<VertexFormatXYZNDUV2 *>(vertexLock.Get_Vertex_Array());
+		UnsignedShort *ib = indexLock.Get_Index_Array();
+		if (vb && ib) {
+			for (const shoreLineTileInfo &tile : chunk.tiles) {
+				const Int x = tile.m_xy & 0xffff;
+				const Int y = tile.m_xy >> 16;
+				addShoreLineTile(&tile, m_subdivided ? drawnFlip(x, y) : m_map->getQuickFlipState(x, y),
+					vb, ib, vertexCount, indexCount);
+			}
+		}
+	}
+	if (indexCount == indices && chunk.vertices->Get_DX8_Vertex_Buffer() && chunk.indices->Get_DX8_Index_Buffer())
+		return TRUE;
+
+	REF_PTR_RELEASE(chunk.vertices);
+	REF_PTR_RELEASE(chunk.indices);
+	return FALSE;
+}
+
+Bool BaseHeightMapRenderObjClass::drawShoreLineChunks(const FrustumClass &frustum, const IRegion2D &region)
+{
+    const Real depth = TheWaterTransparency->m_transparentWaterDepth * TheWaterTransparency->m_minWaterOpacity;
+    const IRegion2D wholeMap = { {0, 0}, {m_map->getXExtent() - 1, m_map->getYExtent() - 1} };
+    if (m_shoreLineChunksSubdivided != m_subdivided || m_shoreLineChunkDepth != depth)
+        m_shoreLineChunksValid = FALSE;
+    if (!m_shoreLineChunksValid || std::any_of(m_shoreLineChunks.begin(), m_shoreLineChunks.end(),
+            [](const ShoreLineChunk &chunk) { return chunk.dirty != FALSE; })) {
+        groupShoreLineChunks(wholeMap);
+        m_shoreLineChunkRegion = wholeMap;
+        m_shoreLineChunkDepth = depth;
+        m_shoreLineChunksSubdivided = m_subdivided;
+        m_shoreLineChunksValid = TRUE;
+    }
+    std::vector<const ShoreLineChunk *> visible;
+    struct Boundary { IRegion2D region; const ShoreLineChunk *chunk; };
+    std::vector<Boundary> boundaries;
+    const Int side = VERTEX_BUFFER_TILE_LENGTH;
+    const Int columns = (wholeMap.hi.x + side - 1) / side;
+    for (size_t i = 0; i < m_shoreLineChunks.size(); ++i) {
+        ShoreLineChunk &chunk = m_shoreLineChunks[i];
+        const Int x = Int(i % columns)*side, y = Int(i / columns)*side;
+        const Int endX = min(x + side, wholeMap.hi.x), endY = min(y + side, wholeMap.hi.y);
+        if (chunk.tiles.empty() || endX <= region.lo.x || endY <= region.lo.y ||
+            x >= region.hi.x || y >= region.hi.y || !terrainChunkInView(frustum, chunk.low, chunk.high)) continue;
+        // Clip boundary chunks exactly as the dynamic path did, while interior GPU buffers survive panning.
+        if (x < region.lo.x || y < region.lo.y || endX > region.hi.x || endY > region.hi.y) {
+            boundaries.push_back({ { {max(x, region.lo.x), max(y, region.lo.y)},
+                {min(endX, region.hi.x), min(endY, region.hi.y)} }, &chunk });
+            continue;
+        }
+        // Validate every buffer before any draw: refusal can use the whole dynamic fallback.
+        if (!chunk.vertices && !fillShoreLineChunk(chunk)) return FALSE;
+        visible.push_back(&chunk);
+    }
+    const Int tileVerts = m_subdivided ? 9 : 4;
+    const Int tileTriangles = m_subdivided ? 8 : 2;
+    for (const ShoreLineChunk *chunk : visible) {
+        const Int tiles = static_cast<Int>(chunk->tiles.size());
+        DX8Wrapper::Set_Index_Buffer(chunk->indices, 0);
+        DX8Wrapper::Set_Vertex_Buffer(chunk->vertices);
+        DX8Wrapper::Draw_Triangles(0, tiles * tileTriangles, 0, tiles * tileVerts);
+        m_numVisibleShoreLineTiles += tiles;
+    }
+    for (const Boundary &boundary : boundaries)
+        drawDynamicShoreLines(boundary.region, boundary.chunk->tiles.data(), Int(boundary.chunk->tiles.size()));
+    return TRUE;
+}
+
+void BaseHeightMapRenderObjClass::drawDynamicShoreLines(const IRegion2D &region, const shoreLineTileInfo *tiles, Int tileCount)
+{
+	const Int tileVerts = m_subdivided ? 9 : 4;
+	const Int tileIndices = m_subdivided ? 24 : 6;
+	Int nextTile = 0;
+	while (nextTile < tileCount) {
+		DynamicVBAccessClass vb_access(BUFFER_TYPE_DYNAMIC_DX8, dynamic_fvf_type, DEFAULT_MAX_BATCH_SHORELINE_TILES * tileVerts);
+		DynamicIBAccessClass ib_access(BUFFER_TYPE_DYNAMIC_DX8, DEFAULT_MAX_BATCH_SHORELINE_TILES * tileIndices);
+		Int vertexCount = 0;
+		Int indexCount = 0;
+		{
+			DynamicVBAccessClass::WriteLockClass lock(&vb_access);
+			DynamicIBAccessClass::WriteLockClass lockib(&ib_access);
+			VertexFormatXYZNDUV2 *vb = lock.Get_Formatted_Vertex_Array();
+			UnsignedShort *ib = lockib.Get_Index_Array();
+			if (!vb || !ib)
+				return;
+
+			try {
+				for (; nextTile < tileCount && vertexCount < DEFAULT_MAX_BATCH_SHORELINE_TILES * tileVerts; ++nextTile) {
+					const shoreLineTileInfo &tile = tiles[nextTile];
+					const Int x = tile.m_xy & 0xffff;
+					const Int y = tile.m_xy >> 16;
+					if (x >= region.lo.x && x < region.hi.x && y >= region.lo.y && y < region.hi.y)
+						addShoreLineTile(&tile, m_subdivided ? drawnFlip(x, y) : m_map->getQuickFlipState(x, y),
+							vb, ib, vertexCount, indexCount);
+				}
+				IndexBufferExceptionFunc();
+			} catch (...) {
+				IndexBufferExceptionFunc();
+				return;
+			}
+		}
+
+		if (indexCount > 0) {
+			DX8Wrapper::Set_Index_Buffer(ib_access, 0);
+			DX8Wrapper::Set_Vertex_Buffer(vb_access);
+			DX8Wrapper::Draw_Triangles(0, indexCount / 3, 0, vertexCount);
+			m_numVisibleShoreLineTiles += indexCount / tileIndices;
+		}
+	}
+}
+
+void BaseHeightMapRenderObjClass::renderShoreLines(CameraClass *pCamera)
+{
+	m_numVisibleShoreLineTiles = 0;
+	if (!m_map || !TheGlobalData->m_showSoftWaterEdge ||
+		TheWaterTransparency->m_transparentWaterDepth == 0 || m_numShoreLineTiles == 0 ||
+		DX8Wrapper::getBackBufferFormat() != WW3D_FORMAT_A8R8G8B8)
+		return;
+
+	const ICoord2D origin = { m_map->getDrawOrgX(), m_map->getDrawOrgY() };
+	const IRegion2D region = { origin, {
+		min(origin.x + m_map->getDrawWidth() - 1, m_map->getXExtent() - 1),
+		min(origin.y + m_map->getDrawHeight() - 1, m_map->getYExtent() - 1) } };
+	if (region.lo.x >= region.hi.x || region.lo.y >= region.hi.y)
+		return;
+
+	ShaderClass unlitShader = ShaderClass::_PresetOpaque2DShader;
+	unlitShader.Set_Depth_Compare(ShaderClass::PASS_LEQUAL);
+	DX8Wrapper::Set_Shader(unlitShader);
+	VertexMaterialClass *vmat = VertexMaterialClass::Get_Preset(VertexMaterialClass::PRELIT_DIFFUSE);
+	DX8Wrapper::Set_Material(vmat);
+	REF_PTR_RELEASE(vmat);
+	DX8Wrapper::Set_Texture(0, m_destAlphaTexture);
+	DX8Wrapper::Set_Transform(D3DTS_WORLD, Matrix3D(1));
+	DX8Wrapper::Set_DX8_Render_State(D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_ALPHA);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(0, D3DTSS_TEXCOORDINDEX, 0);
+
+	if (TheGlobalData->m_isWorldBuilder || !pCamera || !drawShoreLineChunks(pCamera->Get_Frustum(), region))
+		drawDynamicShoreLines(region, m_shoreLineTilePositions, m_numShoreLineTiles);
+
+	DX8Wrapper::Set_DX8_Render_State(D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_BLUE | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_RED);
+	ShaderClass::Invalidate();
+}
+#else
 void BaseHeightMapRenderObjClass::renderShoreLines(CameraClass *pCamera)
 {
 	if (!TheGlobalData->m_isWorldBuilder)	//use faster version optimized for game and not world builder?
@@ -3308,6 +3574,7 @@ flushVertexBuffer1:
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_COLORWRITEENABLE,D3DCOLORWRITEENABLE_BLUE|D3DCOLORWRITEENABLE_GREEN|D3DCOLORWRITEENABLE_RED);
 	ShaderClass::Invalidate();
 }
+#endif
 
 //=============================================================================
 // BaseHeightMapRenderObjClass::renderTrees

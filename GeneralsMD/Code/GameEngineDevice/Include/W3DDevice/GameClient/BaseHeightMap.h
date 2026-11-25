@@ -64,6 +64,9 @@ class W3DPropDrawModuleData;
 class W3DPropBuffer;
 class W3DTreeDrawModuleData;
 class GeometryInfo;
+#if defined(__linux__)
+class FrustumClass;
+#endif
 
 struct SunShadowCasterCull;
 
@@ -259,7 +262,9 @@ public:
 	void setCloudStrength(Real strength);	///< the cloud shadow's darkness, 1 as baked (CloudMapTerrainTextureClass::setStrength)
 	void updateShorelineTiles(Int minX, Int minY, Int maxX, Int maxY, WorldHeightMap *pMap);	///<figure out which tiles on this map cross water plane
 	void updateShorelineTile(Int X, Int Y, Int Border, WorldHeightMap *pMap);	///<figure out which tiles on this map cross water plane
+#if !defined(__linux__)
 	void recordShoreLineSortInfos(void);
+#endif
 	void updateViewImpassableAreas(Bool partial = FALSE, Int minX = 0, Int maxX = 0, Int minY = 0, Int maxY = 0);
 	void clearAllScorches(void);
 	void setTimeOfDay( TimeOfDay tod );
@@ -486,6 +491,18 @@ protected:
 		Real t0,t1,t2,t3;	//index into water depth alpha LUT.
 	};
 
+#if defined(__linux__)
+	// Shoreline tiles grouped on the terrain chunk grid. The buffers are filled when a camera
+	// first sees the chunk and reused across frames and views.
+	struct ShoreLineChunk
+	{
+		std::vector<shoreLineTileInfo> tiles;
+		Bool dirty = TRUE;
+		Vector3 low, high;
+		DX8VertexBufferClass *vertices = NULL;
+		DX8IndexBufferClass *indices = NULL;
+	};
+#else
 	//at each x or y coordinate of the map (depending on major axis) we store a list of
 	//shoreline blend tiles having the same x or y coordinate.  This makes searching the
 	//shoreline tiles much faster.
@@ -496,17 +513,26 @@ protected:
 		UnsignedShort minTileCoordinate;	//lowest coordinate in list
 		UnsignedShort maxTileCoordinate;	//highest coordinate in list.
 	};
+#endif
 
 	shoreLineTileInfo *m_shoreLineTilePositions;	///<array holding x,y tile positions of all shoreline terrain.
 	Int m_numShoreLineTiles;		///<number of tiles in m_shoreLineTilePositions.
 	Int m_numVisibleShoreLineTiles;	///<number of visible tiles.
 	Int m_shoreLineTilePositionsSize;	///<total size of array including unused memory.
 	Real m_currentMinWaterOpacity;		///<current value inside the gradient lookup texture.
+#if defined(__linux__)
+	std::vector<ShoreLineChunk> m_shoreLineChunks;
+	IRegion2D m_shoreLineChunkRegion = {};
+	Real m_shoreLineChunkDepth = 0.0f;
+	Bool m_shoreLineChunksSubdivided = FALSE;
+	Bool m_shoreLineChunksValid = FALSE;
+#else
 	shoreLineTileSortInfo *m_shoreLineSortInfos;
 	Int m_shoreLineSortInfosSize;
 	Int m_shoreLineSortInfosXMajor;
 	Int m_shoreLineTileSortMaxCoordinate;	///<keep track of coordinate range along axis used for m_shoreLineSortInfos
 	Int m_shoreLineTileSortMinCoordinate;
+#endif
 	/** The ground past the heightmap's last sample (TerrainSkirt.h), in pieces the camera culls.  Made
 		on the first draw after the map or its light changed, thrown away with the map's resources. */
 	struct SkirtChunk
@@ -558,7 +584,17 @@ protected:
 	void drawSkirt(RenderInfoClass &rinfo);
 	void initDestAlphaLUT(void);	///<initialize water depth LUT stored in m_destAlphaTexture
 	void renderShoreLines(CameraClass *pCamera);	///<re-render parts of terrain that need custom blending into water edge
+#if defined(__linux__)
+	static Bool terrainChunkInView(const FrustumClass &frustum, const Vector3 &low, const Vector3 &high);
+	void freeShoreLineChunks(void);
+	void invalidateShoreLineChunks(Int minX, Int minY, Int maxX, Int maxY);
+	void groupShoreLineChunks(const IRegion2D &region);
+	Bool fillShoreLineChunk(ShoreLineChunk &chunk);
+	Bool drawShoreLineChunks(const FrustumClass &frustum, const IRegion2D &region);
+	void drawDynamicShoreLines(const IRegion2D &region, const shoreLineTileInfo *tiles, Int tileCount);
+#else
 	void renderShoreLinesSorted(CameraClass *pCamera);	///<optimized version for game usage.
+#endif
 	/// One tile into a shoreline batch, four vertices or nine subdivided; moves the pointers and counts.
 	void addShoreLineTile(const shoreLineTileInfo *shoreInfo, Bool flip, VertexFormatXYZNDUV2 *&vb, UnsignedShort *&ib, Int &vertexCount, Int &indexCount);
 };

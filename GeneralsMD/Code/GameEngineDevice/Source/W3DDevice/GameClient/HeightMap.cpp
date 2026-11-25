@@ -1197,12 +1197,17 @@ Bool HeightMapRenderObjClass::tileInView(const FrustumClass &frustum, Int tileX,
 	const Real x0 = (tileX*VERTEX_BUFFER_TILE_LENGTH + m_map->getDrawOrgX() - border)*MAP_XY_FACTOR;
 	const Real y0 = (tileY*VERTEX_BUFFER_TILE_LENGTH + m_map->getDrawOrgY() - border)*MAP_XY_FACTOR;
 	const Real side = VERTEX_BUFFER_TILE_LENGTH*MAP_XY_FACTOR;
+#if defined(__linux__)
+	return terrainChunkInView(frustum, Vector3(x0, y0, m_tileMinZ[tile]),
+		Vector3(x0 + side, y0 + side, m_tileMaxZ[tile]));
+#else
 	// a unit of slack round it, for the lift of nothing and the rounding of everything
 	const Vector3 low(x0 - 1.0f, y0 - 1.0f, m_tileMinZ[tile] - 1.0f);
 	const Vector3 high(x0 + side + 1.0f, y0 + side + 1.0f, m_tileMaxZ[tile] + 1.0f);
 	AABoxClass box;
 	box.Init(MinMaxAABoxClass(low, high));
 	return CollisionMath::Overlap_Test(frustum, box) != CollisionMath::OUTSIDE;
+#endif
 }
 
 //=============================================================================
