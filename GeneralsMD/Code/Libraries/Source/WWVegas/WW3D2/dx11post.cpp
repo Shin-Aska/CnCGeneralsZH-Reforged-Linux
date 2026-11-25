@@ -52,6 +52,25 @@ static const DXGI_FORMAT EIGHT_BIT_FORMAT = DXGI_FORMAT_B8G8R8A8_UNORM;
 // this game's art can fill, and it halves the bandwidth of every pass over the frame.
 static const DXGI_FORMAT FLOAT_FORMAT = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
+// DX11's SunShaftConstants extends the shared c0..c21 post-process block.
+// Keep this layout local: the original shaders bind these fields at c22..c53.
+struct DX11PostProcessConstants : PostProcessConstants
+{
+	float SunFromWorld[16];
+	float Shafts[4];
+	float ShaftSun[4];
+	float ShaftLook[4];
+	float ShaftGlare[4];
+	float ShaftColour[4];
+	float ShaftWater[8][4];
+	float ShaftWaterHeight[8][4];
+	float ShaftLimit[4];
+	float ShaftBand[4];
+	float ShaftTerrain[4];
+	float WorldFromSun[16];
+};
+static_assert(sizeof(DX11PostProcessConstants) == 54 * 16, "DX11 post-process constant layout");
+
 // The shroud's three programs (Soften_Shroud, Shroud_Memory_Scene).  First the easing, a texel a
 // cell: Source is the terrain's shroud texture as logic last wrote it, Extra the level each cell
 // showed last frame, and each channel moves toward the texture's by BlurDirection.x of the gap
@@ -1230,7 +1249,7 @@ bool DX11PostProcessClass::Create_States()
 
 	D3D11_BUFFER_DESC constants;
 	ZeroMemory(&constants, sizeof(constants));
-	constants.ByteWidth = sizeof(PostProcessConstants);
+	constants.ByteWidth = sizeof(DX11PostProcessConstants);
 	constants.Usage = D3D11_USAGE_DYNAMIC;
 	constants.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 	constants.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -2263,7 +2282,7 @@ void DX11PostProcessClass::Draw_Pass(const PassSetup & pass)
 	if (FAILED(context->Map(ConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
 		return;
 	}
-	PostProcessConstants block;
+	DX11PostProcessConstants block;
 	block.TexelSize[0] = 1.0f / static_cast<float>(pass.SourceWidth);
 	block.TexelSize[1] = 1.0f / static_cast<float>(pass.SourceHeight);
 	block.TexelSize[2] = static_cast<float>(pass.SourceWidth);
