@@ -113,6 +113,45 @@ bool SDL3_Compile_HLSL_To_SPIRV(const std::string & hlsl, SDL3_ShaderStage shade
 	return ok;
 }
 
+// GL_EXT_ray_query needs the Vulkan 1.2 environment and SPIR-V 1.4 or newer.
+// Keep this isolated from the game's existing HLSL compiler target.
+bool SDL3_Compile_Ray_Query_GLSL(const std::string &glsl,
+    std::vector<unsigned char> &spirv, std::string &log)
+{
+    std::call_once(glslang_ready, []() { glslang_initialize_process(); });
+    spirv.clear(); log.clear();
+    glslang_input_t input = {};
+    input.language = GLSLANG_SOURCE_GLSL;
+    input.stage = GLSLANG_STAGE_COMPUTE;
+    input.client = GLSLANG_CLIENT_VULKAN;
+    input.client_version = GLSLANG_TARGET_VULKAN_1_2;
+    input.target_language = GLSLANG_TARGET_SPV;
+    input.target_language_version = GLSLANG_TARGET_SPV_1_4;
+    input.code = glsl.c_str();
+    input.default_version = 460;
+    input.default_profile = GLSLANG_CORE_PROFILE;
+    input.messages = static_cast<glslang_messages_t>(GLSLANG_MSG_SPV_RULES_BIT | GLSLANG_MSG_VULKAN_RULES_BIT);
+    input.resource = glslang_default_resource();
+    glslang_shader_t *shader = glslang_shader_create(&input);
+    if (!shader) { log = "ray-query shader allocation failed"; return false; }
+    bool ok = glslang_shader_preprocess(shader, &input) && glslang_shader_parse(shader, &input);
+    if (!ok) { log = glslang_shader_get_info_log(shader); glslang_shader_delete(shader); return false; }
+    glslang_program_t *program = glslang_program_create();
+    glslang_program_add_shader(program, shader);
+    ok = glslang_program_link(program, input.messages);
+    if (ok) {
+        glslang_program_SPIRV_generate(program, GLSLANG_STAGE_COMPUTE);
+        const unsigned char *bytes = reinterpret_cast<const unsigned char *>(glslang_program_SPIRV_get_ptr(program));
+        spirv.assign(bytes, bytes + glslang_program_SPIRV_get_size(program) * 4);
+        const char *messages = glslang_program_SPIRV_get_messages(program);
+        if (messages) log = messages;
+        ok = !spirv.empty();
+    } else log = glslang_program_get_info_log(program);
+    glslang_program_delete(program);
+    glslang_shader_delete(shader);
+    return ok;
+}
+
 bool SDL3_Translate_SPIRV_To_MSL(const std::vector<unsigned char> & spirv, bool vertex_stage, std::string & msl,
 	std::string & log)
 {

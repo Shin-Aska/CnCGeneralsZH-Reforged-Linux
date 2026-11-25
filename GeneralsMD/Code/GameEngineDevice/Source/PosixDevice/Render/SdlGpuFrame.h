@@ -157,7 +157,7 @@ public:
 	/// The device, with the window claimed when there is one.  A null window makes an offscreen frame,
 	/// which is what the tests use: Present then needs a target of the caller's (Present_To).  Null, with
 	/// the reason, when SDL has no GPU device to give.
-	static SdlGpuFrame * Create(RenderWindow window, unsigned int width, unsigned int height, std::string & error);
+	static SdlGpuFrame * Create(RenderWindow window, unsigned int width, unsigned int height, std::string & error, bool optionalRayQuery = false);
 	~SdlGpuFrame();
 
 	/// A failed flush or allocation retains the old attachments and dimensions.

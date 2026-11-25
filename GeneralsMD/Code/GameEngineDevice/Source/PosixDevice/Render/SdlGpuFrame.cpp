@@ -193,12 +193,42 @@ SdlGpuFrame::SdlGpuFrame() :
 	TargetSet = false;
 }
 
-SdlGpuFrame * SdlGpuFrame::Create(RenderWindow window, unsigned int width, unsigned int height, std::string & error)
+SdlGpuFrame * SdlGpuFrame::Create(RenderWindow window, unsigned int width, unsigned int height, std::string & error, bool optionalRayQuery)
 {
 	SdlGpuFrame * frame = new SdlGpuFrame();
 	// Debug validation only when asked: it is slow, and the game runs without it.
 	const bool debug = getenv("ZH_GPU_DEBUG") != NULL;
-	frame->GpuDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, debug, NULL);
+	// Explicit prototype flags retain their forced Vulkan/hardware behavior.
+	const char *ray = getenv("ZH_GPU_RAY_QUERY");
+    const char *hardwareSun = getenv("ZH_HARDWARE_SUN_SHADOW");
+    const char *hardwareWater = getenv("ZH_HARDWARE_WATER_REFLECTIONS");
+    const char *hardwareWaterPath = getenv("ZH_HARDWARE_WATER_PATH_TRACING");
+    if ((ray && strcmp(ray, "1") == 0) || (hardwareSun && strcmp(hardwareSun, "1") == 0) ||
+        (hardwareWater && strcmp(hardwareWater, "1") == 0) ||
+        (hardwareWaterPath && strcmp(hardwareWaterPath, "1") == 0)) {
+		SDL_PropertiesID props = SDL_CreateProperties();
+		SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true);
+		SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, debug);
+		SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, "vulkan");
+		SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_REQUIRE_HARDWARE_ACCELERATION_BOOLEAN, true);
+		SDL_SetBooleanProperty(props, "zhr.vulkan.ray_query", true);
+		frame->GpuDevice = SDL_CreateGPUDeviceWithProperties(props);
+		SDL_DestroyProperties(props);
+		if (!frame->GpuDevice) {
+			SDL_LogWarn(SDL_LOG_CATEGORY_GPU, "Ray-query opt-in unavailable: %s; using baseline device", SDL_GetError());
+			frame->GpuDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, debug, NULL);
+		}
+	} else if (optionalRayQuery) {
+        // Keep SDL's backend preference and adapter ranking. Vulkan may add the
+        // capability on that selected adapter; unsupported hardware stays baseline.
+        SDL_PropertiesID props = SDL_CreateProperties();
+        SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true);
+        SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_MSL_BOOLEAN, true);
+        SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, debug);
+        SDL_SetBooleanProperty(props, "zhr.vulkan.ray_query_optional", true);
+        frame->GpuDevice = SDL_CreateGPUDeviceWithProperties(props);
+        SDL_DestroyProperties(props);
+    } else frame->GpuDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, debug, NULL);
 	if (frame->GpuDevice == NULL) {
 		error = std::string("SDL_CreateGPUDevice: ") + SDL_GetError();
 		delete frame;

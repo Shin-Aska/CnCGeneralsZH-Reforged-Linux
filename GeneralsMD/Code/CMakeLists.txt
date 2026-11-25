@@ -1498,8 +1498,12 @@ if(ZH_PLATFORM_POSIX)
   # D3D compatibility library so low-level device tests stay independent.
   list(FILTER POSIXD3D9_SOURCES EXCLUDE REGEX "/SdlHazardCloud[^/]*\\.cpp$")
   list(FILTER POSIXD3D9_SOURCES EXCLUDE REGEX "/SdlReachOverlay[^/]*\\.cpp$")
+  list(REMOVE_ITEM POSIXD3D9_SOURCES
+    ${ZH_POSIX_RENDER_DIR}/SdlHardwareRayTracing.cpp)
   add_library(posixd3d9 STATIC ${POSIXD3D9_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/ParticleGpuShader.cpp)
+  target_sources(posixd3d9 PRIVATE
+    ${ZH_POSIX_RENDER_DIR}/SdlHardwareRayTracing.cpp)
   set_target_properties(posixd3d9 PROPERTIES CXX_STANDARD 17)
   target_include_directories(posixd3d9 PUBLIC ${ZH_POSIX_D3D9_INCLUDE}
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include
@@ -1559,6 +1563,17 @@ if(ZH_PLATFORM_POSIX)
     ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
   target_link_libraries(sdl_gpu_frame_selfcheck PRIVATE posixd3d9 SDL3::SDL3-static)
   add_test(NAME sdl_gpu_frame_selfcheck COMMAND sdl_gpu_frame_selfcheck)
+
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Explicit opt-in hardware proof: no window/assets; manual --require-rtx4060 asserts the proof GPU.
+    add_executable(test_hardware_sun_shadow ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_hardware_sun_shadow.cpp)
+    set_target_properties(test_hardware_sun_shadow PROPERTIES CXX_STANDARD 17)
+    target_include_directories(test_hardware_sun_shadow PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+    target_link_libraries(test_hardware_sun_shadow PRIVATE posixd3d9 SDL3::SDL3-static)
+    add_test(NAME test_hardware_sun_shadow COMMAND test_hardware_sun_shadow)
+    set_tests_properties(test_hardware_sun_shadow PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
 
   add_executable(test_water_path_gpu ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_water_path_gpu.cpp)
   set_target_properties(test_water_path_gpu PROPERTIES CXX_STANDARD 17)

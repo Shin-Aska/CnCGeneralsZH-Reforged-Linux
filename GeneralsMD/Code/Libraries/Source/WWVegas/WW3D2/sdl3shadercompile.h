@@ -53,6 +53,10 @@ bool SDL3_Compile_HLSL_To_SPIRV(const std::string &hlsl, SDL3_ShaderStage stage,
 bool SDL3_Translate_SPIRV_To_MSL(const std::vector<unsigned char> &spirv, SDL3_ShaderStage stage,
 	std::string &msl, std::string &log);
 
+// Private hardware ray-query compute path only; ordinary shaders retain Vulkan/SPIR-V 1.0.
+bool SDL3_Compile_Ray_Query_GLSL(const std::string &glsl,
+    std::vector<unsigned char> &spirv, std::string &log);
+
 // False with the compiler's log when glslang refuses the text.  The entry point is main, which is
 // what every generator writes.
 bool SDL3_Compile_HLSL_To_SPIRV(const std::string & hlsl, bool vertex_stage, std::vector<unsigned char> & spirv,

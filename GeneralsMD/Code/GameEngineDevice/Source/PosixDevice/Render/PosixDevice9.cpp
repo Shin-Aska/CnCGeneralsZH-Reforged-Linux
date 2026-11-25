@@ -236,7 +236,12 @@ RenderResult PosixDevice9::Create_Gpu_Frame(bool offscreen)
 	}
 	std::string error;
 	Clear_Staged_Vertex();
-	Gpu = SdlGpuFrame::Create(Window, Parameters.BackBufferWidth, Parameters.BackBufferHeight, error);
+#if defined(__linux__)
+    const bool optionalRayQuery = true; // make live UI capability available without changing adapter choice
+#else
+    const bool optionalRayQuery = false;
+#endif
+	Gpu = SdlGpuFrame::Create(Window, Parameters.BackBufferWidth, Parameters.BackBufferHeight, error, optionalRayQuery);
 	if (Gpu == NULL) {
 		fprintf(stderr, "PosixDevice9: a window, and no SDL3 GPU device for it: %s\n", error.c_str());
 		return D3DERR_NOTAVAILABLE;
