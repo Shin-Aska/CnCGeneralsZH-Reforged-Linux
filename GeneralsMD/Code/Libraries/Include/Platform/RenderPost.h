@@ -51,6 +51,8 @@ bool EnvironmentAvailable();
 bool DistortionAvailable();
 #if defined(__linux__)
 bool SunShaftsAvailable();
+bool SoftShroudAvailable();
+void SetShroud(IDirect3DBaseTexture9 *, float seconds, bool written, float fogLight, bool fogged);
 #endif
 void BeginMain(const Settings &settings);
 bool SetChain(const char *chain);
@@ -84,6 +86,8 @@ void SetHeatSplats(IDirect3DDevice9 *, const float *, unsigned);
 bool EnvironmentAvailable(IDirect3DDevice9 *);
 bool DistortionAvailable(IDirect3DDevice9 *);
 bool SunShaftsAvailable(IDirect3DDevice9 *);
+bool SoftShroudAvailable(IDirect3DDevice9 *);
+void SetShroud(IDirect3DDevice9 *, IDirect3DBaseTexture9 *, float, bool, float, bool);
 unsigned BeginView(IDirect3DDevice9 *, bool, float, float, bool);
 void EndView(IDirect3DDevice9 *, unsigned);
 void Sky(IDirect3DDevice9 *);

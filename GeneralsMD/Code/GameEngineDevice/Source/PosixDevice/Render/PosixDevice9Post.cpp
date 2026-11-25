@@ -62,6 +62,11 @@ bool supports_environment(IDirect3DDevice9 *device) {
     return supports_depth_capture(device);
 }
 const bool AtmosphereRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::AtmosphereHaze, supports_environment);
+bool supports_shroud(IDirect3DDevice9 *device) {
+    auto *frame=provider_frame(device);
+    return frame && SDL_GPUTextureSupportsFormat(frame->Device(),SDL_GPU_TEXTUREFORMAT_R16G16B16A16_UNORM,
+        SDL_GPU_TEXTURETYPE_2D,SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER);
+}
 bool supports_shafts(IDirect3DDevice9 *device) {
 #if defined(__linux__)
     return supports_environment(device) && supports_ao(device);
@@ -70,6 +75,7 @@ bool supports_shafts(IDirect3DDevice9 *device) {
 #endif
 }
 const bool ShaftsRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::SunShafts, supports_shafts);
+const bool ShroudRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::SoftShroud, supports_shroud);
 const bool DistortionRegistered = PosixRenderer_Register_Feature_Provider(RendererFeature::HeatBlastDistortion,
     [](IDirect3DDevice9 *device) { return supports_environment(device) && supports_hdr(device); });
 }
@@ -80,7 +86,9 @@ struct PosixDevice9::PostSession {
     SdlPostAtmosphere Atmosphere;
     SdlPostDistortion Distortion;
     SdlPostSceneEffects SceneEffects;
-    bool ShaftsDone = false;
+    IDirect3DBaseTexture9 *ShroudSource = nullptr;
+    uint64_t ShroudGeneration = 0;
+    bool MemoryDone = false, ShaftsDone = false;
     bool HeatPending = false, BlastPending = false;
     bool EnvironmentReady = false;
     SdlSceneCaptureCache Captures;
@@ -148,7 +156,8 @@ struct PosixDevice9::PostSession {
         std::memcpy(result.ProjectionScale, ProjectionScale, sizeof(ProjectionScale));
         if (EnvironmentCurrent && Environment.Shroud) {
             std::string error;
-            result.Shroud = device.Get_Mirrors()->Texture(Environment.Shroud, error);
+            if (!device.Post_Texture(Environment.Shroud, result.Shroud))
+                result.Shroud = device.Get_Mirrors()->Texture(Environment.Shroud, error);
             if (!result.Shroud) return false;
             std::memcpy(result.ShroudRect, Environment.ShroudRect, sizeof(result.ShroudRect));
         }
@@ -168,6 +177,24 @@ void PosixDevice9::Set_Post_Environment(const RenderPost::Environment &environme
     Post->Environment = environment; Post->Environment.Sky = sky; Post->Environment.Shroud = shroud;
     Post->EnvironmentFresh = true;
     Post->EnvironmentCurrent = false;
+}
+
+void PosixDevice9::Set_Post_Shroud(IDirect3DBaseTexture9 *source,float seconds,bool written,float fogLight,bool fogged)
+{
+    if (!Gpu) return;
+    if (!Post) Post = std::make_shared<PostSession>(*Gpu);
+    auto &s = *Post;
+    SdlGpuParticleTextureView view;
+    std::string error;
+    if (!source || !SdlResourceMirrors::Native_Texture_View(source, view, error)) {
+        Posix_Bind(s.ShroudSource,static_cast<IDirect3DBaseTexture9 *>(nullptr));
+        s.SceneEffects.Soften_Shroud(*Gpu,nullptr,0,0,0,0,false,0,false);
+        return;
+    }
+    if (s.SceneEffects.Soften_Shroud(*Gpu,view.Texture,view.Width,view.Height,view.Identity,seconds,written,fogLight,fogged)) {
+        Posix_Bind(s.ShroudSource,source);
+        if (++s.ShroudGeneration==0) ++s.ShroudGeneration;
+    } else Posix_Bind(s.ShroudSource,static_cast<IDirect3DBaseTexture9 *>(nullptr));
 }
 
 void PosixDevice9::Set_Post_Heat(const float *records, unsigned count)
@@ -207,7 +234,8 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     s.Distortion.Abandon(); s.HeatPending = s.BlastPending = false;
     s.InView = s.Entered = s.Routed = false;
     s.Classic = settings.Classic; s.SoftView = {};
-    s.ShaftsDone = false;
+    s.MemoryDone = s.ShaftsDone = false;
+    if (s.Classic) Set_Post_Shroud(nullptr,0,false,0,false);
     ParticlesAllowed = ModelEffectsAllowed = !settings.Classic;
     s.ModelColour = {}; s.ModelColourRefusedKey = 0; s.FoamView = {}; s.FoamRefusedKey = 0;
     s.CurrentView = {}; s.LastView = {}; s.ViewDepth = 0;
@@ -221,7 +249,7 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     // Neither needs to route the main view through a copy-only post chain.
     if (!s.RequestedChain && !settings.Classic && (s.WorldAO || settings.IndependentScene || (s.EnvironmentCurrent &&
         (s.Environment.Haze.Strength > 0 || s.Environment.TransitionWarmHaze.Strength > 0 || s.Environment.Atmosphere.Strength > 0
-            || s.Environment.Shafts.Strength > 0)))) {
+            || s.Environment.Shafts.Strength > 0 || s.SceneEffects.Fogged())))) {
         s.Settings.Count = 1; s.Settings.Chain[0] = DX11_POST_COPY;
     }
     if (++s.Serial == 0) ++s.Serial;
@@ -267,7 +295,7 @@ unsigned PosixDevice9::Begin_Post_View(bool eligible, float nearPlane, float far
         !render_full_texture_to_world(&Transforms[D3DTS_VIEW]._11, &Transforms[D3DTS_PROJECTION]._11,
             target.Width, target.Height, viewport, view.FullTextureWorldFromClip, view.ProjectionScale)) return token;
     if (s.Entered) {
-        s.ShaftsDone = false;
+        s.MemoryDone = s.ShaftsDone = false;
         s.ModelColour = {}; s.ModelColourRefusedKey = 0; s.FoamView = {}; s.FoamRefusedKey = 0;
         s.Atmosphere.Abandon(); s.EnvironmentReady = false;
         s.Distortion.Abandon(); s.HeatPending = s.BlastPending = false;
@@ -339,6 +367,9 @@ bool PosixDevice9::Post_Target(IDirect3DSurface9 *surface, SdlTarget &target) co
 }
 bool PosixDevice9::Post_Texture(IDirect3DBaseTexture9 *texture, SDL_GPUTexture *&result)
 {
+    if (Post && texture && texture==Post->ShroudSource && Post->SceneEffects.Soft_Shroud()) {
+        result=Post->SceneEffects.Soft_Shroud(); return true;
+    }
     if (!Post_Active() || !texture || texture != Post->StandInTexture) return false;
     PostSession &s = *Post; result = nullptr;
     const unsigned format = Gpu->Target_Colour_Format(s.Scene);
@@ -395,6 +426,9 @@ void PosixDevice9::Post_Sky(bool drawSky)
         SdlGpuParticleTextureView native;
         if (!SdlResourceMirrors::Native_Texture_View(source, native, error)) return false;
         destination.Texture = native.Texture; destination.Identity = native.Identity; destination.Generation = native.Generation;
+        if (source==s.ShroudSource && s.SceneEffects.Soft_Shroud()) {
+            destination.Texture=s.SceneEffects.Soft_Shroud(); destination.Generation=s.ShroudGeneration;
+        }
         return true;
     };
     if (!mirror(s.Environment.Sky, views.Sky) || !mirror(s.Environment.Shroud, views.Shroud)) return;
@@ -441,6 +475,7 @@ void PosixDevice9::Post_Before_Transparent()
     SdlPostSceneInputs inputs;
     if (Post->inputs(*this, *Gpu, SdlSceneCapturePhase::BeforeTransparent, inputs)) {
         Post->Processor.Apply_Chain_AO(*Gpu, Post->Scene, inputs);
+        if (!Post->MemoryDone) Post->MemoryDone=Post->SceneEffects.Memory(*Gpu,Post->Scene,inputs);
         if (Post->EnvironmentReady) {
             if (!Post->Environment.Haze.BeforeWater) Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
             Post->Atmosphere.Apply_Transition_Warm_Haze(*Gpu, Post->Scene, inputs);
@@ -493,6 +528,7 @@ void PosixDevice9::Release_Post()
         Gpu->Discard_Pending_Work_For_Teardown();
         Post->SceneEffects.Release(*Gpu);
     }
+    Posix_Bind(Post->ShroudSource,static_cast<IDirect3DBaseTexture9 *>(nullptr));
     if (!Post->Distortion.Release(*Gpu)) {
         Gpu->Discard_Pending_Work_For_Teardown();
         if (!Post->Distortion.Release(*Gpu)) std::fprintf(stderr, "PosixDevice9: distortion teardown: %s\n", Post->Distortion.Error().c_str());
@@ -701,6 +737,10 @@ bool OwnsCurrentScene(IDirect3DDevice9 *device) { return device && static_cast<P
 
 namespace RenderPost {
 bool SunShaftsAvailable(IDirect3DDevice9 *d) { return supports_shafts(d); }
+bool SoftShroudAvailable(IDirect3DDevice9 *d) { return supports_shroud(d); }
+void SetShroud(IDirect3DDevice9 *d,IDirect3DBaseTexture9 *t,float seconds,bool written,float light,bool fogged) {
+    if (d) static_cast<PosixDevice9 *>(d)->Set_Post_Shroud(t,seconds,written,light,fogged);
+}
 bool DistortionAvailable(IDirect3DDevice9 *d) { return supports_environment(d) && supports_hdr(d); }
 bool EnvironmentAvailable(IDirect3DDevice9 *d) {
     return supports_depth_capture(d);

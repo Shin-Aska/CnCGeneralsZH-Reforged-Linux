@@ -6193,6 +6193,12 @@ namespace RenderPost {
 bool SunShaftsAvailable() {
     return SunShaftsAvailable(DX8Wrapper::_Get_D3D_Device());
 }
+bool SoftShroudAvailable() {
+    return SoftShroudAvailable(DX8Wrapper::_Get_D3D_Device());
+}
+void SetShroud(IDirect3DBaseTexture9 *texture,float seconds,bool written,float fogLight,bool fogged) {
+    SetShroud(DX8Wrapper::_Get_D3D_Device(),texture,seconds,written,fogLight,fogged);
+}
 #endif
 
 bool DistortionAvailable() {

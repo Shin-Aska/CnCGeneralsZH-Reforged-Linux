@@ -34,6 +34,9 @@
 #include "camera.h"
 #include "simplevec.h"
 #include "dx8wrapper.h"
+#if defined(__linux__)
+#include "Platform/RenderPost.h"
+#endif
 #include "Common/MapObject.h"
 #include "Common/PerfTimer.h"
 #include "W3DDevice/GameClient/HeightMap.h"
@@ -134,7 +137,7 @@ void W3DShroud::init(WorldHeightMap *pMap, Real worldCellSizeX, Real worldCellSi
 	DEBUG_ASSERTCRASH( m_pSrcTexture == NULL, ("ReAcquire of existing shroud textures"));
 	DEBUG_ASSERTCRASH( pMap != NULL, ("Shroud init with NULL WorldHeightMap"));
 
-	// The soft shroud's programs while the map loads, not on the match's first frame.
+	// Prepare the Direct3D 11 shroud shaders while the map loads.
 	if (!TheGlobalData->m_classicGraphics)
 		Direct3D11_Prepare_Shroud();
 
@@ -239,7 +242,11 @@ void W3DShroud::reset()
 		return;
 
 	// Direct3D 11's soft picture goes with the map, so the next one's starts from its own cells.
+#if defined(__linux__)
+	RenderPost::SetShroud(NULL, 0.0f, false, 0.0f, true);
+#else
 	Direct3D11_Set_Shroud(NULL, 0.0f, false, 0.0f, true);
+#endif
 
 	//Free old shroud data since it may no longer fit new map.
 	if (m_pSrcTexture)
@@ -267,7 +274,11 @@ void W3DShroud::reset()
 void W3DShroud::ReleaseResources(void)
 {
 	// Direct3D 11 binds its soft picture for this texture by its address; the address goes with it.
+#if defined(__linux__)
+	RenderPost::SetShroud(NULL, 0.0f, false, 0.0f, true);
+#else
 	Direct3D11_Set_Shroud(NULL, 0.0f, false, 0.0f, true);
+#endif
 	REF_PTR_RELEASE (m_pDstTexture);
 }
 
@@ -816,11 +827,9 @@ void W3DShroud::render(CameraClass *cam)
 }
 
 //-----------------------------------------------------------------------------
-/** On Direct3D 11 outside Classic every bind of the texture takes a picture made from it on the GPU:
-	each cell eased toward what logic last wrote over a few tenths of a second of wall time, then
-	smoothed to four texels a cell, and ground in the fog drained of most of its colour
-	(Direct3D11_Set_Shroud).  Render side only: logic's cells and this texture are what they were.
-	Classic and -d3d9 draw the texture as EA did, a texel a cell. */
+/** Publish the shroud cells to the active renderer. Outside Classic, supported renderers
+	ease the visual cells toward their latest values, smooth the edges, and desaturate
+	ground under fog. The game simulation continues to read the original shroud cells. */
 void W3DShroud::pushDirect3D11(Bool written)
 {
 	const UnsignedInt now = Clock_Milliseconds();
@@ -829,8 +838,13 @@ void W3DShroud::pushDirect3D11(Bool written)
 	const Bool soft = !TheGlobalData->m_classicGraphics && m_pDstTexture != NULL;
 	// fogged: some cell is below clear, so the memory look has ground to grey (the black border round
 	// the map takes nothing from it)
+#if defined(__linux__)
+	RenderPost::SetShroud(soft ? m_pDstTexture->Peek_D3D_Base_Texture() : NULL, seconds, written != FALSE,
+		(Real)TheGlobalData->m_fogAlpha / 255.0f, m_fogCellCount > 0);
+#else
 	Direct3D11_Set_Shroud(soft ? m_pDstTexture->Peek_D3D_Base_Texture() : NULL, seconds, written != FALSE,
 		(Real)TheGlobalData->m_fogAlpha / 255.0f, m_fogCellCount > 0);
+#endif
 }
 
 #define FOG_INTERPOLATION_RATE	(255.0f/1000.0f)	//take one second to go from black to fully lit.

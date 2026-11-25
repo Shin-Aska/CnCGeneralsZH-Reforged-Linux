@@ -28,6 +28,7 @@ enum class RendererFeature
     TerrainSubdivision, // render-only Catmull-Rom ground geometry
     GroundFoliage, // native grass shader, alpha silhouettes and distance fold
     SunShafts,
+    SoftShroud,
     Count
 };
 
