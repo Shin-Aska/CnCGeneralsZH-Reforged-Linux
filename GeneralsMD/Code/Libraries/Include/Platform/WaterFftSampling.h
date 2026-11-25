@@ -71,7 +71,7 @@ constexpr double SwellGravity = 9.81, SwellHorizontal = -1.2;
 constexpr double SwellHashScale = 0.1031, SwellHashOffset = 33.33;
 // Both stages consume the same immutable draw snapshot. Slot zero remains the generated
 // fixed vertex block; the vessel field is water-only slot one on the vertex stage.
-inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull=false,bool live_tuning=true) {
+inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull=false,bool live_tuning=true, bool waterRayFilter=false) {
     std::string source=std::string("cbuffer ")+name+" : register(b"+std::to_string(slot)+R"HLSL()
 {
     float4 TextureFactor;
@@ -108,6 +108,7 @@ inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull
     source+="    row_major float4x4 ClipFromWorld;\n";
     if(live_tuning && WaterTuning::Enabled())source+="    float4 WaterTuningDepth;\n    float4 WaterTuningChop;\n    float4 WaterTuningLook;\n    float4 WaterTuningRms;\n    float4 WaterTuningVariance[9];\n    float4 WaterTuningShore;\n    float4 WaterTuningHeading;\n";
     if(visual_hull) source+="    float4 VisualHullMeta[8];\n";
+    if (waterRayFilter) source+="    uint4 SsrRayAddresses;\n";
     source+="};\n";
     if(visual_hull) source+=R"HLSL(
 cbuffer WaterVisualBlock0 : register(b1) { float4 VisualHullBlock0[256]; };

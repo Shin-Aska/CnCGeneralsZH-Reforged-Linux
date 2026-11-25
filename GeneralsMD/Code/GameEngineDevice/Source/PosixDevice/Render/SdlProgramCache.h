@@ -59,6 +59,7 @@ struct SdlProgram
 	std::vector<int> SlotTexture;		///< per slot: which stage's texture
 	std::vector<int> SlotSampler;		///< per slot: which stage's sampler state
 	unsigned int Uses;
+	bool WaterRayFilter = false;
 };
 
 class SdlProgramCache
@@ -80,7 +81,7 @@ public:
 	/// it.  A refusal for a program with no transcription, or of the other stage.
 	const SdlProgram &Engine_Vertex_Program(int program);
 	const SdlProgram &Engine_Pixel_Program(int program, const struct PixelPipelineDescription &pipeline,
-		bool waterOpenSea = false, bool waterCleanMain = false);
+		bool waterOpenSea = false, bool waterCleanMain = false, bool waterRayFilter = false);
 
 	unsigned int Programs_Built() const { return Built; }
 	/// The key a program was made under, for a refusal's log line: "" for a shader this cache did not make.
@@ -91,7 +92,7 @@ public:
 private:
 	void Dump_Program(const std::string &key, bool vertex_stage, const std::string &hlsl);
 	const SdlProgram &Make(std::map<std::string, SdlProgram> &cache, const std::string &key, bool generated,
-		const std::string &hlsl, bool vertex_stage);
+		const std::string &hlsl, bool vertex_stage, bool waterRayFilter = false);
 
 	/// The programs by the bytes of the description that asked for them (PERF1: D3's key strings are made
 	/// with snprintf, and making both for every draw was a fifth of the main thread).  Descriptions are

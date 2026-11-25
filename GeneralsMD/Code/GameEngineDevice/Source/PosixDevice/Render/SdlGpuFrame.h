@@ -210,7 +210,8 @@ public:
 	void Discard_Pending_Work_For_Teardown();
 	using OwnerReleaseHook = bool (*)(SdlGpuFrame *owner);
 	/// Register before partial native-module preparation. Idempotent per owner/callback, bounded to
-	/// eight modules. Callbacks must ignore other owners and succeed after pending CPU work is gone.
+	/// eight modules. Callbacks must ignore other owners. Native resources require a proved GPU
+	/// idle or terminal device loss even after CPU work is gone; ordinary wait errors retain ownership.
 	bool Register_Owner_Release_Hook(OwnerReleaseHook hook);
 	void Unregister_Owner_Release_Hook(OwnerReleaseHook hook);
 	/// Final-owner operation: submit/discard readers, then consume callbacks while the device lives.

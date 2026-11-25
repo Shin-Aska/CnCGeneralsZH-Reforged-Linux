@@ -687,7 +687,8 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 // are composed before the existing shore/shroud alpha blend. No additional assets are required.
 static void write_modern_water(std::string & hlsl, bool river,
 	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration(),
-	bool waveHeading = false, bool waterOpenSea = false, bool liveTuning = false, bool cleanMain = false)
+	bool waveHeading = false, bool waterOpenSea = false, bool liveTuning = false, bool cleanMain = false,
+	bool waterRayFilter = false)
 {
 	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
 #if defined(__linux__)
@@ -719,7 +720,7 @@ static void write_modern_water(std::string & hlsl, bool river,
 		hlsl += line;
 	}
 	hlsl += "Texture2DArray OceanMaps : register(t8);\nSamplerState OceanSampler : register(s8);\n";
-	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0,visualContact,liveTuning);
+	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0,visualContact,liveTuning,waterRayFilter);
 	std::string sunSampling=SHADOW_SAMPLING SUN_SMOKE_SAMPLING;
 	for(const auto &binding : {std::pair<const char*,const char*>("register(t5)","register(t9)"),
 		{"register(s5)","register(s9)"},{"register(t6)","register(t10)"},{"register(s6)","register(s10)"}}) {
@@ -970,7 +971,7 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
     return result;
 }
 )HLSL";
-	hlsl += WaterScreenReflection::ShaderSource();
+	WaterScreenReflection::AppendShaderSource(hlsl, waterRayFilter);
 	if(!cleanMain) hlsl += WaterSurfaceModel::ShaderSource();
 	if (waveHeading && !river && !cleanMain) {
 		hlsl += "float fftLocalShoreRippleHeight(float2 pxy,float seconds) {float value=0;\n";
@@ -2572,7 +2573,7 @@ current=float4(hullDepthRegion*saturate(0.5+0.5*(world.z-baseLevel)/fftVerticalB
 
 bool EngineShader_Pixel_Program(EngineShaderProgram program,
 	const PixelPipelineDescription & pipeline, std::string & hlsl, CombinerShaderTarget target,
-	bool waterOpenSea, bool waterCleanMain)
+	bool waterOpenSea, bool waterCleanMain, bool waterRayFilter)
 {
 	// SDL ground programs share the Windows sun and smoke filters. Water keeps its own path.
 	if (target == COMBINER_SHADER_TARGET_D3D9) {
@@ -2585,7 +2586,8 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
 			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER, WaterPerformanceSettings::Applied(),
 				WaterFftSampling::Enabled(), waterOpenSea && program == ENGINE_SHADER_WATER_TRAPEZOID,true,
-                waterCleanMain && WaterCleanSpectrum::Enabled() && WaterFftSampling::Enabled() && program==ENGINE_SHADER_WATER_TRAPEZOID);
+                waterCleanMain && WaterCleanSpectrum::Enabled() && WaterFftSampling::Enabled() && program==ENGINE_SHADER_WATER_TRAPEZOID,
+				waterRayFilter);
 			if (!water_material_profile(hlsl)) return false;
 			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
 			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);

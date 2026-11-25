@@ -28,6 +28,9 @@
 #include "Platform/WaterUnderwaterClarity.h"
 #include "PosixResources9.h"
 #include "SdlConstants.h"
+#include "SdlWaterRayFilter.h"
+#include <type_traits>
+#include "Platform/HardwareRaySun.h"
 #include "SdlRenderMatrix.h"
 #include "SdlCreationLog.h"
 #include "SdlGpuFrame.h"
@@ -1198,8 +1201,13 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		: fft_water ? fft_vertex : &Programs->Vertex_Program(vertex,static_lighting);
 	const bool clean_main = fft_water && CleanWaterMain && !SunActive && pixel_engine==ENGINE_SHADER_WATER_TRAPEZOID;
 	const bool open_sea = WaterOpenSea && !SunActive && pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID;
+    const bool waterReflectionQuery = !SunActive &&
+        (pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER)
+        && PixelShaderConstants[ModernWaterMaterial::RegisterParameters][3] > 0.5f
+        && PixelShaderConstants[ModernWaterMaterial::RegisterParameters][3] < 1.5f
+        && HardwareRayTracing::Requested() && HardwareRayTracing::Available(this);
 	const SdlProgram *pixel_program = SunActive ? &Programs->Sun_Pixel_Program(combiner, pixel_engine) : pixel_engine != ENGINE_SHADER_NONE
-		? &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline, open_sea,clean_main) : &Programs->Pixel_Program(combiner);
+		? &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline, open_sea, clean_main, waterReflectionQuery) : &Programs->Pixel_Program(combiner);
 	if (open_sea && !pixel_program->Shader)
 		pixel_program = &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline,false,clean_main);
 	const SdlProgram *legacy_pixel_program=pixel_program;
@@ -1364,6 +1372,16 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
         ((model_fault & 8) && (combiner.DrawEffect || combiner.TeamGlow)) ||
         ((foam_fault & 4) && classic_foam) ? nullptr :
         Pipelines->Pipeline(key,combiner.ShadowReceiving && pixel_engine == ENGINE_SHADER_NONE);
+    if (!draw.Pipeline && pixel_program->WaterRayFilter) {
+        pixel_program = &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline, open_sea, clean_main);
+        if (open_sea && !pixel_program->Shader)
+            pixel_program = &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline, false, clean_main);
+        legacy_pixel_program = pixel_program;
+        if (pixel_program->Shader && Sdl_Pipeline_Key(states, call.Type, vertex_program->Shader,
+            pixel_program->Shader, FVF, SdlGpuFrame::Target_Colour_Format(target),
+            Gpu->Target_Depth_Format(target), key, refusal))
+            draw.Pipeline = Pipelines->Pipeline(key);
+    }
     if (!draw.Pipeline && retry_without_sprites()) {
         if (Sdl_Pipeline_Key(states,call.Type,vertex_program->Shader,pixel_program->Shader,FVF,
             SdlGpuFrame::Target_Colour_Format(target),Gpu->Target_Depth_Format(target),key,refusal))
@@ -1420,6 +1438,24 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	if(water_draw) Gpu->Prepare_Water_Snapshot(target,water_colour,true);
 	SDL_GPUTexture *water_background = water_draw && water_colour ? Gpu->Water_Background(target) : NULL;
 	SDL_GPUTexture *water_depth = water_draw ? Gpu->Water_Depth(target) : NULL;
+    const bool waterRayLayout = water_draw && pixel_program->WaterRayFilter;
+    uint32_t waterRayAddresses[4]={};
+    uint64_t waterRayView=0;
+    if(waterRayLayout && ssr_colour && water_background && water_depth && !SunActive) {
+        // This optional first-use Flush is before ANY staging/constants for this
+        // draw. The existing frozen depth resolve and every older AS reader must
+        // be submitted before the native fixed slab/AS pair is overwritten.
+        SdlMainViewSnapshot main;
+        if(Read_Main_View(main,false,SdlSceneCapturePhase::OpaqueScene) && main.Frame==Gpu &&
+            main.Target.Colour==target.Colour && main.Target.Depth==target.Depth &&
+            main.Target.Width==target.Width && main.Target.Height==target.Height) {
+            SdlPixelConstants unused={};
+            SdlWaterPixelConstants view;
+            Build_Water_Constants(unused,view);
+            waterRayView=main.ViewKey;
+            SdlPrepareWaterRayFilter(*Gpu,this,target,water_depth,waterRayView,view,waterRayAddresses);
+        }
+    }
 	bool water_history = water_draw && Water_Foam_History_Available();
 	bool coastal_view=water_draw && fft_water && CoastalActive && water_depth
 		&& PixelShaderConstants[1][1]<.5f && PixelShaderConstants[6][3]>.5f
@@ -1905,6 +1941,25 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		(pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER)) {
 		SdlWaterPixelConstants water;
 		Build_Water_Constants(pixel_constants, water);
+        if (waterRayLayout)
+            SdlValidateWaterRayFilter(*Gpu, target, water_depth, waterRayView, water, waterRayAddresses);
+        const auto uploadWaterConstants = [&](const auto &waterConstants) {
+            using Layout = std::decay_t<decltype(waterConstants)>;
+            if (waterRayLayout) {
+                struct RayConstants {
+                    Layout Water;
+                    uint32_t Addresses[4];
+                };
+                static_assert(offsetof(RayConstants, Addresses) == sizeof(Layout));
+                RayConstants constants = {waterConstants, {}};
+                std::memcpy(constants.Addresses, waterRayAddresses, sizeof(waterRayAddresses));
+                draw.PixelConstants = Gpu->Constants(1, &constants, sizeof(constants));
+                draw.PixelConstantsSize = sizeof(constants);
+            } else {
+                draw.PixelConstants = Gpu->Constants(1, &waterConstants, sizeof(waterConstants));
+                draw.PixelConstantsSize = sizeof(waterConstants);
+            }
+        };
 		if (combiner.ShadowReceiving) {
 			SdlEnginePixelConstants sun={};Build_Sun_Constants(sun);
 			memcpy(water.ShadowFromClip,sun.ShadowFromClip,sizeof(water.ShadowFromClip));
@@ -1956,8 +2011,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 			SdlWaterVisualPixelConstants visual;
 			Build_Water_Visual_Constants(water,visual);
             if(!WaterTuning::Enabled()) {
-                draw.PixelConstants=Gpu->Constants(1,&visual,sizeof(visual));
-                draw.PixelConstantsSize=sizeof(visual);
+                uploadWaterConstants(visual);
             }
 			for(unsigned block=0;block<WaterHullVisualLayout::BlockCount;++block) {
 				const unsigned first=WaterHullVisualLayout::PacketRegister+WaterHullVisualLayout::BlockOffset(block);
@@ -1966,8 +2020,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				draw.PixelWaterConstantsSize[block]=bytes;
 			}
 		} else if(!WaterTuning::Enabled()) {
-			draw.PixelConstants = Gpu->Constants(1, &water, sizeof(water));
-			draw.PixelConstantsSize = sizeof(water);
+            uploadWaterConstants(water);
 		}
         if(WaterTuning::Enabled()) {
             SdlWaterTunedVisualPixelConstants tuned{};
@@ -1975,8 +2028,8 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
             tuned.Water.Tuning=Water_Tuning_Constants(WaterPerformanceSettings::Applied().activeFftResolution);
             if(water.HullParameters[0]>0)
                 memcpy(tuned.VisualHullMeta,PixelShaderConstants[WaterHullVisualLayout::MetadataRegister],sizeof(tuned.VisualHullMeta));
-            const unsigned bytes=pixel_program->UniformBuffers==4?sizeof(tuned):sizeof(tuned.Water);
-            draw.PixelConstants=Gpu->Constants(1,&tuned,bytes);draw.PixelConstantsSize=bytes;
+            if (pixel_program->UniformBuffers == 4) uploadWaterConstants(tuned);
+            else uploadWaterConstants(tuned.Water);
         }
 		if (fft_water) {
 			// The generated water vertex program reads precisely the same per-draw hulls and

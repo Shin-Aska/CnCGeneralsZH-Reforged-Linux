@@ -1629,9 +1629,9 @@ void SdlGpuFrame::Release_Owner_Hooks_For_Teardown()
 		if (hooks[i](this)) continue;
 		Discard_Pending_Work_For_Teardown();
 		if (!hooks[i](this)) {
-			// A registered callback may retain resources for ordinary refusal, but must release once
-			// final-owner discard removed every CPU reader. Continuing would leave a dangling owner.
-			fprintf(stderr, "SdlGpuFrame: native owner hook refused an empty final teardown\n");
+			// CPU discard alone does not retire submitted native readers. Callbacks must also prove
+			// GPU idle or terminal device loss; an ordinary wait refusal cannot permit device reuse.
+			fprintf(stderr, "SdlGpuFrame: native owner hook could not prove final GPU retirement\n");
 			std::terminate();
 		}
 	}

@@ -19,6 +19,7 @@
 // The generated programs on SDL3 GPU (decision 7, phase A3c).  See SdlProgramCache.h.
 
 #include "SdlProgramCache.h"
+#include "SdlWaterRayFilter.h"
 #include "SdlCreationLog.h"
 #include "sdl3shadercompile.h"
 #include "engineshader.h"
@@ -77,11 +78,12 @@ SdlProgramCache::~SdlProgramCache()
 }
 
 const SdlProgram &SdlProgramCache::Make(std::map<std::string, SdlProgram> &cache, const std::string &key, bool generated,
-	const std::string &hlsl, bool vertex_stage)
+	const std::string &hlsl, bool vertex_stage, bool waterRayFilter)
 {
 	SdlProgram &program = cache[key];
 	program.Shader = NULL;
 	program.Key = key;
+	program.WaterRayFilter = waterRayFilter;
 	program.SamplerSlots = 0;
 	program.UniformBuffers = 0;
 	program.Uses = 1;
@@ -96,6 +98,9 @@ const SdlProgram &SdlProgramCache::Make(std::map<std::string, SdlProgram> &cache
 		if (!SDL3_Compile_HLSL_To_SPIRV(hlsl, vertex_stage, spirv, log)) {
 			program.Refusal = "glslang: " + log;
 		}
+        else if (waterRayFilter && !SdlInstallWaterRayQuery(spirv)) {
+            program.Refusal = "the generated water program has no compatible ray-query function";
+        }
 		else {
 			SDL3_Shader_Slots(spirv, vertex_stage, program.SamplerSlots, program.UniformBuffers);
 			program.Shader = SDL3_Create_Shader(Device, spirv, vertex_stage, log);
@@ -276,14 +281,14 @@ const SdlProgram &SdlProgramCache::Engine_Vertex_Program(int program)
 }
 
 const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program,
-	const PixelPipelineDescription &pipeline, bool waterOpenSea, bool waterCleanMain)
+    const PixelPipelineDescription &pipeline, bool waterOpenSea, bool waterCleanMain, bool waterRayFilter)
 {
 	// The program and the pipeline description, side by side, as the lookup's bytes.
 	struct {
 		int Program;
 		PixelPipelineDescription Pipeline;
 		unsigned Resolution, Refraction, Reflections, MaterialProfile, CleanProfile;
-		bool WaterOpenSea, WaterCleanMain;
+		bool WaterOpenSea, WaterCleanMain, WaterRayFilter;
 	} lookup;
 	memset(&lookup, 0, sizeof(lookup));
 	lookup.Program = program;
@@ -295,6 +300,7 @@ const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program,
 		lookup.Resolution = settings.activeFftResolution;
 		lookup.Refraction = unsigned(settings.refraction);
 		lookup.Reflections = settings.sceneReflections ? 1 : 0;
+        lookup.WaterRayFilter = settings.sceneReflections && waterRayFilter && SdlWaterRayFilterSupported(Device);
 #if defined(__linux__)
 		lookup.MaterialProfile = unsigned(WaterMaterialProfile::Applied());
 		lookup.CleanProfile = WaterCleanSpectrum::Enabled()?WaterCleanProfile::Key(WaterCleanProfile::Get()):0;
@@ -312,6 +318,22 @@ const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program,
 			+ ":clean-profile:" + std::to_string(lookup.CleanProfile)
 			: std::string())
 		+ (waterOpenSea ? ":open-sea" : "") + (waterCleanMain ? ":clean-main" : "");
+    if (lookup.WaterRayFilter) {
+        const std::string rayKey = key + ":water-ray-filter";
+        auto found = PixelPrograms.find(rayKey);
+        if (found == PixelPrograms.end()) {
+            std::string text;
+            const bool generated = EngineShader_Pixel_Program(engine, pipeline, text,
+                COMBINER_SHADER_TARGET_SDL3_GPU, waterOpenSea, waterCleanMain, true);
+            Make(PixelPrograms, rayKey, generated, text, false, true);
+            found = PixelPrograms.find(rayKey);
+        }
+        if (found->second.Shader) {
+            ++found->second.Uses;
+            EnginePixelByBytes.Add(&lookup, sizeof(lookup), &found->second);
+            return found->second;
+        }
+    }
 	std::map<std::string, SdlProgram>::iterator existing = PixelPrograms.find(key);
 	if (existing != PixelPrograms.end()) {
 		++existing->second.Uses;

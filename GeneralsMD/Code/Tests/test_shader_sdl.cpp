@@ -2461,6 +2461,12 @@ TEST(screen_reflection_modes_are_bounded_and_selected_per_draw)
 		CHECK(source.find("waterScreenReflection(world, view, environmentNormal") != std::string::npos);
 		CHECK(source.find("MaterialParameters.w>0.5") != std::string::npos);
 		CHECK(source.find("waterMirrorFiltered(reflectionUV+distortion") != std::string::npos);
+		CHECK(source.find("SsrRayAddresses") == std::string::npos);
+		std::string raySource;
+		CHECK(EngineShader_Pixel_Program(program, pipeline, raySource, COMBINER_SHADER_TARGET_SDL3_GPU,
+			false, false, true));
+		CHECK(raySource.find("uint4 SsrRayAddresses;") != std::string::npos);
+		CHECK(raySource.find("ZHR_WaterRayFirstStep") != std::string::npos);
 	}
 	CHECK(MirrorSize(Mirror) == 512 && MirrorSize(Hybrid) == 1024);
 	CHECK(MirrorSize(Mirror, 0) == 256 && MirrorSize(Hybrid, 0) == 512);

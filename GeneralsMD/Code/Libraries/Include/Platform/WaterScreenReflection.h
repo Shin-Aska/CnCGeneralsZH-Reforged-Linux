@@ -14,6 +14,7 @@
 #pragma once
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace WaterScreenReflection {
 bool Supported(); // Queries the current backend; false before a GPU device exists.
@@ -105,7 +106,9 @@ inline const char *Name(Mode mode)
 
 // Needs the water shader's WorldFromClip, ClipFromWorld, Viewport, CameraPosition, SceneParameters and MaterialParameters, the
 // scene colour (Texture5) and depth (Texture6) snapshots, and waterScenePixel/scenePosition.
-inline const char *ShaderSource() { return R"HLSL(
+inline void AppendShaderSource(std::string &source, bool waterRayFilter = false)
+{
+    source += R"HLSL(
 float2 waterSsrPixel(float4 clip)
 {
     float2 ndc=clip.xy/clip.w;
@@ -135,7 +138,15 @@ static const float WaterSsrThickness=3.0;
 // The share of the wave normal the trace follows. The mirror only nudges its lookup by the
 // normal; a fully rippled ray scatters a reflection into speckle over a long trace.
 static const float WaterSsrNormalWeight=0.3;
-// A downward reflected ray meets the water itself, and the snapshot holds no water. Rays leaving
+)HLSL";
+    if (waterRayFilter) source += R"HLSL(// Replaced at shader creation with the validated SPIR-V ray query helper.
+// Returns the first sample or a value past WaterSsrSteps for a miss.
+uint ZHR_WaterRayFirstStep(float3 start, float3 end, float jitter, uint4 addresses)
+{
+    return start.x + end.y + jitter >= float(addresses.x) ? 1u : 33u;
+}
+)HLSL";
+    source += R"HLSL(// A downward reflected ray meets the water itself, and the snapshot holds no water. Rays leaving
 // the screen, or passing behind everything, fall back to the caller's reflection.
 WaterSsrSample waterScreenReflection(float3 world, float3 view, float3 normal, float roughness, float2 pixel)
 {
@@ -164,15 +175,42 @@ WaterSsrSample waterScreenReflection(float3 world, float3 view, float3 normal, f
     float rayPixels=length(p1-p0);
     [branch] if (rayPixels<2.0) return result;
     result.refused=0.0;
-    // The water origin passed the opaque depth test, so the first segment starts in front.
+)HLSL";
+    if (waterRayFilter) source += R"HLSL(    float jitter=frac(52.9829189*frac(dot(pixel,float2(0.06711056,0.00583715))));
+    int firstStep=1;
+    // The depth bounds include a one-pixel halo, including the nearest
+    // sample when the projected endpoint lands on the rounded viewport edge.
+    float2 probeLo = max(lo-0.49, float2(0,0));
+    float2 probeHi = min(hi+0.49, 1.0/SceneParameters.yz-0.01);
+    // The march can stop at an invalid depth before finding a hit.
+    if (z0 >= 0.0 && z0 <= 1.0 && z1 >= 0.0 && z1 <= 1.0
+        && world.z-1.01 >= WaterParameters.w-2.999
+        && all(p0 >= probeLo) && all(p1 >= probeLo)
+        && all(p0 <= probeHi) && all(p1 <= probeHi)) {
+        firstStep = int(ZHR_WaterRayFirstStep(float3(p0,z0*1024.0),float3(p1,z1*1024.0),jitter,SsrRayAddresses));
+    }
+    [branch] if (firstStep > WaterSsrSteps) return result;
+)HLSL";
+    source += R"HLSL(    // The water origin passed the opaque depth test, so the first segment starts in front.
     bool previousFront=true;
     float previous=0.0, found=-1.0, hitQuality=0.0;
     // Keep a fixed screen-space phase: deterministic zero-phase stepping produced coherent
     // missing bands on thin geometry without a history resolve. This retains the existing
     // spatial stipple limitation, but never changes the phase with frame number.
-    float jitter=frac(52.9829189*frac(dot(pixel,float2(0.06711056,0.00583715))));
-    [loop] for (int i=1; i<=WaterSsrSteps && found<0.0; ++i) {
-        // Denser near contact. Include the segment endpoint as the final sample.
+)HLSL";
+    if (waterRayFilter) source += R"HLSL(    if (firstStep > 1) {
+        // A skipped sample may be behind a surface that failed the slab test.
+        // Restore the previous sample so the next bracket is refined as usual.
+        previous=pow((float(firstStep-1)-1.0+jitter)/float(WaterSsrSteps),1.6);
+        float2 priorPixel=waterScenePixel(floor(lerp(p0,p1,previous))+0.5);
+        float priorDepth=waterSsrDepth(priorPixel);
+        previousFront=!(priorDepth<0.999999 && lerp(z0,z1,previous)>priorDepth);
+    }
+)HLSL";
+    else source += "    float jitter=frac(52.9829189*frac(dot(pixel,float2(0.06711056,0.00583715))));\n";
+    source += waterRayFilter ? "    [loop] for (int i=firstStep; i<=WaterSsrSteps && found<0.0; ++i) {\n"
+                             : "    [loop] for (int i=1; i<=WaterSsrSteps && found<0.0; ++i) {\n";
+    source += R"HLSL(        // Denser near contact. Include the segment endpoint as the final sample.
         float t=i==WaterSsrSteps?1.0:pow((float(i)-1.0+jitter)/float(WaterSsrSteps),1.6);
         float2 at=waterScenePixel(floor(lerp(p0,p1,t))+0.5);
         float rayDepth=lerp(z0,z1,t);
@@ -229,6 +267,7 @@ WaterSsrSample waterScreenReflection(float3 world, float3 view, float3 normal, f
         *(1.0-smoothstep(0.75,1.0,result.travel));
     return result;
 }
-)HLSL"; }
+)HLSL";
+}
 
 }
