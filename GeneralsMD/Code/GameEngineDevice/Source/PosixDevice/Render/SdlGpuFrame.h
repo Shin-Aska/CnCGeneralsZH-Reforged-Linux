@@ -218,6 +218,8 @@ public:
 	/// Deterministic refusal hooks for real queued-record/replacement recovery tests.
 	void Fail_Next_Native_Record_For_Test(unsigned count = 1) { NativeRecordRefusalsForTest = count; }
 	void Fail_Next_Resize_For_Test() { FailNextResize = true; }
+	/// Refuse after recording one capture upload, exercising cancellation and snapshot recovery.
+	void Fail_Next_Water_Path_Upload_For_Test(unsigned slot) { WaterPathUploadRefusalForTest = slot < 4 ? int(slot) : -1; }
 
 	// ---- The batch (A3c).  Offsets are into this batch only: a flush starts the next one empty.
 
@@ -392,9 +394,15 @@ public:
 	// Allocated and dispatched only by the optional water path tracing mode.
 	bool Prepare_Water_Path(const std::vector<WaterPathTracing::Triangle> &triangles,
 		const WaterPathTracing::View &view, uint64_t revision = 0,
-		const WaterPathTracing::PrimaryMaterialPacket *materials = nullptr);
-	void Clear_Water_Path();
+		const WaterPathTracing::PrimaryMaterialPacket *materials = nullptr, bool hardware = false, bool hardwarePath = false,
+		size_t staticTriangleCount = 0);
+	/// False retains resources when submission or native GPU retirement cannot be proved.
+	bool Clear_Water_Path();
 	SDL_GPUTexture *Water_Path_Texture() const;
+	// Diagnostic only: raw RGBA32F {distance, packed triangle ID, baryU, baryV}.
+	SDL_GPUTexture *Water_Hardware_Hits() const;
+	bool Water_Hardware_Available(bool pathTracing = false) const;
+	SDL_GPUTexture *Water_Hardware_Transport() const;
 	SDL_GPUSampler *Water_Path_Sampler() const;
 	std::string Water_Path_Report() const;
 
@@ -450,6 +458,7 @@ private:
 	uint64_t CleanWaterRevisions[2]={0,0},CleanWaterFailed[2]={0,0},CleanWaterUploads[2]={0,0};
 	struct PathResources;
 	PathResources *WaterPath = nullptr;
+	int WaterPathUploadRefusalForTest = -1;
 	/// Submits, and with SerializeSubmits waits for the fence, adding the wait to FenceMs.
 	bool Submit(struct SDL_GPUCommandBuffer * commands);
 	bool SerializeSubmits;

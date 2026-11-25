@@ -1,5 +1,6 @@
 #include "test_harness.h"
 #include "Platform/WaterPathTracingScene.h"
+#include "Platform/WaterPathTracingMaterials.h"
 #include "WaterPathBuildReference.h"
 #include "Platform/WaterPathTracingSchedule.h"
 #include "Platform/WaterPathTracingMotion.h"
@@ -208,6 +209,12 @@ TEST(water_path_capture_scope_keeps_reflected_hits_and_nearby_shadow_contributor
     // The same allowance is not needed on the opposite side from the sun.
     CHECK(!scope.Matches({-501,-1,69},{-499,1,71}));
     CHECK(scope.Matches({99,-1,19},{101,1,21})); // Nearby indirect contributor.
+
+    const CaptureScope primary(view,CaptureScope::Content::Primary);
+    CHECK(primary.Matches({-1,-1,20},{1,1,22}));
+    CHECK(primary.Matches({-500,-1,20},{500,1,22}));
+    CHECK(!primary.Matches({99,-1,19},{101,1,21}));
+    CHECK(!primary.Matches({499,-1,69},{501,1,71}));
 }
 
 TEST(water_path_capture_scope_rejects_distant_and_fully_submerged_bounds)
@@ -695,4 +702,168 @@ TEST(water_path_build_precomputed_primitives_preserve_rejection_transaction)
         CHECK_MEM(actual.nodeTexels.data(), savedNodes.data(), savedNodes.size() * sizeof(Float4));
         CHECK_MEM(actual.triangleTexels.data(), savedTriangles.data(), savedTriangles.size() * sizeof(Float4));
     }
+}
+
+
+TEST(water_hardware_linear_pack_preserves_source_slots_without_bvh_nodes)
+{
+    std::vector<Triangle> input;
+    for(unsigned i=0;i<17;++i) input.push_back(Face(float(17-i),float(i%5),{1.2f,-.3f,.4f}));
+    input.insert(input.begin()+2,Triangle{{0,0,0},{0,0,0},{0,0,0},{1,1,1}});
+    Scene packed;
+    CHECK(packed.PackLinear(input));
+    CHECK(packed.IsLinearPacked());
+    CHECK_EQ(packed.NodeCount(),0u);
+    CHECK_EQ(packed.triangles.size(),17u);
+    CHECK_EQ(packed.fingerprint,Fingerprint(input));
+    unsigned output=0;
+    for(unsigned source=0;source<input.size();++source) {
+        if(source==2)continue;
+        CHECK_EQ(packed.SourceTriangleIndex(output),source);
+        Scene single;
+        CHECK(single.Build({input[source]}));
+        CHECK_MEM(&packed.triangles[output],single.triangles.data(),sizeof(Triangle));
+        CHECK_MEM(packed.triangleTexels.data()+output*TriangleTexels,single.triangleTexels.data(),TriangleTexels*sizeof(Float4));
+        ++output;
+    }
+    const Triangle *triangleStorage=packed.triangles.data();
+    const Float4 *texelStorage=packed.triangleTexels.data();
+    input[5].a.z+=.25f;
+    CHECK(packed.PackLinear(input,false));
+    CHECK_EQ(packed.fingerprint,0u);
+    CHECK(packed.triangles.data()==triangleStorage && packed.triangleTexels.data()==texelStorage);
+    CHECK(!packed.Refit(input)); // A software caller must build real BVH nodes on mode reentry.
+    CHECK(packed.Build(input));
+    CHECK(!packed.IsLinearPacked() && packed.NodeCount()>0);
+    CHECK(packed.PackLinear(input));
+    CHECK(packed.IsLinearPacked() && packed.NodeCount()==0);
+    for(unsigned i=0;i<17;++i)CHECK_EQ(packed.SourceTriangleIndex(i),i<2?i:i+1);
+    // Public scene storage can itself be the next input, including a gap to compact.
+    packed.triangles=input;
+    CHECK(packed.PackLinear(packed.triangles));
+    CHECK_EQ(packed.triangles.size(),17u);
+    for(unsigned i=0;i<17;++i) {
+        const unsigned source=i<2?i:i+1;
+        CHECK_EQ(packed.SourceTriangleIndex(i),source);
+        CHECK_EQ(packed.triangles[i].a.x,input[source].a.x);
+        CHECK_EQ(packed.triangles[i].a.z,input[source].a.z);
+    }
+}
+
+TEST(water_hardware_linear_pack_rejects_invalid_input_without_replacing_scene)
+{
+    std::vector<Triangle> input={Face(0,2),Face(1,3)};
+    Scene scene;
+    for(bool linear:{false,true}) {
+        CHECK(linear ? scene.PackLinear(input) : scene.Build(input));
+        const auto savedTriangles=scene.triangleTexels,savedNodes=scene.nodeTexels;
+        const uint64_t savedFingerprint=scene.fingerprint;
+        for(float invalid:{std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
+            auto bad=input;bad[1].b.y=invalid;
+            CHECK(!scene.PackLinear(bad));
+            CHECK_EQ(scene.IsLinearPacked(),linear);
+            CHECK_EQ(scene.fingerprint,savedFingerprint);
+            CHECK_MEM(scene.triangleTexels.data(),savedTriangles.data(),savedTriangles.size()*sizeof(Float4));
+            CHECK_EQ(scene.nodeTexels.size(),savedNodes.size());
+            if(!savedNodes.empty())CHECK_MEM(scene.nodeTexels.data(),savedNodes.data(),savedNodes.size()*sizeof(Float4));
+        }
+        auto overflow=input;
+        overflow[1].a.x=std::numeric_limits<float>::max();
+        overflow[1].b.x=-std::numeric_limits<float>::max();
+        CHECK(!scene.PackLinear(overflow));
+        CHECK_EQ(scene.fingerprint,savedFingerprint);
+    }
+    const std::vector<Triangle> degenerate={{{0,0,1},{0,0,1},{0,0,1},{.2f,.3f,.4f}}};
+    CHECK(scene.PackLinear(degenerate));
+    CHECK(scene.Empty() && scene.IsLinearPacked() && scene.NodeCount()==0);
+    CHECK(scene.PackLinear({}));
+    CHECK(scene.Empty() && scene.triangleTexels.empty());
+}
+
+TEST(water_hardware_material_validation_reuses_only_exact_validated_ranges)
+{
+    PrimaryMaterialPacket packet;
+    packet.texels={{.2f,.4f,.6f,1},{.8f,.3f,.1f,1}};
+    packet.triangles.resize(6);
+    for(auto &m:packet.triangles){m.uvCSize={0,0,1,1};m.diffuseOffset={1,1,1,2};}
+    PrimaryMaterialValidation cached;
+    const auto check=[&](size_t prefix) {
+        const bool expected=ValidPrimaryMaterials(packet,packet.triangles.size());
+        CHECK_EQ(cached.Validate(packet,packet.triangles.size(),prefix),expected);
+    };
+    check(4);
+    CHECK_EQ(cached.CheckedMaterials,6u);
+    check(4);
+    CHECK(cached.StaticReused);
+    CHECK_EQ(cached.CheckedMaterials,8u);
+    CHECK_EQ(cached.ReusedMaterials,4u);
+    CHECK_EQ(cached.CheckedTexels,2u);
+    for(unsigned n:{9u,5u,6u}) {
+        packet.triangles.resize(n,packet.triangles.back());
+        packet.triangles.back().uvAB.x+=.25f;
+        check(4);
+    }
+    packet.texels[0].x=std::numeric_limits<float>::quiet_NaN();check(4);
+    packet.texels[0].x=.2f;check(4);
+    packet.triangles[0].diffuseOffset.w=3;check(4); // changed static binding exceeds atlas
+    packet.triangles[0].diffuseOffset.w=2;check(4);
+    packet.texels.resize(1);check(4); // byte-identical static bindings must be rechecked on shrink
+    packet.texels.push_back({.8f,.3f,.1f,1});check(4);
+    packet.triangles[2].uvCSize.z=1.5f;check(4);
+    packet.triangles[2].uvCSize.z=1;check(4);
+    packet.triangles[3].uvAB.y=std::numeric_limits<float>::infinity();check(4);
+    packet.triangles[3].uvAB.y=0;check(4);
+    check(2);check(0);check(4);
+    CHECK(!cached.Validate(packet,packet.triangles.size(),packet.triangles.size()+1));
+}
+
+TEST(water_hardware_retained_prefix_proof_includes_albedo_and_degenerate_source_mapping)
+{
+    std::vector<Triangle> input={Triangle{},Face(0,2),Face(1,2),Face(2,2)};
+    Scene scene,fresh;
+    CHECK(scene.PackLinear(input,false,3));
+    CHECK(!scene.LinearStaticPrefixReused());
+    CHECK_EQ(scene.LinearStaticTriangleCount(),2u);
+    input.back().a.x+=.1f;
+    CHECK(scene.PackLinear(input,false,3));
+    CHECK(scene.LinearStaticPrefixReused());
+    input[1].albedo.x=.2f;
+    CHECK(scene.PackLinear(input,false,3));
+    CHECK(!scene.LinearStaticPrefixReused());
+    std::swap(input[0],input[1]);
+    CHECK(scene.PackLinear(input,false,3));
+    CHECK(!scene.LinearStaticPrefixReused());
+    CHECK(fresh.PackLinear(input,false));
+    CHECK_MEM(scene.triangleTexels.data(),fresh.triangleTexels.data(),fresh.triangleTexels.size()*sizeof(Float4));
+    for(unsigned i=0;i<fresh.triangles.size();++i)CHECK_EQ(scene.SourceTriangleIndex(i),fresh.SourceTriangleIndex(i));
+}
+
+TEST(water_hardware_static_albedo_update_retains_exact_edges_and_source_slots)
+{
+    std::vector<Triangle> input={Triangle{},Face(0,2),Face(1,3),Face(2,4)};
+    Scene incremental,fresh;
+    CHECK(incremental.PackLinear(input,false,3));
+    const auto edges=incremental.triangleTexels;
+    input[0].albedo={2,-1,.5f}; // Degenerate sources still participate in validation.
+    input[1].albedo={1.4f,-.2f,.9f};input[2].albedo={.1f,.2f,.3f};input[3].a.z+=.3f;
+    CHECK(incremental.PackLinear(input,false,3));
+    CHECK(incremental.LinearStaticGeometryReused());CHECK(!incremental.LinearStaticPrefixReused());
+    CHECK(fresh.PackLinear(input,false));
+    CHECK_MEM(incremental.triangleTexels.data(),fresh.triangleTexels.data(),fresh.triangleTexels.size()*sizeof(Float4));
+    for(unsigned i=0;i<2;++i) {
+        CHECK_MEM(incremental.triangleTexels.data()+i*4,edges.data()+i*4,3*sizeof(Float4));
+        CHECK_EQ(incremental.SourceTriangleIndex(i),i+1);
+    }
+    const auto published=incremental.triangleTexels;
+    input[0].albedo.x=std::numeric_limits<float>::quiet_NaN();
+    CHECK(!incremental.PackLinear(input,false,3));
+    CHECK_MEM(incremental.triangleTexels.data(),published.data(),published.size()*sizeof(Float4));
+    input[0].albedo.x=2;input[2].a.x+=.01f;
+    CHECK(incremental.PackLinear(input,false,3));CHECK(!incremental.LinearStaticGeometryReused());
+    CHECK(fresh.PackLinear(input,false));
+    CHECK_MEM(incremental.triangleTexels.data(),fresh.triangleTexels.data(),fresh.triangleTexels.size()*sizeof(Float4));
+    std::swap(input[0],input[1]);
+    CHECK(incremental.PackLinear(input,false,3));CHECK(!incremental.LinearStaticGeometryReused());
+    CHECK(fresh.PackLinear(input,false));
+    for(unsigned i=0;i<fresh.triangles.size();++i)CHECK_EQ(incremental.SourceTriangleIndex(i),fresh.SourceTriangleIndex(i));
 }

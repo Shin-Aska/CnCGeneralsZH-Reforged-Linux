@@ -157,6 +157,10 @@ public:
     unsigned NodeCount() const { return static_cast<unsigned>(nodeTexels.size()/NodeTexels); }
     bool Empty() const { return triangles.empty(); }
     unsigned SourceTriangleIndex(unsigned gpuIndex) const { return inputIndices[gpuIndex]; }
+    bool IsLinearPacked() const { return linearPacked; }
+    bool LinearStaticPrefixReused() const { return linearStaticReused; }
+    bool LinearStaticGeometryReused() const { return linearStaticGeometryReused; }
+    unsigned LinearStaticTriangleCount() const { return linearStaticPackedCount; }
 
     // Invalid non-finite inputs and excess capacity fail without replacing the old scene.
     // Zero-area triangles are harmless and dropped; a valid empty scene is permitted.
@@ -192,13 +196,82 @@ public:
         return true;
     }
 
+    // Hardware traversal needs packed triangles/material indices, not a CPU BVH.
+    // Preserve source order and reuse storage while applying Build's exact validation,
+    // degenerate filtering and albedo clamping. Invalid input leaves the published scene intact.
+    bool PackLinear(const std::vector<Triangle> &input, bool trackFingerprint=true, unsigned staticTriangleCount=0)
+    {
+        if (input.size()>MaximumTriangles || staticTriangleCount>input.size()) return false;
+        // Exact source bytes include albedo and degenerate slots. Reusing the prefix
+        // therefore preserves its packed texels and source-to-material mapping too.
+        const bool sameStaticSize=linearPacked && staticTriangleCount>0 && linearStaticInput.size()==staticTriangleCount;
+        const bool reuseStatic=sameStaticSize
+            && std::memcmp(input.data(),linearStaticInput.data(),staticTriangleCount*sizeof(Triangle))==0;
+        bool reuseGeometry=reuseStatic;
+        if(sameStaticSize && !reuseStatic) {
+            reuseGeometry=true;
+            for(unsigned i=0;i<staticTriangleCount;++i) {
+                if(std::memcmp(&input[i].a,&linearStaticInput[i].a,9*sizeof(float))!=0){reuseGeometry=false;break;}
+                if(!Finite(input[i].albedo))return false;
+            }
+        }
+        const unsigned first=reuseGeometry?staticTriangleCount:0;
+        linearKinds.resize(input.size());
+        unsigned count=reuseGeometry?linearStaticPackedCount:0;
+        unsigned staticPackedCount=count;
+        for (unsigned i=first; i<input.size(); ++i) {
+            const int kind=TriangleKind(input[i]);
+            if (kind<0) return false;
+            linearKinds[i]=static_cast<uint8_t>(kind);
+            count+=kind;
+            if(i<staticTriangleCount)staticPackedCount+=kind;
+        }
+        const uint64_t nextFingerprint=trackFingerprint ? Fingerprint(input) : 0;
+        if(reuseGeometry && !reuseStatic) {
+            unsigned packed=0;
+            for(unsigned i=0;i<staticTriangleCount;++i) {
+                const bool changed=std::memcmp(&input[i].albedo,&linearStaticInput[i].albedo,sizeof(Vec3))!=0;
+                if(inputIncluded[i]) {
+                    if(changed) {
+                        const Vec3 albedo=Minimum(Maximum(input[i].albedo,{0,0,0}),{1,1,1});
+                        triangles[packed].albedo=albedo;
+                        triangleTexels[packed*TriangleTexels+3]={albedo.x,albedo.y,albedo.z,0};
+                    }
+                    ++packed;
+                }
+                if(changed)linearStaticInput[i].albedo=input[i].albedo;
+            }
+        } else if(!reuseStatic)linearStaticInput.assign(input.begin(),input.begin()+staticTriangleCount);
+        // Input may alias triangles. Keep all source slots until forward compaction
+        // has copied them; packed<=source makes each in-place write safe.
+        if (triangles.size()<count) triangles.resize(count);
+        triangleTexels.resize(size_t(count)*TriangleTexels);
+        inputIndices.resize(count);
+        inputIncluded.resize(input.size());
+        unsigned packed=reuseGeometry?linearStaticPackedCount:0;
+        for (unsigned i=first; i<input.size(); ++i) {
+            inputIncluded[i]=linearKinds[i];
+            if (!linearKinds[i]) continue;
+            inputIndices[packed]=i;
+            SetTriangle(packed++,input[i]);
+        }
+        triangles.resize(count);
+        nodeTexels.clear();
+        fingerprint=nextFingerprint;
+        linearStaticPackedCount=staticPackedCount;
+        linearStaticReused=reuseStatic;
+        linearStaticGeometryReused=reuseGeometry;
+        linearPacked=true;
+        return true;
+    }
+
     // Keep leaf membership and GPU indices, updating only geometry/materials and bounds.
     // Mapping is by original input slot, so reordering same-sized input is still correct
     // (but can worsen traversal quality). The caller periodically rebuilds for quality.
     // Validate the whole input before modifying anything; failure preserves this scene.
     bool Refit(const std::vector<Triangle> &input,bool trackFingerprint=true)
     {
-        if(input.size()!=inputIncluded.size())return false;
+        if(linearPacked || input.size()!=inputIncluded.size())return false;
         for(unsigned i=0;i<input.size();++i) {
             const int kind=TriangleKind(input[i]);
             if(kind<0||static_cast<unsigned>(kind)!=inputIncluded[i])return false;
@@ -275,6 +348,10 @@ private:
     };
     std::vector<unsigned> inputIndices;
     std::vector<uint8_t> inputIncluded;
+    std::vector<uint8_t> linearKinds; // Validation scratch, reused by the hardware packer.
+    std::vector<Triangle> linearStaticInput;
+    unsigned linearStaticPackedCount=0;
+    bool linearPacked=false,linearStaticReused=false,linearStaticGeometryReused=false;
 
     // -1: invalid, 0: degenerate, 1: included in the acceleration structure.
     static int TriangleKind(const Triangle &t)

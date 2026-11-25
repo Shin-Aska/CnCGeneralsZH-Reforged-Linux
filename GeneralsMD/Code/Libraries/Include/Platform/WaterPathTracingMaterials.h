@@ -35,31 +35,68 @@ struct PrimaryMaterialPacket {
     std::vector<Float4> texels;
 };
 
-inline bool ValidPrimaryMaterials(const PrimaryMaterialPacket &packet,size_t triangleCount)
+inline bool ValidPrimaryTexel(Float4 v)
 {
-    if(packet.triangles.size()!=triangleCount || packet.texels.size()>MaximumPrimaryTexels)return false;
+    return std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z)&&std::isfinite(v.w)
+        &&v.x>=0&&v.x<=1&&v.y>=0&&v.y<=1&&v.z>=0&&v.z<=1;
+}
+inline bool ValidPrimaryMaterial(const PrimaryMaterial &material,size_t texelCount)
+{
     const auto finite=[](Float4 v) {
         return std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z)&&std::isfinite(v.w);
     };
-    const auto rgb=[](Float4 v) {
-        return v.x>=0&&v.x<=1&&v.y>=0&&v.y<=1&&v.z>=0&&v.z<=1;
-    };
-    for(const Float4 texel:packet.texels)if(!finite(texel)||!rgb(texel))return false;
-    for(const PrimaryMaterial &material:packet.triangles) {
-        if(!finite(material.uvAB)||!finite(material.uvCSize)||!finite(material.diffuseOffset)
-            ||!rgb(material.diffuseOffset)||material.diffuseOffset.w<0)return false;
-        if(material.diffuseOffset.w==0)continue;
-        const float width=material.uvCSize.z,height=material.uvCSize.w;
-        if(width<1||width>MaximumPrimaryTextureSide||height<1||height>MaximumPrimaryTextureSide
-            ||std::floor(width)!=width||std::floor(height)!=height
-            ||std::floor(material.diffuseOffset.w)!=material.diffuseOffset.w
-            ||material.diffuseOffset.w>float(MaximumPrimaryTexels))return false;
-        const size_t offset=size_t(material.diffuseOffset.w)-1;
-        if(offset>packet.texels.size()
-            ||PrimaryTextureTexelCount(unsigned(width),unsigned(height))>packet.texels.size()-offset)return false;
-    }
+    if(!finite(material.uvAB)||!finite(material.uvCSize)||!ValidPrimaryTexel(material.diffuseOffset)
+        ||material.diffuseOffset.w<0)return false;
+    if(material.diffuseOffset.w==0)return true;
+    const float width=material.uvCSize.z,height=material.uvCSize.w;
+    if(width<1||width>MaximumPrimaryTextureSide||height<1||height>MaximumPrimaryTextureSide
+        ||std::floor(width)!=width||std::floor(height)!=height
+        ||std::floor(material.diffuseOffset.w)!=material.diffuseOffset.w
+        ||material.diffuseOffset.w>float(MaximumPrimaryTexels))return false;
+    const size_t offset=size_t(material.diffuseOffset.w)-1;
+    return offset<=texelCount && PrimaryTextureTexelCount(unsigned(width),unsigned(height))<=texelCount-offset;
+}
+// Atlas validation can be reused after an exact match to a previously validated atlas.
+inline bool ValidPrimaryMaterials(const PrimaryMaterialPacket &packet,size_t triangleCount,bool atlasValidated=false)
+{
+    if(packet.triangles.size()!=triangleCount || packet.texels.size()>MaximumPrimaryTexels)return false;
+    if(!atlasValidated)for(const Float4 texel:packet.texels)if(!ValidPrimaryTexel(texel))return false;
+    for(const PrimaryMaterial &material:packet.triangles)
+        if(!ValidPrimaryMaterial(material,packet.texels.size()))return false;
     return true;
 }
+
+// Optional native packet cache. Reuse requires exact raw bytes, including degenerate source slots.
+// Atlas shrink rechecks every retained binding even when those material bytes are unchanged.
+class PrimaryMaterialValidation {
+public:
+    uint64_t CheckedMaterials=0, ReusedMaterials=0, CheckedTexels=0, ReusedTexels=0;
+    bool StaticReused=false;
+    bool Validate(const PrimaryMaterialPacket &packet,size_t triangleCount,size_t staticCount)
+    {
+        StaticReused=false;
+        if(packet.triangles.size()!=triangleCount || staticCount>triangleCount
+            ||packet.texels.size()>MaximumPrimaryTexels)return false;
+        const bool sameTexels=packet.texels.size()==Texels.size() && (Texels.empty()
+            ||std::memcmp(packet.texels.data(),Texels.data(),Texels.size()*sizeof(Float4))==0);
+        if(!sameTexels) {
+            for(const Float4 texel:packet.texels){++CheckedTexels;if(!ValidPrimaryTexel(texel))return false;}
+        } else ReusedTexels+=packet.texels.size();
+        const bool sameStatic=staticCount==Static.size() && packet.texels.size()>=Texels.size()
+            && (!staticCount ||std::memcmp(packet.triangles.data(),Static.data(),staticCount*sizeof(PrimaryMaterial))==0);
+        const size_t first=sameStatic?staticCount:0;
+        for(size_t i=first;i<triangleCount;++i){++CheckedMaterials;
+            if(!ValidPrimaryMaterial(packet.triangles[i],packet.texels.size()))return false;}
+        if(sameStatic)ReusedMaterials+=staticCount;
+        if(!sameTexels)Texels=packet.texels;
+        if(!sameStatic)Static.assign(packet.triangles.begin(),packet.triangles.begin()+staticCount);
+        StaticReused=sameStatic;
+        return true;
+    }
+private:
+    std::vector<PrimaryMaterial> Static;
+    std::vector<Float4> Texels;
+};
 
 inline uint64_t FingerprintPrimaryMaterials(const PrimaryMaterialPacket &packet)
 {

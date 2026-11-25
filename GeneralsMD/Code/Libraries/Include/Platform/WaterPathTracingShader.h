@@ -17,6 +17,12 @@ float4 main(uint vertex : SV_VertexID) : SV_Position
 inline const char *FragmentSource()
 {
     return R"HLSL(
+#ifdef WATER_HARDWARE_REFLECTION
+Texture2D<float4> HardwareHits : register(t5, space2);
+#ifdef WATER_HARDWARE_PATH
+Texture2D<float4> HardwareTransport : register(t6, space2);
+#endif
+#endif
 Texture2D<float4> PathNodes : register(t0, space2);
 Texture2D<float4> PathTriangles : register(t1, space2);
 Texture2D<float4> PathPrevious : register(t2, space2);
@@ -194,7 +200,11 @@ float3 pathMaterialBilinear(uint offset,int2 size,float2 uv) {
         pathMaterialTexel(offset,first+int2(1,1),size),weight.x);
     return lerp(low,high,weight.y);
 }
-float3 pathPrimaryAlbedo(uint triangleIndex,float3 hitPoint,float3 captureRay,float3 fallback) {
+float3 pathPrimaryAlbedo(uint triangleIndex,float3 hitPoint,float3 captureRay,float3 fallback
+#ifdef WATER_HARDWARE_REFLECTION
+    ,float2 hitBary
+#endif
+) {
     float4 material=pathMaterialRecord(triangleIndex*3u+2u);
     if(material.w<1.0)return fallback;
     float4 uvAB=pathMaterialRecord(triangleIndex*3u);
@@ -204,8 +214,12 @@ float3 pathPrimaryAlbedo(uint triangleIndex,float3 hitPoint,float3 captureRay,fl
     float3 e2=pathTriangle(triangleIndex*4u+2u).xyz;
     float3 n=cross(e1,e2),v=hitPoint-a;
     float inverse=1.0/dot(n,n);
+#ifdef WATER_HARDWARE_REFLECTION
+    float b=hitBary.x,c=hitBary.y;
+#else
     float b=dot(cross(v,e2),n)*inverse;
     float c=dot(cross(e1,v),n)*inverse;
+#endif
     float2 uvB=uvAB.zw-uvAB.xy,uvC=uvCSize.xy-uvAB.xy;
     float2 uv=uvAB.xy+uvB*b+uvC*c;
     // Differentiate the camera ray's intersection with this hit plane. Screen
@@ -237,6 +251,7 @@ float3 pathCosine(float3 normal,float2 xi) {
     return normalize(tangent*(radius*cos(angle))+bitangent*(radius*sin(angle))
                      +normal*sqrt(max(0.0,1.0-xi.x)));
 }
+#ifndef WATER_HARDWARE_REFLECTION
 float4 main(float4 position : SV_Position) : SV_Target0
 {
     uint2 pixel=(uint2)position.xy;
@@ -310,6 +325,54 @@ float4 main(float4 position : SV_Position) : SV_Target0
     // at silhouettes before the interface's Fresnel factor was even applied.
     return current;
 }
+#else
+float4 main(float4 position : SV_Position) : SV_Target0
+{
+    uint2 pixel=(uint2)position.xy;
+    float4 hit=HardwareHits.Load(int3(pixel,0));
+    if(hit.y<0.0 || hit.y>=Counts.y) {
+#ifdef WATER_HARDWARE_PATH
+        if(Counts.z>0) return lerp(PathPrevious.Load(int3(pixel,0)),float4(0,0,0,0),1.0/(Counts.z+1.0));
+#endif
+        return float4(0,0,0,0);
+    }
+    uint triangleIndex=(uint)(hit.y+0.5);
+    float2 uv=(float2(pixel)+0.5)/Output.xy;
+    float3 captureRay=RayTopLeft.xyz+RayDx.xyz*uv.x+RayDy.xyz*uv.y;
+    float3 ray=normalize(captureRay);
+    float crossing=(OriginWater.w-OriginWater.z)/ray.z;
+    float3 origin=OriginWater.xyz+ray*(crossing+max(Output.z,0.0001));
+    float3 hitPoint=origin+ray*hit.x;
+    float3 normal,albedo;
+    pathMaterial(triangleIndex,ray,normal,albedo);
+    albedo=pathPrimaryAlbedo(triangleIndex,hitPoint,captureRay,albedo,hit.zw);
+    float3 sun=SunDirection.xyz*rsqrt(max(dot(SunDirection.xyz,SunDirection.xyz),1e-20));
+#ifdef WATER_HARDWARE_PATH
+    float4 transport=HardwareTransport.Load(int3(pixel,0));
+    float3 radiance=albedo*SunRadiance.rgb*(max(dot(normal,sun),0.0)*transport.w/PathPi);
+    if(any(albedo>0)) {
+        float3 incident=lerp(SkyLow.rgb,SkyHigh.rgb,saturate(transport.y));
+        if(transport.x>=0.0 && transport.x<Counts.y) {
+            uint secondary=(uint)(transport.x+0.5);
+            float3 edge1=pathTriangle(secondary*4u+1u).xyz;
+            float3 edge2=pathTriangle(secondary*4u+2u).xyz;
+            float3 secondaryNormal=normalize(cross(edge1,edge2))*transport.z;
+            float3 secondaryAlbedo=saturate(pathTriangle(secondary*4u+3u).xyz);
+            incident=secondaryAlbedo*(pathSecondarySky(secondaryNormal)
+                +SunRadiance.rgb*(max(dot(secondaryNormal,sun),0.0)/PathPi));
+        }
+        radiance+=albedo*incident;
+    }
+    float4 current=float4(max(radiance,0),1);
+    if(Counts.z>0) current=lerp(PathPrevious.Load(int3(pixel,0)),current,1.0/(Counts.z+1.0));
+    return current;
+#else
+    float3 radiance=albedo*(pathSecondarySky(normal)
+        +SunRadiance.rgb*(max(dot(normal,sun),0.0)/PathPi));
+    return float4(max(radiance,0),1);
+#endif
+}
+#endif
 )HLSL";
 }
 

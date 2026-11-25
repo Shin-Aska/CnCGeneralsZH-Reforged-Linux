@@ -1,8 +1,19 @@
 // The optional water tracer on the actual SDL GPU backend. No game or assets required.
 #include "SdlGpuFrame.h"
 #include "Platform/WaterPathTracing.h"
+#include "Platform/WaterHardwarePathTracingShader.h"
 #include "Platform/WaterPathTracingMotion.h"
 #include "Platform/WaterPathTracingMaterials.h"
+#include "Platform/WaterPathCaptureScope.h"
+#include "Platform/HardwareRaySun.h"
+#include "matrix3d.h"
+#include "vector2.h"
+#include "frustum.h"
+#include "aabox.h"
+#include "colmath.h"
+#if defined(__linux__)
+#include "../Libraries/Source/SDL_gpu_vulkan_rayquery.h"
+#endif
 #include "Platform/WaterOpticalModel.h"
 #include "Platform/WaterFoamShading.h"
 #include "../Libraries/Source/WWVegas/WW3D2/engineshader.h"
@@ -30,7 +41,7 @@ float Half(uint16_t bits)
     return sign*std::ldexp(1.f+float(mantissa)/1024.f,int(exponent)-15);
 }
 
-std::vector<float> Read(SdlGpuFrame *frame,unsigned size,SDL_GPUTexture *texture=nullptr,unsigned mip=0)
+std::vector<float> Read(SdlGpuFrame *frame,unsigned size,SDL_GPUTexture *texture=nullptr,unsigned mip=0,bool fullFloat=false)
 {
     std::vector<float> result;
     CHECK(frame->Flush());
@@ -38,7 +49,7 @@ std::vector<float> Read(SdlGpuFrame *frame,unsigned size,SDL_GPUTexture *texture
     if(!texture)return result;
     SDL_GPUTransferBufferCreateInfo info{};
     info.usage=SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
-    info.size=size*size*4*sizeof(uint16_t);
+    info.size=size*size*4*(fullFloat ? sizeof(float) : sizeof(uint16_t));
     SDL_GPUTransferBuffer *transfer=SDL_CreateGPUTransferBuffer(frame->Device(),&info);
     CHECK(transfer);
     if(!transfer)return result;
@@ -59,12 +70,13 @@ std::vector<float> Read(SdlGpuFrame *frame,unsigned size,SDL_GPUTexture *texture
             if(fence) {
                 CHECK(SDL_WaitForGPUFences(frame->Device(),true,&fence,1));
                 SDL_ReleaseGPUFence(frame->Device(),fence);
-                const uint16_t *mapped=static_cast<const uint16_t *>(
-                    SDL_MapGPUTransferBuffer(frame->Device(),transfer,false));
+                const void *mapped=SDL_MapGPUTransferBuffer(frame->Device(),transfer,false);
                 CHECK(mapped);
                 if(mapped) {
                     result.resize(size*size*4);
-                    for(unsigned i=0;i<result.size();++i)result[i]=Half(mapped[i]);
+                    for(unsigned i=0;i<result.size();++i)
+                        result[i]=fullFloat ? static_cast<const float *>(mapped)[i]
+                            : Half(static_cast<const uint16_t *>(mapped)[i]);
                     SDL_UnmapGPUTransferBuffer(frame->Device(),transfer);
                 }
             }
@@ -88,6 +100,648 @@ bool Approx(float actual,float expected,float tolerance=0.004f)
     return std::isfinite(actual)&&std::abs(actual-expected)<tolerance;
 }
 bool Contains(const std::string &text,const char *part) { return text.find(part)!=std::string::npos; }
+unsigned NativeCounter(SdlGpuFrame *frame, const char *name)
+{
+    const std::string report=frame->Water_Path_Report();
+    const size_t at=report.find(name);
+    CHECK(at!=std::string::npos);
+    return at==std::string::npos ? 0u : unsigned(std::stoul(report.substr(at+std::strlen(name))));
+}
+
+void CheckHardwareRetry(SdlGpuFrame *frame, const std::vector<Triangle> &scene, const View &view,
+    const PrimaryMaterialPacket *materials, bool path)
+{
+    const unsigned creates = NativeCounter(frame,"native pipeline creates=");
+    View invalid = view; invalid.maxDistance = 0;
+    CHECK(!frame->Prepare_Water_Path(scene,invalid,0,materials,true,path));
+    CHECK(!frame->Water_Hardware_Available(path));
+    CHECK(!frame->Prepare_Water_Path(scene,view,0,materials,true,path));
+    CHECK(NativeCounter(frame,"native pipeline creates=")==creates);
+    const bool enabled = HardwareRayTracing::Requested();
+    const uint64_t generation = HardwareRayTracing::RequestGeneration();
+    HardwareRayTracing::SetRequested(enabled);
+    CHECK(HardwareRayTracing::RequestGeneration()==generation);
+    CHECK(!frame->Water_Hardware_Available(path));
+    HardwareRayTracing::SetRequested(!enabled);
+    HardwareRayTracing::SetRequested(enabled);
+    CHECK(frame->Water_Hardware_Available(path));
+    CHECK(frame->Prepare_Water_Path(scene,view,0,materials,true,path));
+    CHECK(frame->Water_Path_Texture()!=nullptr);
+    // Recovery retires the possibly ambiguous native scene before recreating.
+    CHECK(NativeCounter(frame,"native pipeline creates=")==creates+1);
+}
+
+
+void CheckHardwareReflection(SdlGpuFrame *frame)
+{
+    View view{};
+    view.size=view.motionSize=32;
+    view.origin={0,0,-5}; view.waterLevel=0;
+    view.rayTopLeft={-.5f,.5f,1}; view.rayDx={1,0,0}; view.rayDy={0,-1,0};
+    view.sunRadiance={0,0,0}; view.skyLow=view.skyHigh={1,1,1};
+    // The real camera looks down -Z from z=5. This roof at z=8 is behind its
+    // near plane, but the mirrored camera below the water looks upward into it.
+    Matrix3D camera(true); camera.Set_Translation(Vector3(0,0,5));
+    FrustumClass mainFrustum;
+    mainFrustum.Init(camera,Vector2(-.5f,-.5f),Vector2(.5f,.5f),.1f,100.f);
+    const AABoxClass building(Vector3(0,0,8),Vector3(3,3,.01f));
+    const bool mainRejected=CollisionMath::Overlap_Test(mainFrustum,building)==CollisionMath::OUTSIDE;
+    CHECK(mainRejected);
+    CaptureScope reflectedFrustum(view,CaptureScope::Content::Primary);
+    CHECK(reflectedFrustum.Matches({-3,-3,7.99f},{3,3,8.01f}));
+    const std::vector<Triangle> empty;
+    CHECK(!frame->Prepare_Water_Path(empty,view,99,nullptr,true));
+    CHECK(frame->Water_Hardware_Available()); // Empty startup export is transient, not sticky failure.
+    std::vector<Triangle> scene;
+    Quad(scene,{-3,-3,8},{3,-3,8},{3,3,8},{-3,3,8},{0,0,0});
+    Quad(scene,{-3,-3,12},{3,-3,12},{3,3,12},{-3,3,12},{0,0,0});
+    Horizontal(scene,-1,{0,1,0}); // Below-water geometry must never become the primary hit.
+    PrimaryMaterialPacket materials;
+    materials.triangles.resize(scene.size());
+    materials.texels={{.8f,.1f,.05f,1},{.05f,.2f,.9f,1}};
+    for(unsigned i=0;i<4;++i) {
+        materials.triangles[i].uvAB={0,0,1,0};
+        materials.triangles[i].uvCSize={1,1,1,1};
+        materials.triangles[i].diffuseOffset={.5f,1,1,i<2 ? 1.f : 2.f};
+    }
+    CHECK(frame->Prepare_Water_Path(scene,view,1,&materials,true));
+    CHECK(frame->Water_Hardware_Hits()!=nullptr);
+    CHECK(NativeCounter(frame,"native pipeline creates=")==1);
+    CHECK(NativeCounter(frame,"AS builds=")==1);
+    auto hits=Read(frame,32,frame->Water_Hardware_Hits(),0,true);
+    auto pixels=Read(frame,32);
+    CHECK(hits.size()==4096 && pixels.size()==4096);
+    if(hits.size()!=4096 || pixels.size()!=4096)return;
+    Scene packed; CHECK(packed.PackLinear(scene));
+    unsigned reflectedPixels=0,misses=0;
+    for(unsigned y=0;y<32;++y) for(unsigned x=0;x<32;++x) {
+        const size_t at=(y*32+x)*4;
+        const bool expected=x>=9 && x<23 && y>=9 && y<23;
+        CHECK(Approx(pixels[at+3],expected ? 1.f:0.f));
+        if(!expected) { CHECK(hits[at+1]==-1); ++misses; continue; }
+        ++reflectedPixels;
+        CHECK(hits[at+1]>=0 && hits[at+1]==std::floor(hits[at+1]));
+        const unsigned primitive=unsigned(hits[at+1]);
+        CHECK(primitive<packed.triangles.size());
+        if(primitive>=packed.triangles.size())continue;
+        CHECK(packed.SourceTriangleIndex(primitive)<2); // Closest roof, never farther blue roof.
+        const Triangle &triangle=packed.triangles[primitive];
+        const float u=hits[at+2],v=hits[at+3];
+        CHECK(u>=-.00001f && v>=-.00001f && u+v<=1.00001f);
+        const Vec3 baryPoint=Add(triangle.a,Add(Scale(Sub(triangle.b,triangle.a),u),Scale(Sub(triangle.c,triangle.a),v)));
+        const Vec3 ray=Normalized(Add(view.rayTopLeft,Add(Scale(view.rayDx,(x+.5f)/32),Scale(view.rayDy,(y+.5f)/32))));
+        const float crossing=5/ray.z;
+        const Vec3 queryOrigin=Add(view.origin,Scale(ray,crossing+.02f));
+        const Vec3 rayPoint=Add(queryOrigin,Scale(ray,hits[at]));
+        CHECK(Approx(baryPoint.x,rayPoint.x,.0002f) && Approx(baryPoint.y,rayPoint.y,.0002f));
+        CHECK(Approx(rayPoint.z,8,.0002f));
+        CHECK(Approx(pixels[at],.4f) && Approx(pixels[at+1],.1f) && Approx(pixels[at+2],.05f));
+    }
+    CHECK(reflectedPixels==196 && misses==828);
+    const auto mip=Read(frame,16,frame->Water_Path_Texture(),1);
+    CHECK(mip.size()==1024);
+    CHECK(mip.size()==1024 && mip[(8*16+8)*4+3]>.99f);
+    // Material revision changes hit appearance without replacing the off-camera fixture.
+    materials.texels[0]={.1f,.8f,.2f,1};
+    CHECK(frame->Prepare_Water_Path(scene,view,2,&materials,true));
+    CHECK(NativeCounter(frame,"native pipeline creates=")==1);
+    CHECK(NativeCounter(frame,"AS builds=")==1); // Material-only revision must skip native geometry rebuild.
+    CHECK(NativeCounter(frame,"unchanged geometry skips=")==1);
+    pixels=Read(frame,32);
+    const size_t center=(16*32+16)*4;
+    CHECK(pixels.size()==4096 && Approx(pixels[center],.05f) &&
+        Approx(pixels[center+1],.8f) && Approx(pixels[center+2],.2f));
+    // Unchanged revision still changes packing layout on hardware/software reentry.
+    CHECK(frame->Prepare_Water_Path(scene,view,2,&materials));
+    const auto softwareSameRevision=Read(frame,32);
+    CHECK(softwareSameRevision.size()==4096 && Approx(softwareSameRevision[center+3],1));
+    CHECK(frame->Prepare_Water_Path(scene,view,2,&materials,true));
+    CHECK(NativeCounter(frame,"native pipeline creates=")==1);
+    CHECK(NativeCounter(frame,"AS builds=")==1); // Source-order geometry matches the retained native scene.
+    CHECK(NativeCounter(frame,"unchanged geometry skips=")==2);
+    pixels=Read(frame,32);
+    CHECK(pixels.size()==4096 && Approx(pixels[center],.05f) && Approx(pixels[center+1],.8f));
+    // Shared CPU packets can advance while hardware mode is inactive. Re-entering
+    // hardware at that same revision must rebuild its AS from the new packed epoch.
+    for(unsigned i=0;i<2;++i) { scene[i].a.z+=2; scene[i].b.z+=2; scene[i].c.z+=2; }
+    CHECK(frame->Prepare_Water_Path(scene,view,3,&materials));
+    CHECK(frame->Prepare_Water_Path(scene,view,3,&materials,true));
+    CHECK(NativeCounter(frame,"native pipeline creates=")==1);
+    CHECK(NativeCounter(frame,"AS builds=")==2); // Changed pose rebuilds the AS using the same pipeline.
+    hits=Read(frame,32,frame->Water_Hardware_Hits(),0,true);
+    CHECK(hits.size()==4096);
+    if(hits.size()==4096) {
+        const Vec3 ray=Normalized(Add(view.rayTopLeft,Add(Scale(view.rayDx,16.5f/32),Scale(view.rayDy,16.5f/32))));
+        const float worldZ=(.02f+hits[center])*ray.z;
+        CHECK(Approx(worldZ,10,.0002f));
+    }
+    const std::vector<Triangle> degenerate={{{0,0,1},{0,0,1},{0,0,1},{1,0,0}}};
+    CHECK(!frame->Prepare_Water_Path(degenerate,view,4,nullptr,true));
+    CHECK(frame->Water_Hardware_Hits()==nullptr);
+    CHECK(frame->Water_Hardware_Available());
+    CHECK(frame->Prepare_Water_Path(scene,view,5,&materials,true));
+    view.maxDistance=.1f;
+    CHECK(frame->Prepare_Water_Path(scene,view,5,&materials,true));
+    hits=Read(frame,32,frame->Water_Hardware_Hits(),0,true);
+    pixels=Read(frame,32);
+    for(unsigned i=0;i<1024 && hits.size()==4096 && pixels.size()==4096;++i) {
+        CHECK(hits[i*4+1]==-1); CHECK(pixels[i*4+3]==0);
+    }
+    const unsigned buildsBeforeCountChange=NativeCounter(frame,"AS builds=");
+    const unsigned allocationsBeforeGrowth=NativeCounter(frame,"geometry allocations=");
+    view.maxDistance=1000;
+    Quad(scene,{1000,0,20},{1001,0,20},{1001,1,20},{1000,1,20},{.2f,.2f,.2f});
+    materials.triangles.resize(scene.size());
+    CHECK(frame->Prepare_Water_Path(scene,view,6,&materials,true));
+    CHECK(NativeCounter(frame,"native pipeline creates=")==1);
+    CHECK(NativeCounter(frame,"AS builds=")==buildsBeforeCountChange+1);
+    CHECK(NativeCounter(frame,"geometry allocations=")==allocationsBeforeGrowth+1);
+    pixels=Read(frame,32);
+    CHECK(pixels.size()==4096 && Approx(pixels[center],.05f) && Approx(pixels[center+1],.8f));
+
+    const unsigned allocations=NativeCounter(frame,"geometry allocations=");
+    const unsigned reuses=NativeCounter(frame,"geometry count reuses=");
+    const unsigned capacity=NativeCounter(frame,"geometry triangle capacity=");
+    const size_t originalCount=scene.size()-2;
+    const auto trimRoof = [&] {
+        scene.resize(originalCount);
+        materials.triangles.resize(originalCount);
+    };
+    const auto checkCenterHeight = [&](float height) {
+        const auto result=Read(frame,32,frame->Water_Hardware_Hits(),0,true);
+        CHECK(result.size()==4096);
+        if (result.size()==4096) {
+            const Vec3 ray=Normalized(Add(view.rayTopLeft,Add(Scale(view.rayDx,16.5f/32),Scale(view.rayDy,16.5f/32))));
+            CHECK(result[center+1]>=0 && Approx((.02f+result[center])*ray.z,height,.0002f));
+        }
+    };
+    trimRoof();
+    CHECK(frame->Prepare_Water_Path(scene,view,7,&materials,true));
+    checkCenterHeight(10);
+    Quad(scene,{-3,-3,6},{3,-3,6},{3,3,6},{-3,3,6},{1,0,0});
+    materials.triangles.resize(scene.size());
+    CHECK(frame->Prepare_Water_Path(scene,view,8,&materials,true));
+    checkCenterHeight(6);
+    trimRoof();
+    CHECK(frame->Prepare_Water_Path(scene,view,9,&materials,true));
+    checkCenterHeight(10);
+    CHECK(NativeCounter(frame,"geometry allocations=")==allocations);
+    CHECK(NativeCounter(frame,"geometry count reuses=")==reuses+3);
+    CHECK(NativeCounter(frame,"geometry triangle capacity=")==capacity);
+    CHECK(NativeCounter(frame,"geometry active triangles=")==originalCount);
+
+    const unsigned textureAllocations=NativeCounter(frame,"data texture allocations=");
+    while (scene.size()*3<=DataTextureWidth) {
+        const float x=1000.0f+float(scene.size());
+        Quad(scene,{x,0,20},{x+1,0,20},{x+1,1,20},{x,1,20},{0,0,0});
+    }
+    Quad(scene,{-3,-3,6},{3,-3,6},{3,3,6},{-3,3,6},{0,0,0});
+    materials.triangles.resize(scene.size());
+    materials.triangles[scene.size()-2]=materials.triangles[2];
+    materials.triangles[scene.size()-1]=materials.triangles[3];
+    CHECK(frame->Prepare_Water_Path(scene,view,10,&materials,true));
+    CHECK(NativeCounter(frame,"data texture allocations=")==textureAllocations+2);
+    checkCenterHeight(6);
+    pixels=Read(frame,32);
+    CHECK(pixels.size()==4096 && Approx(pixels[center],.025f) && Approx(pixels[center+2],.9f));
+    const unsigned triangleRows=NativeCounter(frame,"triangle texture rows=");
+    const unsigned materialRows=NativeCounter(frame,"material texture rows=");
+    CHECK(triangleRows>1 && materialRows>1);
+
+    trimRoof();
+    CHECK(frame->Prepare_Water_Path(scene,view,11,&materials,true));
+    CHECK(NativeCounter(frame,"data texture allocations=")==textureAllocations+2);
+    CHECK(NativeCounter(frame,"triangle texture rows=")==triangleRows);
+    CHECK(NativeCounter(frame,"material texture rows=")==materialRows);
+    checkCenterHeight(10);
+    pixels=Read(frame,32);
+    CHECK(pixels.size()==4096 && Approx(pixels[center],.05f) && Approx(pixels[center+1],.8f));
+
+    // A validated atlas still requires valid bindings for every active triangle.
+    materials.triangles[0].diffuseOffset.w=float(materials.texels.size()+1);
+    CHECK(!frame->Prepare_Water_Path(scene,view,12,&materials,true));
+    CHECK(Contains(frame->Water_Path_Report(),"invalid primary materials"));
+    CHECK(frame->Water_Path_Texture()==nullptr);
+    materials.triangles[0].diffuseOffset.w=1;
+    // The existing material refusal also remains latched until a real toggle.
+    CheckHardwareRetry(frame,scene,view,&materials,false);
+    std::printf("hardware_water: main_frustum_rejected=%u reflected_pixels=%u misses=%u closest_id_barycentrics=checked material_revision=checked empty_recovery=checked mode_reentry=checked native_pipeline_reuse=checked unchanged_geometry_skip=checked same_revision_layout_reentry=checked changed_count=checked mip=checked short_ray=checked\n",
+        mainRejected,reflectedPixels,misses);
+    frame->Clear_Water_Path();
+}
+
+void CheckHardwarePath(SdlGpuFrame *frame)
+{
+    View view{}; view.size=view.motionSize=32; view.origin={-5,0,-5};
+    view.rayTopLeft={.55f,-.2f,1}; view.rayDx={.2f,0,0}; view.rayDy={0,.4f,0};
+    view.skyLow=view.skyHigh={0,0,0}; view.sunDirection=Normalized({1,0,.5f});
+    view.sunRadiance={3.14159265f,3.14159265f,3.14159265f};
+    std::vector<Triangle> scene;
+    Quad(scene,{0,-10,1},{0,10,1},{0,10,5},{0,-10,5},{.8f,.8f,.8f});
+    Quad(scene,{-4,-100,-100},{-4,100,-100},{-4,100,100},{-4,-100,100},{.8f,.02f,.02f});
+    for(unsigned sample=0;sample<64;++sample) CHECK(frame->Prepare_Water_Path(scene,view));
+    const auto software=Read(frame,32);
+    frame->Clear_Water_Path();
+    const std::vector<Triangle> empty;
+    CHECK(!frame->Prepare_Water_Path(empty,view,99,nullptr,true,true));
+    CHECK(frame->Water_Hardware_Available(true));
+    for(unsigned sample=0;sample<64;++sample) {
+        CHECK(frame->Prepare_Water_Path(scene,view,0,nullptr,true,true));
+        if(sample<2 || sample==63) {
+            const std::string expected=std::to_string(sample+1)+"/64 samples";
+            CHECK(Contains(frame->Water_Path_Report(),expected.c_str()));
+        }
+    }
+    const auto hardware=Read(frame,32);
+    CHECK(software.size()==4096 && hardware.size()==4096);
+    double meanError=0,maxError=0,red=0,green=0;
+    if(software.size()==hardware.size() && hardware.size()==4096) {
+        for(unsigned i=0;i<hardware.size();++i) {
+            const double error=std::abs(software[i]-hardware[i]); meanError+=error; maxError=std::max(maxError,error);
+            CHECK(std::isfinite(hardware[i]));
+            if(i%4==0)red+=hardware[i]; if(i%4==1)green+=hardware[i];
+        }
+        meanError/=hardware.size();
+        CHECK(meanError<.003 && maxError<.04); CHECK(red>10 && red>green*2);
+    }
+    const unsigned fenceWaitsAtConvergence=NativeCounter(frame,"profiled fence waits=");
+    const unsigned noWorkAtConvergence=NativeCounter(frame,"profiled no-work returns=");
+    CHECK(frame->Prepare_Water_Path(scene,view,0,nullptr,true,true));
+    CHECK(Contains(frame->Water_Path_Report(),"64/64 samples"));
+    CHECK(NativeCounter(frame,"profiled fence waits=")==fenceWaitsAtConvergence);
+    CHECK(NativeCounter(frame,"profiled no-work returns=")==noWorkAtConvergence+1);
+    auto primary=Read(frame,32,frame->Water_Hardware_Hits(),0,true);
+    auto transport=Read(frame,32,frame->Water_Hardware_Transport(),0,true);
+    CHECK(primary.size()==4096 && transport.size()==4096);
+    Scene packed; CHECK(packed.PackLinear(scene));
+    unsigned secondaryHits=0,secondaryMisses=0;
+    if(primary.size()==4096 && transport.size()==4096) for(unsigned i=0;i<1024;++i) {
+        const size_t at=i*4;
+        CHECK(primary[at+1]>=0 && unsigned(primary[at+1])<packed.triangles.size());
+        if(primary[at+1]>=0 && unsigned(primary[at+1])<packed.triangles.size())
+            CHECK(packed.SourceTriangleIndex(unsigned(primary[at+1]))<2);
+        CHECK(transport[at+1]>=-1.00001f && transport[at+1]<=1.00001f);
+        CHECK(transport[at+2]==1 || transport[at+2]==-1);
+        CHECK(transport[at+3]==0); // Primary faces away from the sun.
+        if(transport[at]>=0) {
+            ++secondaryHits;
+            CHECK(transport[at]==std::floor(transport[at]) && unsigned(transport[at])<packed.triangles.size());
+            if(unsigned(transport[at])<packed.triangles.size()) CHECK(packed.SourceTriangleIndex(unsigned(transport[at]))>=2);
+        } else { ++secondaryMisses; CHECK(transport[at]==-1); }
+    }
+    CHECK(secondaryHits>0);
+    view.secondaryDistance=.001f; // tMax < epsilon: continuation is an unobstructed sky sample.
+    view.skyLow=view.skyHigh={.2f,.3f,.4f};
+    CHECK(frame->Prepare_Water_Path(scene,view,0,nullptr,true,true));
+    CHECK(Contains(frame->Water_Path_Report(),"1/64 samples"));
+    auto pixels=Read(frame,32);
+    transport=Read(frame,32,frame->Water_Hardware_Transport(),0,true);
+    bool sky=true;
+    for(unsigned i=0;i<1024 && pixels.size()==4096 && transport.size()==4096;++i)
+        sky &= transport[i*4]==-1 && Approx(pixels[i*4],.16f) && Approx(pixels[i*4+1],.24f) && Approx(pixels[i*4+2],.32f);
+    CHECK(sky);
+    // A roof beyond the first wall blocks only its sun ray, not its primary silhouette.
+    view.skyLow=view.skyHigh={0,0,0}; view.sunDirection=Normalized({-1,0,.5f});
+    scene.resize(2);
+    CHECK(frame->Prepare_Water_Path(scene,view,0,nullptr,true,true));
+    const auto sunny=Read(frame,32);
+    Quad(scene,{-100,-100,6},{100,-100,6},{100,100,6},{-100,100,6},{.1f,.1f,.1f});
+    CHECK(frame->Prepare_Water_Path(scene,view,0,nullptr,true,true));
+    pixels=Read(frame,32); transport=Read(frame,32,frame->Water_Hardware_Transport(),0,true);
+    bool blocked=true;
+    for(unsigned i=0;i<1024 && pixels.size()==4096 && transport.size()==4096;++i)
+        blocked &= transport[i*4+3]==0 && pixels[i*4]==0 && pixels[i*4+1]==0 && pixels[i*4+2]==0;
+    CHECK(blocked);
+    view.shadowDistance=.001f;
+    CHECK(frame->Prepare_Water_Path(scene,view,0,nullptr,true,true));
+    pixels=Read(frame,32); transport=Read(frame,32,frame->Water_Hardware_Transport(),0,true);
+    bool shortSun=true;
+    for(unsigned i=0;i<1024 && pixels.size()==4096 && transport.size()==4096 && sunny.size()==4096;++i)
+        shortSun &= transport[i*4+3]==1 && Approx(pixels[i*4],sunny[i*4]) && pixels[i*4]>.6f;
+    CHECK(shortSun);
+    view.sunDirection=Normalized({1,0,-.5f});
+    CHECK(frame->Prepare_Water_Path(scene,view,0,nullptr,true,true));
+    pixels=Read(frame,32); transport=Read(frame,32,frame->Water_Hardware_Transport(),0,true);
+    bool reverseSun=true;
+    for(unsigned i=0;i<1024 && pixels.size()==4096 && transport.size()==4096;++i)
+        reverseSun &= transport[i*4+3]==0 && pixels[i*4]==0;
+    CHECK(reverseSun);
+    view.maxDistance=.001f;
+    CHECK(frame->Prepare_Water_Path(scene,view,0,nullptr,true,true));
+    primary=Read(frame,32,frame->Water_Hardware_Hits(),0,true); pixels=Read(frame,32);
+    bool shortPrimary=true;
+    for(unsigned i=0;i<1024 && primary.size()==4096 && pixels.size()==4096;++i)
+        shortPrimary &= primary[i*4+1]==-1 && pixels[i*4+3]==0;
+    CHECK(shortPrimary);
+    CHECK(NativeCounter(frame,"native pipeline creates=")==1);
+    CHECK(NativeCounter(frame,"native updates=")>=2);
+    std::printf("hardware_water_path: samples=64 parity_mean=%.7f parity_max=%.7f secondary_hits=%u secondary_misses=%u sky_range=%u sun_block=%u sun_range=%u sun_reverse=%u primary_range=%u\n",
+        meanError,maxError,secondaryHits,secondaryMisses,sky,blocked,shortSun,reverseSun,shortPrimary);
+    CheckHardwareRetry(frame,scene,view,nullptr,true);
+    frame->Clear_Water_Path();
+}
+
+void CheckHardwareSplitPath(SdlGpuFrame *frame)
+{
+    View view{}; view.size=view.motionSize=32; view.origin={-5,0,-5};
+    view.rayTopLeft={.55f,-.2f,1}; view.rayDx={.2f,0,0}; view.rayDy={0,.4f,0};
+    view.skyLow=view.skyHigh={0,0,0}; view.sunDirection=Normalized({1,0,.5f});
+    view.sunRadiance={3.14159265f,3.14159265f,3.14159265f};
+    std::vector<Triangle> scene(1); // A removed degenerate must not inflate the dynamic ID base.
+    Quad(scene,{0,-10,1},{0,10,1},{0,10,5},{0,-10,5},{.8f,.8f,.8f});
+    Quad(scene,{-4,-100,-100},{-4,100,-100},{-4,100,100},{-4,-100,100},{.8f,.02f,.02f});
+    PrimaryMaterialPacket materials;
+    const auto setMaterials = [&]() {
+        materials.triangles.assign(scene.size(),{});
+        materials.texels={{1,1,1,1}};
+        for (auto &material : materials.triangles) {
+            material.uvCSize={0,0,1,1}; material.diffuseOffset={.8f,.8f,.8f,1};
+        }
+    };
+    setMaterials();
+    uint64_t revision=1;
+    const auto prepare = [&](size_t staticCount) {
+        CHECK(frame->Prepare_Water_Path(scene,view,revision++,&materials,true,true,staticCount));
+        CHECK(Contains(frame->Water_Path_Report(),"1/64 samples"));
+    };
+    const auto checkIds = [&](unsigned firstPrimary,unsigned primaryCount,unsigned firstSecondary,unsigned secondaryCount) {
+        const auto primary=Read(frame,32,frame->Water_Hardware_Hits(),0,true);
+        const auto transport=Read(frame,32,frame->Water_Hardware_Transport(),0,true);
+        CHECK(primary.size()==4096 && transport.size()==4096);
+        unsigned secondaryHits=0;
+        for (unsigned i=0;i<1024 && primary.size()==4096 && transport.size()==4096;++i) {
+            const float id=primary[i*4+1],secondary=transport[i*4];
+            CHECK(id==std::floor(id) && id>=float(firstPrimary) && id<float(firstPrimary+primaryCount));
+            if (secondary>=0) {
+                ++secondaryHits;
+                CHECK(secondary==std::floor(secondary) && secondary>=float(firstSecondary)
+                    && secondary<float(firstSecondary+secondaryCount));
+            } else CHECK(secondary==-1);
+        }
+        if (secondaryCount) CHECK(secondaryHits>0);
+        else CHECK(secondaryHits==0);
+    };
+    prepare(3); checkIds(0,2,2,2);
+    CHECK(NativeCounter(frame,"static AS builds=")==1);
+    CHECK(NativeCounter(frame,"dynamic AS builds=")==1);
+    auto pixels=Read(frame,32);
+    double red=0,green=0;
+    for (unsigned i=0;i<1024 && pixels.size()==4096;++i) { red+=pixels[i*4]; green+=pixels[i*4+1]; }
+    CHECK(red>1 && red>green*2); // Continuation must shade the red dynamic material.
+
+    // Changing both primary attributes and secondary albedo resets shading without touching either AS.
+    for (unsigned i=3;i<scene.size();++i) scene[i].albedo={.02f,.8f,.02f};
+    materials.texels[0]={.5f,1,1,1};
+    prepare(3); checkIds(0,2,2,2);
+    CHECK(NativeCounter(frame,"static AS builds=")==1);
+    CHECK(NativeCounter(frame,"dynamic AS builds=")==1);
+    pixels=Read(frame,32); red=green=0;
+    for (unsigned i=0;i<1024 && pixels.size()==4096;++i) { red+=pixels[i*4]; green+=pixels[i*4+1]; }
+    CHECK(green>1 && green>red*2);
+    for (unsigned i=3;i<scene.size();++i) { scene[i].a.x-=.25f; scene[i].b.x-=.25f; scene[i].c.x-=.25f; }
+    prepare(3); checkIds(0,2,2,2);
+    CHECK(NativeCounter(frame,"static AS builds=")==1);
+    CHECK(NativeCounter(frame,"dynamic AS builds=")==2);
+    CHECK(NativeCounter(frame,"static AS reuses=")==2);
+    CHECK(NativeCounter(frame,"static native pack skips=")>=2);
+    CHECK(NativeCounter(frame,"material records reused=")>=6);
+    CHECK(NativeCounter(frame,"static attribute records retained=")>=4);
+    // Dynamic count growth: four triangles reserve five primitive slots; the
+    // fifth must reuse that allocation. At x=-1, these rays have z=.3556..2.2317,
+    // so the temporary occluder extends to z=0 to cover every primary ray. A wall
+    // starting at z=1 correctly leaves 416/1024 pixels hitting the static wall.
+    // Shrinking must remove this near wall even while its bytes remain reserved.
+    const auto checkCountRange=[&](const char *stage,unsigned first,unsigned count) {
+        const auto hits=Read(frame,32,frame->Water_Hardware_Hits(),0,true);
+        unsigned histogram[8]={},misses=0,unexpected=0;
+        bool correct=hits.size()==4096;
+        float nearest=INFINITY,farthest=0;
+        for(unsigned i=0;i<1024 && hits.size()==4096;++i) {
+            const float id=hits[i*4+1];
+            if(!std::isfinite(id) || id!=std::floor(id) || id<0) ++misses;
+            else if(id<8) ++histogram[unsigned(id)];
+            else ++unexpected;
+            correct &= id>=first && id<first+count;
+            nearest=std::min(nearest,hits[i*4]); farthest=std::max(farthest,hits[i*4]);
+        }
+        std::printf("dynamic count %s: expected IDs=%u..%u hits[0..7]=%u,%u,%u,%u,%u,%u,%u,%u miss=%u other=%u distance=%.6f..%.6f\n",
+            stage,first,first+count-1,histogram[0],histogram[1],histogram[2],histogram[3],
+            histogram[4],histogram[5],histogram[6],histogram[7],misses,unexpected,nearest,farthest);
+        CHECK(correct && !misses && !unexpected);
+    };
+    Quad(scene,{-1,-10,0},{-1,10,0},{-1,10,5},{-1,-10,5},{.1f,.2f,.8f});
+    setMaterials(); prepare(3); checkCountRange("grow4",4,2);
+    scene.push_back({{100000,0,100000},{100001,0,100000},{100000,1,100000},{.1f,.1f,.1f}});
+    setMaterials(); prepare(3); checkCountRange("grow5-in-capacity",4,2);
+    scene.resize(5); setMaterials(); prepare(3); checkCountRange("shrink2-no-stale-tail",0,2);
+    checkIds(0,2,2,2);
+    CHECK(NativeCounter(frame,"static AS builds=")==1);
+
+    scene.resize(3); materials.triangles.resize(3);
+    prepare(3); checkIds(0,2,0,0); // Explicit empty dynamic mesh removes its old occluder.
+    CHECK(NativeCounter(frame,"static AS builds=")==1);
+
+    // Reverse the partitions so the primary material also needs a nonzero instance base.
+    scene.resize(1);
+    Quad(scene,{-4,-100,-100},{-4,100,-100},{-4,100,100},{-4,-100,100},{.8f,.02f,.02f});
+    Quad(scene,{0,-10,1},{0,10,1},{0,10,5},{0,-10,5},{0,0,0});
+    setMaterials(); prepare(3); checkIds(2,2,0,2);
+    pixels=Read(frame,32); red=green=0;
+    for (unsigned i=0;i<1024 && pixels.size()==4096;++i) { red+=pixels[i*4]; green+=pixels[i*4+1]; }
+    CHECK(red>1 && red>green*2); // Primary gets its textured material despite zero fallback albedo.
+    const unsigned dynamicBuilds=NativeCounter(frame,"dynamic AS builds=");
+    scene.erase(scene.begin()+1); materials.triangles.erase(materials.triangles.begin()+1);
+    prepare(2); checkIds(1,2,0,1); // Static count changes the TLAS base, preserving the dynamic BLAS.
+    CHECK(NativeCounter(frame,"dynamic AS builds=")==dynamicBuilds);
+    scene.erase(scene.begin(),scene.begin()+2); materials.triangles.erase(materials.triangles.begin(),materials.triangles.begin()+2);
+    prepare(0); checkIds(0,2,0,0);
+    CHECK(NativeCounter(frame,"dynamic AS builds=")==dynamicBuilds);
+    // Reclassifying identical source geometry is observable even when its revision is unchanged.
+    const unsigned staticBuilds=NativeCounter(frame,"static AS builds=");
+    CHECK(frame->Prepare_Water_Path(scene,view,revision-1,&materials,true,true,1));
+    CHECK(Contains(frame->Water_Path_Report(),"1/64 samples"));
+    checkIds(0,2,0,0);
+    CHECK(NativeCounter(frame,"static AS builds=")==staticBuilds+1);
+    CHECK(NativeCounter(frame,"native pipeline creates=")==1);
+    frame->Clear_Water_Path();
+}
+
+#if defined(__linux__)
+void CheckHardwareDynamicStorage(SdlGpuFrame *frame)
+{
+    std::vector<unsigned char> spirv; std::string error;
+    CHECK(SDL3_Compile_Ray_Query_GLSL(HardwarePathQuerySource(),spirv,error));
+    if(spirv.empty()) return;
+    const float staticXYZ[]={0,0,0,1,0,0,0,1,0}; const uint32_t staticIndices[]={0,1,2};
+    ZHR_SDLRayMeshView staticMesh={staticXYZ,3,staticIndices,3};
+    std::vector<float> xyz; std::vector<uint32_t> indices;
+    const auto mesh=[&](unsigned triangles) {
+        xyz.resize(size_t(triangles)*9); indices.resize(size_t(triangles)*3);
+        for(unsigned t=0;t<triangles;++t) {
+            const float vertices[]={float(t*2),0,1,float(t*2+1),0,1,float(t*2),1,1};
+            std::copy(vertices,vertices+9,xyz.begin()+t*9);
+            for(unsigned k=0;k<3;++k) indices[t*3+k]=t*3+k;
+        }
+        return ZHR_SDLRayMeshView{xyz.data(),triangles*3,indices.data(),triangles*3};
+    };
+    auto dynamicMesh=mesh(8);
+    ZHR_SDLRayScene *scene=ZHR_SDLRayCreateWaterPathSplitScene(frame->Device(),&staticMesh,&dynamicMesh,spirv.data(),spirv.size());
+    CHECK(scene); if(!scene) return;
+    ZHR_SDLRayWaterStorageStats stats={};
+    CHECK(ZHR_SDLRayGetWaterStorageStats(scene,&stats));
+    CHECK(stats.dynamicAllocations==1 && stats.activeVertices==24 && stats.activePrimitives==8);
+    CHECK(stats.vertexCapacity==30 && stats.primitiveCapacity==10);
+    const auto update=[&](unsigned count,Uint64 allocations) {
+        dynamicMesh=mesh(count); bool staticChanged=true,dynamicChanged=false;
+        CHECK(ZHR_SDLRayUpdateWaterPathSplitScene(scene,nullptr,&dynamicMesh,&staticChanged,&dynamicChanged));
+        CHECK(!staticChanged && dynamicChanged);
+        CHECK(ZHR_SDLRayGetWaterStorageStats(scene,&stats));
+        CHECK(stats.activeVertices==count*3 && stats.activePrimitives==count);
+        CHECK(stats.dynamicAllocations==allocations);
+    };
+    update(10,1); update(2,1); update(9,1);
+    CHECK(stats.dynamicCountReuses==3 && stats.dynamicRebuildReuses==3);
+    update(11,2); CHECK(stats.vertexCapacity==41 && stats.primitiveCapacity==13);
+    // Validation failure must leave active counts, capacity and allocation epoch unchanged.
+    const auto before=stats; indices[0]=dynamicMesh.vertexCount;
+    CHECK(!ZHR_SDLRayUpdateWaterPathSplitScene(scene,nullptr,&dynamicMesh,nullptr,nullptr));
+    CHECK(ZHR_SDLRayGetWaterStorageStats(scene,&stats));
+    CHECK(std::memcmp(&before,&stats,sizeof(stats))==0);
+    std::printf("hardware dynamic storage: allocations=%llu count-reuses=%llu active=%u/%u capacity=%u/%u\n",
+        (unsigned long long)stats.dynamicAllocations,(unsigned long long)stats.dynamicCountReuses,
+        stats.activeVertices,stats.activePrimitives,stats.vertexCapacity,stats.primitiveCapacity);
+    ZHR_SDLRayDestroyScene(scene);
+}
+
+#endif
+
+void CheckHardwareDirtyRows(SdlGpuFrame *frame)
+{
+    View view{}; view.size=view.motionSize=32; view.origin={-5,0,-5};
+    view.rayTopLeft={.55f,-.2f,1}; view.rayDx={.2f,0,0}; view.rayDy={0,.4f,0};
+    view.skyLow=view.skyHigh={1,1,1}; view.sunRadiance={0,0,0}; view.secondaryDistance=.001f;
+    std::vector<Triangle> scene(1);
+    Quad(scene,{0,-10,1},{0,10,1},{0,10,5},{0,-10,5},{0,0,0});
+    const Triangle lastPrimary=scene.back(); scene.pop_back();
+    const auto filler = [](unsigned i) {
+        const float x=1000.f+float(i)*2;
+        return Triangle{{x,0,1000},{x+1,0,1000},{x,1,1000},{.3f,.4f,.5f}};
+    };
+    while (scene.size()<701) scene.push_back(filler(unsigned(scene.size())));
+    scene.push_back(lastPrimary);
+    const size_t staticCount=scene.size(); // 701 packed triangles: both data layouts end mid-row.
+    Quad(scene,{-4,-100,-100},{-4,100,-100},{-4,100,100},{-4,-100,100},{.8f,.02f,.02f});
+    const Triangle dynamicA=scene[staticCount],dynamicB=scene[staticCount+1];
+    PrimaryMaterialPacket materials;
+    materials.texels={{1,1,1,1}};
+    materials.triangles.resize(scene.size());
+    for (unsigned i : {1u,701u}) {
+        materials.triangles[i].uvCSize={0,0,1,1};
+        materials.triangles[i].diffuseOffset={.4f,.7f,.9f,1};
+    }
+    uint64_t revision=1;
+    Scene incremental;
+    const auto prepare = [&]() {
+        Scene fresh;
+        CHECK(incremental.PackLinear(scene,false,unsigned(staticCount)));
+        CHECK(fresh.PackLinear(scene,false));
+        CHECK(incremental.triangleTexels.size()==fresh.triangleTexels.size());
+        if (incremental.triangleTexels.size()==fresh.triangleTexels.size())
+            CHECK(std::memcmp(incremental.triangleTexels.data(),fresh.triangleTexels.data(),fresh.triangleTexels.size()*sizeof(Float4))==0);
+        for (unsigned i=0;i<fresh.triangles.size();++i)
+            CHECK(incremental.SourceTriangleIndex(i)==fresh.SourceTriangleIndex(i));
+        CHECK(frame->Prepare_Water_Path(scene,view,revision++,&materials,true,true,staticCount));
+    };
+    const auto checkPixels = [&](Vec3 lastColour, Vec3 firstColour=Vec3{.4f,.7f,.9f}) {
+        const auto hits=Read(frame,32,frame->Water_Hardware_Hits(),0,true);
+        const auto pixels=Read(frame,32);
+        CHECK(hits.size()==4096 && pixels.size()==4096);
+        unsigned firstHits=0,lastHits=0;
+        for (unsigned i=0;i<1024 && hits.size()==4096 && pixels.size()==4096;++i) {
+            const float id=hits[i*4+1];
+            CHECK(id==0 || id==700);
+            if (id==0) ++firstHits; if (id==700) ++lastHits;
+            const Vec3 colour=id==700 ? lastColour : firstColour;
+            CHECK(Approx(pixels[i*4],colour.x) && Approx(pixels[i*4+1],colour.y)
+                && Approx(pixels[i*4+2],colour.z) && pixels[i*4+3]==1);
+        }
+        CHECK(firstHits>0 && lastHits>0); // Visible static records occupy an untouched row and the shared boundary row.
+    };
+    prepare(); checkPixels({.4f,.7f,.9f});
+    unsigned allocations=NativeCounter(frame,"data texture allocations=");
+    const unsigned uploadRows=NativeCounter(frame,"texture upload rows=");
+    for (size_t i=staticCount;i<scene.size();++i) { scene[i].a.x-=.25f; scene[i].b.x-=.25f; scene[i].c.x-=.25f; }
+    prepare(); checkPixels({.4f,.7f,.9f});
+    CHECK(NativeCounter(frame,"texture upload rows=")==uploadRows+1);
+    CHECK(NativeCounter(frame,"data texture allocations=")==allocations);
+    CHECK(NativeCounter(frame,"unchanged texture skips=")>=1);
+    const auto resizeDynamic = [&](unsigned count) {
+        scene.resize(staticCount); scene.push_back(dynamicA); scene.push_back(dynamicB);
+        while (scene.size()<staticCount+count) scene.push_back(filler(unsigned(scene.size())));
+        materials.triangles.resize(scene.size());
+        prepare(); checkPixels({.4f,.7f,.9f});
+    };
+    resizeDynamic(100); resizeDynamic(2);
+    CHECK(NativeCounter(frame,"data texture allocations=")==allocations);
+    resizeDynamic(600); // Triangle texture grows from two rows to four; attributes still fit two.
+    CHECK(NativeCounter(frame,"data texture allocations=")==allocations+1);
+    allocations=NativeCounter(frame,"data texture allocations=");
+    resizeDynamic(2); resizeDynamic(650);
+    CHECK(NativeCounter(frame,"data texture allocations=")==allocations);
+    resizeDynamic(900); // Attribute texture now also grows to four rows.
+    CHECK(NativeCounter(frame,"data texture allocations=")==allocations+1);
+    allocations=NativeCounter(frame,"data texture allocations=");
+    resizeDynamic(2);
+    CHECK(NativeCounter(frame,"data texture allocations=")==allocations);
+    const unsigned staticBuilds=NativeCounter(frame,"static AS builds=");
+    scene[701].albedo={1,0,0}; // Exact static-prefix retention must include shading data.
+    materials.triangles[701].diffuseOffset={.8f,.2f,.1f,1};
+    prepare(); checkPixels({.8f,.2f,.1f});
+    materials.triangles[701].diffuseOffset.w=0;
+    prepare(); checkPixels({1,0,0});
+    CHECK(NativeCounter(frame,"static AS builds=")==staticBuilds);
+    // Both triangle and material rows are recorded, then the whole command
+    // buffer is cancelled. Their CPU snapshots must not suppress the retry.
+    scene[701].albedo={0,1,0};
+    materials.triangles[1].diffuseOffset={.2f,.3f,.4f,1};
+    frame->Fail_Next_Water_Path_Upload_For_Test(2);
+    const uint64_t failedRevision=revision++;
+    CHECK(!frame->Prepare_Water_Path(scene,view,failedRevision,&materials,true,true,staticCount));
+    CHECK(Contains(frame->Water_Path_Report(),"injected water path upload refusal"));
+    CHECK(!frame->Prepare_Water_Path(scene,view,failedRevision,&materials,true,true,staticCount));
+    const bool requested=HardwareRayTracing::Requested();
+    HardwareRayTracing::SetRequested(!requested);
+    HardwareRayTracing::SetRequested(requested);
+    CHECK(frame->Prepare_Water_Path(scene,view,failedRevision,&materials,true,true,staticCount));
+    checkPixels({0,1,0},{.2f,.3f,.4f});
+    const auto oldTexels=incremental.triangleTexels;
+    scene[1].a.x=NAN;
+    CHECK(!incremental.PackLinear(scene,false,unsigned(staticCount)));
+    CHECK(std::memcmp(oldTexels.data(),incremental.triangleTexels.data(),oldTexels.size()*sizeof(Float4))==0);
+    frame->Clear_Water_Path();
+}
+
+void CheckHardwareRefusalAccumulation(SdlGpuFrame *frame)
+{
+    if (frame->Water_Hardware_Available()) return;
+    frame->Clear_Water_Path();
+    View view{}; view.size=view.motionSize=32; view.origin={0,0,-5};
+    view.rayTopLeft={-.5f,.5f,1}; view.rayDx={1,0,0}; view.rayDy={0,-1,0};
+    view.sunRadiance={0,0,0}; view.skyLow=view.skyHigh={1,1,1};
+    std::vector<Triangle> scene; Horizontal(scene,2,{.4f,.2f,.1f});
+    CHECK(frame->Prepare_Water_Path(scene,view));
+    CHECK(Contains(frame->Water_Path_Report(),"1/64 samples"));
+    for(unsigned sample=2;sample<=3;++sample) {
+        CHECK(!frame->Prepare_Water_Path(scene,view,0,nullptr,true));
+        CHECK(!frame->Prepare_Water_Path(scene,view,0,nullptr,true,true));
+        CHECK(frame->Water_Path_Texture()!=nullptr); // Refusal preserves the published software capture.
+        CHECK(frame->Prepare_Water_Path(scene,view));
+        const std::string expected=std::to_string(sample)+"/64 samples";
+        CHECK(Contains(frame->Water_Path_Report(),expected.c_str()));
+    }
+    std::printf("water_path_gpu: hardware refusal preserves software accumulation through 3/64 samples\n");
+    frame->Clear_Water_Path();
+}
 
 void CheckCapture(SdlGpuFrame *frame)
 {
@@ -1054,8 +1708,14 @@ void CheckTerrainClarityEligibility(SdlGpuFrame *frame)
 }
 }
 
-int main()
+int main(int argc,char **argv)
 {
+    const bool hardwarePath=argc>1 && std::strcmp(argv[1],"--hardware-path")==0;
+    const bool hardware=hardwarePath || (argc>1 && std::strcmp(argv[1],"--hardware")==0);
+    if(hardware) {
+        SDL_setenv_unsafe("ZH_GPU_RAY_QUERY","1",1);
+        SDL_setenv_unsafe("ZH_HARDWARE_WATER_PROFILE","1",0);
+    }
     if(!SDL_Init(SDL_INIT_VIDEO)) {
         std::printf("water_path_gpu: SKIP - SDL_Init: %s\n",SDL_GetError());return 77;
     }
@@ -1063,6 +1723,23 @@ int main()
     SdlGpuFrame *frame=SdlGpuFrame::Create(nullptr,32,32,error);
     if(!frame) {
         std::printf("water_path_gpu: SKIP - no GPU: %s\n",error.c_str());SDL_Quit();return 77;
+    }
+    if(hardware) {
+#if defined(__linux__)
+        char diagnostic[1024] = {};
+        if(!ZHR_SDLRayQuerySupported(frame->Device(),diagnostic,sizeof(diagnostic))) {
+            std::printf("hardware_water: SKIP - %s\n",diagnostic);
+            delete frame; SDL_Quit(); return 77;
+        }
+        std::printf("hardware_water: %s\n",diagnostic);
+        if(hardwarePath) { CheckHardwarePath(frame); CheckHardwareSplitPath(frame); CheckHardwareDynamicStorage(frame); CheckHardwareDirtyRows(frame); }
+        else CheckHardwareReflection(frame);
+        delete frame; SDL_Quit();
+        std::printf("hardware_water: %u checks, %u failed\n",checks,failures);
+        return failures?1:0;
+#else
+        delete frame; SDL_Quit(); return 77;
+#endif
     }
     CheckCapture(frame);
     CheckStablePrimaryCoverage(frame);
@@ -1076,6 +1753,7 @@ int main()
     CheckReflectionMinification(frame);
     CheckCaptureEnvironmentBoundary(frame);
     CheckTerrainClarityEligibility(frame);
+    CheckHardwareRefusalAccumulation(frame);
     delete frame;SDL_Quit();
     std::printf("water_path_gpu: %u checks, %u failed\n",checks,failures);
     return failures?1:0;

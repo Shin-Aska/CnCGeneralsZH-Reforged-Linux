@@ -6,7 +6,10 @@ namespace WaterPathTracing {
 
 class CaptureScope {
 public:
-    explicit CaptureScope(const View &view) : origin(view.origin), waterLevel(view.waterLevel)
+    enum class Content { Primary, FullTransport };
+
+    explicit CaptureScope(const View &view, Content content = Content::FullTransport)
+        : origin(view.origin), waterLevel(view.waterLevel)
     {
         if (!Finite(origin) || !Finite(view.rayTopLeft) || !Finite(view.rayDx) || !Finite(view.rayDy)
             || !std::isfinite(waterLevel) || !(view.maxDistance>0)
@@ -16,15 +19,16 @@ public:
             Add(Add(view.rayTopLeft,view.rayDx),view.rayDy),Add(view.rayTopLeft,view.rayDy)};
         const Vec3 centre=Add(view.rayTopLeft,Scale(Add(view.rayDx,view.rayDy),0.5f));
         const Vec3 sun=Normalized(view.sunDirection);
+        const float secondaryDistance=content==Content::FullTransport ? view.secondaryDistance : 0.0f;
+        const float shadowDistance=content==Content::FullTransport ? view.shadowDistance : 0.0f;
         for (unsigned i=0;i<4;++i) {
             Vec3 normal=Normalized(Cross(corners[i],corners[(i+1)%4]));
             if (!(Dot(normal,normal)>0) || !Finite(normal)) return;
             if (Dot(normal,centre)<0) normal=Scale(normal,-1);
             sides[i]=normal;
-            // Include secondary hits and sunlight occluders outside the primary
-            // frustum. The latter extend towards the sun, not in every direction.
-            margins[i]=view.secondaryDistance+1.0f
-                +std::max(0.0f,-Dot(normal,sun)*view.shadowDistance);
+            // Allow secondary hits in all directions and sunlight occluders towards the sun.
+            margins[i]=secondaryDistance+1.0f
+                +std::max(0.0f,-Dot(normal,sun)*shadowDistance);
         }
         active=true;
         // For a crop whose corners all cross the water in front of the camera,
@@ -45,8 +49,8 @@ public:
             else { low=Minimum(low,at);high=Maximum(high,at); }
         }
         if (finiteFootprint) {
-            const float radius=view.maxDistance+view.secondaryDistance+1.0f;
-            const Vec3 sweep=Scale(sun,view.shadowDistance);
+            const float radius=view.maxDistance+secondaryDistance+1.0f;
+            const Vec3 sweep=Scale(sun,shadowDistance);
             low=Sub(Add(low,Minimum(sweep,{0,0,0})),{radius,radius,radius});
             high=Add(Add(high,Maximum(sweep,{0,0,0})),{radius,radius,radius});
         }

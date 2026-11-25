@@ -308,7 +308,10 @@ SdlGpuFrame::~SdlGpuFrame()
 	Release_Ocean();
 	Release_Sun_Smoke();
 	Release_Targets();
-	Clear_Water_Path();
+	if (!Clear_Water_Path()) {
+		fprintf(stderr, "SdlGpuFrame: water path could not prove final GPU retirement\n");
+		std::terminate();
+	}
 	Release_Sun_Shadow();
 	if (StreamBuffer != NULL) SDL_ReleaseGPUBuffer(GpuDevice, StreamBuffer);
 	for (const ClearPipelineEntry &entry : ClearPipelines)
