@@ -65,6 +65,28 @@ TEST(water_path_refresh_view_changes_bypass_the_pose_latency_limit)
     CHECK(schedule.ShouldRefresh(5109));
 }
 
+TEST(hardware_water_refresh_follows_published_logic_frames)
+{
+    RefreshSchedule schedule;
+    CHECK(schedule.ShouldRefresh(1000, false, 20));
+    schedule.MarkRefreshed(1000, 20);
+    CHECK(!schedule.ShouldRefresh(1016, false, 20));
+    CHECK(schedule.ShouldRefresh(1033, false, 21));
+    CHECK(schedule.ShouldRefresh(1034, false, 21)); // Retry an uncommitted export.
+    schedule.MarkRefreshed(1034, 21);
+    CHECK(!schedule.ShouldRefresh(1200, false, 21)); // Same snapshot while paused.
+    CHECK(schedule.ShouldRefresh(1201, true, 21)); // Camera or backend change.
+    schedule.MarkRefreshed(1201, 21);
+    CHECK(schedule.ShouldRefresh(1202, false, 1)); // Logic frame reset.
+    schedule.MarkRefreshed(1202, 1);
+
+    // Turning hardware off forces the new capture and restores software cadence.
+    CHECK(schedule.ShouldRefresh(1203, true));
+    schedule.MarkRefreshed(1203);
+    CHECK(!schedule.ShouldRefresh(1302));
+    CHECK(schedule.ShouldRefresh(1303));
+}
+
 TEST(water_path_refresh_failed_exports_rollback_and_reentry_remain_due)
 {
     RefreshSchedule schedule;

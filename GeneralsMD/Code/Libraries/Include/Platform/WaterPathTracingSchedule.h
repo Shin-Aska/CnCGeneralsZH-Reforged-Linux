@@ -1,35 +1,37 @@
 // Geometry refresh policy for the optional water path tracer.
 #pragma once
 #include <cstdint>
+#include <optional>
 
 namespace WaterPathTracing {
 
-// A stationary capture reuses its scene snapshot for up to 100 ms, then refreshes
-// on the next rendered frame. Moving objects can therefore appear one snapshot
-// late. Camera, crop, water-plane and lighting changes must set viewChanged.
-// This limits CPU export work only: the current snapshot may still accumulate
-// samples every render frame. Its reported geometry revision must reset history
-// whenever a refresh changes the exported triangles.
+// Software refreshes its scene at most every 100 ms with a stationary view.
+// Hardware follows each new logic frame read by the renderer. View or backend
+// changes refresh immediately. The GPU can accumulate samples between exports.
 class RefreshSchedule
 {
 public:
     static constexpr uint64_t IntervalMs = 100;
 
-    bool ShouldRefresh(uint64_t nowMs,bool viewChanged=false)
+    bool ShouldRefresh(uint64_t nowMs, bool viewChanged = false,
+        std::optional<uint32_t> hardwareLogicFrame = std::nullopt)
     {
         if(viewChanged || (observedClock && nowMs<lastObservedMs)) forced=true;
         lastObservedMs=nowMs;
         observedClock=true;
-        return !initialized || forced || nowMs<lastRefreshMs
-            || nowMs-lastRefreshMs>=IntervalMs;
+        if (!initialized || forced || nowMs < lastRefreshMs)
+            return true;
+        return hardwareLogicFrame ? hardwareLogicFrame != lastHardwareLogicFrame
+                                  : nowMs - lastRefreshMs >= IntervalMs;
     }
 
     // Commit only after export succeeds. A failed export must not make an old
     // snapshot appear current or suppress the next attempt.
-    void MarkRefreshed(uint64_t nowMs)
+    void MarkRefreshed(uint64_t nowMs, std::optional<uint32_t> hardwareLogicFrame = std::nullopt)
     {
         lastRefreshMs=nowMs;
         lastObservedMs=nowMs;
+        lastHardwareLogicFrame=hardwareLogicFrame;
         initialized=true;
         observedClock=true;
         forced=false;
@@ -40,11 +42,13 @@ public:
         initialized=false;
         observedClock=forced=false;
         lastRefreshMs=lastObservedMs=0;
+        lastHardwareLogicFrame.reset();
     }
 
 private:
     uint64_t lastRefreshMs=0;
     uint64_t lastObservedMs=0;
+    std::optional<uint32_t> lastHardwareLogicFrame;
     bool initialized=false,observedClock=false,forced=false;
 };
 

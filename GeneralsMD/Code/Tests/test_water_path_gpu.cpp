@@ -400,6 +400,16 @@ void CheckHardwarePath(SdlGpuFrame *frame)
     for(unsigned i=0;i<1024 && pixels.size()==4096 && transport.size()==4096;++i)
         sky &= transport[i*4]==-1 && Approx(pixels[i*4],.16f) && Approx(pixels[i*4+1],.24f) && Approx(pixels[i*4+2],.32f);
     CHECK(sky);
+
+    // Keep the scene and view while switching the live capture to software.
+    CHECK(frame->Prepare_Water_Path(scene,view));
+    CHECK(frame->Water_Hardware_Hits()==nullptr && frame->Water_Hardware_Transport()==nullptr);
+    CHECK(Contains(frame->Water_Path_Report(),"1/64 samples"));
+    const auto switched=Read(frame,32);
+    const size_t center=(16*32+16)*4;
+    CHECK(switched.size()==4096 && Approx(switched[center],.16f) &&
+        Approx(switched[center+1],.24f) && Approx(switched[center+2],.32f) && Approx(switched[center+3],1));
+
     // A roof beyond the first wall blocks only its sun ray, not its primary silhouette.
     view.skyLow=view.skyHigh={0,0,0}; view.sunDirection=Normalized({-1,0,.5f});
     scene.resize(2);

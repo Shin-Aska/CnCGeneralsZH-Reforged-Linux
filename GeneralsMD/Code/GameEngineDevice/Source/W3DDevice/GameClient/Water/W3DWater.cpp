@@ -4581,25 +4581,26 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
 	const uint64_t nowMs = uint64_t(Clock_Ticks())/(uint64_t(Clock_Ticks_Per_Second())/1000);
     const Bool hardwarePathRequested=WaterScreenReflection::IsPathTraced(m_waterReflectionMode) &&
         (HardwareRayTracing::Requested() || WaterPathTracing::HardwarePathRequested());
-    const Bool hardwareStatic=hardwarePathRequested &&
+    const Bool useHardwarePath=hardwarePathRequested &&
         HardwareRayTracing::Available(DX8Wrapper::_Get_D3D_Device()) &&
         WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device(),true);
     const Bool hardwareOneBounce=!hardwarePathRequested && WaterPathTracing::HardwareRequested()
         && WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device());
     using Capture=W3DWaterPathScene::Capture;
-    const Capture capture=hardwareStatic ? Capture::HardwarePath
+    const Capture capture=useHardwarePath ? Capture::HardwarePath
         : hardwareOneBounce ? Capture::HardwareReflection : Capture::SoftwarePath;
     const Bool captureChanged=m_waterPathScene->RequestedCapture()!=capture;
-	if (m_waterPathSchedule.ShouldRefresh(nowMs,viewChanged || captureChanged))
+    const auto hardwareLogicFrame = useHardwarePath ? std::optional<uint32_t>(m_modernMotionFrame) : std::nullopt;
+	if (m_waterPathSchedule.ShouldRefresh(nowMs,viewChanged || captureChanged,hardwareLogicFrame))
 	{
 		if (!m_waterPathScene->Update(m_parentScene,TheTerrainRenderObject,this,&view,capture))
 			return FALSE;
-		m_waterPathSchedule.MarkRefreshed(nowMs);
+		m_waterPathSchedule.MarkRefreshed(nowMs,hardwareLogicFrame);
 		m_waterPathView = view;
 		m_waterPathHasView = TRUE;
 	}
     m_waterPathReady = FALSE;
-    if (hardwareStatic) {
+    if (useHardwarePath) {
         m_waterPathReady = WaterPathTracing::PrepareHardwarePath(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
             m_waterPathScene->Revision(),&m_waterPathScene->Materials(),m_waterPathScene->StaticTriangleCount());
     } else if (hardwareOneBounce)
