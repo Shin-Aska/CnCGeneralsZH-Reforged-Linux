@@ -178,7 +178,8 @@ bool PosixDevice9::End_Sun_Shadow(bool *submission_ok)
     const bool submitted = Gpu->Flush();
     // Flush consumes failed recorded/submitted batches. A successful final flush
     // cannot hide an earlier failure that lost the queued clear or native merge.
-    if (Gpu->Flush_Failure_Serial() != Sun->FlushFailureSerial) SunFailed = true;
+    const bool flush_failed = Gpu->Flush_Failure_Serial() != Sun->FlushFailureSerial;
+    if (flush_failed) SunFailed = true;
     SunActive = false;
     SunCasterEffect = DRAW_EFFECT_NONE;
     Sun->Restore(*this);
@@ -186,7 +187,8 @@ bool PosixDevice9::End_Sun_Shadow(bool *submission_ok)
     std::string error;
     const bool restored = Resolve_Target(scene, error);
     if (restored) Gpu->Set_Target(scene);
-    if (submission_ok) *submission_ok = submitted && !SunFailed;
+    // Reset can proceed after submission even when the shadow capture is unusable.
+    if (submission_ok) *submission_ok = submitted && !flush_failed;
     // Direct-device callers may still use the additive path. The engine commits
     // before selecting casters; never merge its static depth twice at End.
     if (submitted && restored && !SunFailed && !Sun->HardwareDepthCommitted)
