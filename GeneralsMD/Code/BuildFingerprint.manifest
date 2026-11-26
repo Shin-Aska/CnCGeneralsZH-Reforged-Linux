@@ -3227,6 +3227,9 @@ GameEngineDevice/Source/PosixDevice/Render/SdlGpuParticles.h
 GameEngineDevice/Source/PosixDevice/Render/SdlGpuParticlesContext.h
 GameEngineDevice/Source/PosixDevice/Render/SdlGpuStorage.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlGpuStorage.h
+GameEngineDevice/Source/PosixDevice/Render/SdlHardwareRayTracing.cpp
+GameEngineDevice/Source/PosixDevice/Render/SdlHardwareSunShadow.cpp
+GameEngineDevice/Source/PosixDevice/Render/SdlHardwareSunShadow.h
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloud.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudEmbers.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudEmbers.h
@@ -3246,6 +3249,8 @@ GameEngineDevice/Source/PosixDevice/Render/SdlPostOcclusion.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlPostOcclusion.h
 GameEngineDevice/Source/PosixDevice/Render/SdlPostProcess.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlPostProcess.h
+GameEngineDevice/Source/PosixDevice/Render/SdlPostSceneEffects.cpp
+GameEngineDevice/Source/PosixDevice/Render/SdlPostSceneEffects.h
 GameEngineDevice/Source/PosixDevice/Render/SdlPostShader.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlPostShader.h
 GameEngineDevice/Source/PosixDevice/Render/SdlPresentMode.h
@@ -3262,7 +3267,14 @@ GameEngineDevice/Source/PosixDevice/Render/SdlResourceMirror.h
 GameEngineDevice/Source/PosixDevice/Render/SdlSceneCapture.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlSceneCapture.h
 GameEngineDevice/Source/PosixDevice/Render/SdlSceneContext.h
+GameEngineDevice/Source/PosixDevice/Render/SdlSunDepthTiles.h
 GameEngineDevice/Source/PosixDevice/Render/SdlSunShadowDebug.h
+GameEngineDevice/Source/PosixDevice/Render/SdlWaterRayFilter.cpp
+GameEngineDevice/Source/PosixDevice/Render/SdlWaterRayFilter.h
+GameEngineDevice/Source/PosixDevice/Render/SdlWaterRayQuery.frag
+GameEngineDevice/Source/PosixDevice/Render/SdlWaterRayQueryCode.h
+GameEngineDevice/Source/PosixDevice/Render/SdlWaterRayShader.cpp
+GameEngineDevice/Source/PosixDevice/Render/SdlWaterRayTileShader.h
 GameEngineDevice/Source/SdlDevice/Common/SdlDisplays.cpp
 GameEngineDevice/Source/SdlDevice/Common/SdlGameEngine.cpp
 GameEngineDevice/Source/SdlDevice/Common/SdlMessageBox.cpp
@@ -3368,6 +3380,8 @@ GameEngineDevice/Source/W3DDevice/GameClient/W3DGameClient.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DGranny.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DGrassBuffer.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DGroundMarkers.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/W3DHardwareSunScene.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/W3DHardwareSunScene.h
 GameEngineDevice/Source/W3DDevice/GameClient/W3DInGameUI.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DModelPreview.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/W3DMouse.cpp
@@ -3428,6 +3442,7 @@ Libraries/Include/Platform/DoubleClickTime.h
 Libraries/Include/Platform/EngineShaderName.h
 Libraries/Include/Platform/FireSmokePolicy.h
 Libraries/Include/Platform/FireWaterEffects.h
+Libraries/Include/Platform/HardwareRaySun.h
 Libraries/Include/Platform/HazardCloud.h
 Libraries/Include/Platform/HazardCloudBake.h
 Libraries/Include/Platform/HazardCloudCore.h
@@ -3462,6 +3477,7 @@ Libraries/Include/Platform/SleepMilliseconds.h
 Libraries/Include/Platform/StrdupAsWindows.h
 Libraries/Include/Platform/SunShadow.h
 Libraries/Include/Platform/SunShadowMode.h
+Libraries/Include/Platform/SunShaftSettings.h
 Libraries/Include/Platform/SunSmoke.h
 Libraries/Include/Platform/WaterBedMaterial.h
 Libraries/Include/Platform/WaterBodyAnalysis.h
@@ -3497,6 +3513,8 @@ Libraries/Include/Platform/WaterFoamHistory.h
 Libraries/Include/Platform/WaterFoamParticlePolicy.h
 Libraries/Include/Platform/WaterFoamShading.h
 Libraries/Include/Platform/WaterFoamWindow.h
+Libraries/Include/Platform/WaterHardwarePathTracingShader.h
+Libraries/Include/Platform/WaterHardwareReflectionShader.h
 Libraries/Include/Platform/WaterHullContact.h
 Libraries/Include/Platform/WaterHullContactFoam.h
 Libraries/Include/Platform/WaterHullModel.h
@@ -3515,6 +3533,10 @@ Libraries/Include/Platform/WaterOpticalContext.h
 Libraries/Include/Platform/WaterOpticalModel.h
 Libraries/Include/Platform/WaterPathCaptureScope.h
 Libraries/Include/Platform/WaterPathModelDigest.h
+Libraries/Include/Platform/WaterPathSnapshotPolicy.h
+Libraries/Include/Platform/WaterPathStaticSpans.h
+Libraries/Include/Platform/WaterPathTerrainGroups.h
+Libraries/Include/Platform/WaterPathTerrainSnapshot.h
 Libraries/Include/Platform/WaterPathTracing.h
 Libraries/Include/Platform/WaterPathTracingMaterials.h
 Libraries/Include/Platform/WaterPathTracingMotion.h
@@ -3585,6 +3607,10 @@ Libraries/Source/EABrowserDispatch/EABrowserDispatch.dsp
 Libraries/Source/FFmpeg/.gitignore
 Libraries/Source/GameSpy/.gitignore
 Libraries/Source/SDL3/.gitignore
+Libraries/Source/SDL_gpu_vulkan_rayquery.h
+Libraries/Source/SDL_gpu_vulkan_rayquery.inc
+Libraries/Source/SDL_gpu_vulkan_water_ray_filter.h
+Libraries/Source/SDL_gpu_vulkan_water_ray_filter.inc
 Libraries/Source/SDL_shadercross/.gitignore
 Libraries/Source/SPIRV-Cross/.gitignore
 Libraries/Source/STLport-4.5.3/.gitignore
@@ -3836,6 +3862,7 @@ Libraries/Source/WWVegas/WW3D2/polyinfo.cpp
 Libraries/Source/WWVegas/WW3D2/polyinfo.h
 Libraries/Source/WWVegas/WW3D2/postprocess.cpp
 Libraries/Source/WWVegas/WW3D2/postprocess.h
+Libraries/Source/WWVegas/WW3D2/postsceneeffects.h
 Libraries/Source/WWVegas/WW3D2/postshader.cpp
 Libraries/Source/WWVegas/WW3D2/postshader.h
 Libraries/Source/WWVegas/WW3D2/pot.cpp
@@ -4564,6 +4591,9 @@ Libraries/Source/profile/profile_result.h
 Libraries/Source/profile/test1/test1.cpp
 Libraries/Source/profile/test1/test1.dsp
 Libraries/Source/sdl3-metal-windowless.patch
+Libraries/Source/sdl3-rayquery-NOTICE.txt
+Libraries/Source/sdl3-vulkan-rayquery-optional-migration.patch
+Libraries/Source/sdl3-vulkan-rayquery.patch
 Libraries/Source/template.cpp
 Libraries/Source/template.h
 Main/Generals.ico
@@ -4711,6 +4741,7 @@ Tests/test_gametext_csf.cpp
 Tests/test_global_new_alignment.cpp
 Tests/test_glyph_rasteriser.cpp
 Tests/test_ground_marks.cpp
+Tests/test_hardware_sun_shadow.cpp
 Tests/test_harness.h
 Tests/test_hazard_cloud_bake.cpp
 Tests/test_hazard_cloud_policy.cpp
@@ -5685,6 +5716,7 @@ Tools/gametext.py
 Tools/gdi-font-metrics-header.py
 Tools/gdi-font-metrics.ps1
 Tools/generals-icon.py
+Tools/generate-water-ray-helper.py
 Tools/gentrigtables.py
 Tools/guard_marker.py
 Tools/hazard-cloud-check.py
