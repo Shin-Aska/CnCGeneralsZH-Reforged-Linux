@@ -6117,6 +6117,7 @@ TEST(water_coastal_domain_stride_two_capacity_preserves_fine_connectivity_and_te
 #include "../GameEngineDevice/Source/PosixDevice/Render/PosixDevice9.h"
 #include "../Libraries/Source/WWVegas/WW3D2/engineshader.h"
 #if defined(__linux__)
+#include "../GameEngineDevice/Source/PosixDevice/Render/SdlConstants.h"
 #include "../GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrame.h"
 #include "../GameEngineDevice/Source/PosixDevice/Render/SdlResourceMirror.h"
 #include "../GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWaterPathScene.h"
@@ -6155,6 +6156,20 @@ public:
 #if defined(__linux__)
     void setReflectionMode(WaterScreenReflection::Mode mode) {
         m_waterReflectionMode=mode;
+    }
+    void checkClarityChanges(PosixDevice9 *device) {
+        // The fixture's default white TWWater01 material supplies its own clarity.
+        m_whiteTexture=NEW_REF(TextureClass,(1,1,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
+        const SdlPixelConstants pixel={};
+        SdlWaterPixelConstants water;
+        for (bool enabled : {false, true, false}) {
+            TheWritableGlobalData->m_underwaterClarity=enabled;
+            setupModernWaterShader(FALSE);
+            device->Build_Water_Constants(pixel,water);
+            CHECK_EQ(water.MaterialOptics[0],enabled ? 0.90f : 0.0f);
+            CHECK_EQ(water.MaterialOptics[1],1.0f);
+            CHECK_EQ(water.OpticalParameters[1],TheWaterTransparency->m_minWaterOpacity);
+        }
     }
     TextureClass *ensureReflectionTarget() {
         ensureMapReflectionTarget();
@@ -6709,6 +6724,9 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
     if (device) {
         {
             LiveWaterStyleProbe water;water.prepareShaders(device);
+#if defined(__linux__)
+            water.checkClarityChanges(static_cast<PosixDevice9 *>(device));
+#endif
             for (unsigned i=0;i<32;++i) {
                 const bool modern=(i&1)!=0;
                 water.seedPresentation();scratch->m_waterStyle=modern?1:0;

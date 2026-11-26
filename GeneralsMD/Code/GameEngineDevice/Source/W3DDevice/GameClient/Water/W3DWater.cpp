@@ -2065,10 +2065,12 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	setModernWaterConstants(6, optics, 1);
 	D3DXVECTOR4 materialColor, materialParameters, materialOptics, materialSurface;
 	getModernWaterMaterial(&materialColor.x, &materialParameters.x, &materialOptics.x, &materialSurface.x);
-	if (TheGlobalData->m_underwaterClarity && !TheGlobalData->m_classicGraphics && !river
-		&& WaterUnderwaterClarity::Supported())
-		materialOptics.x = max(materialOptics.x, WaterUnderwaterClarity::Strength);
 #if defined(__linux__)
+	// The checkbox also gates the clarity supplied by material rules.
+	if (!TheGlobalData->m_underwaterClarity)
+		materialOptics.x = 0.0f;
+	else if (!TheGlobalData->m_classicGraphics && !river && WaterUnderwaterClarity::Supported())
+		materialOptics.x = max(materialOptics.x, WaterUnderwaterClarity::Strength);
 	materialParameters.w = pathReady ? 2.0f
 		: (WaterScreenReflection::Traces(mode) || WaterScreenReflection::IsPathTraced(mode) ? 1.0f : 0.0f);
 #endif
