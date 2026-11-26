@@ -122,8 +122,9 @@ synthetic previews. Image banks cannot replay Path traced geometry.
 The global source file is `GeneralsMD/Code/Data/INI/ModernWater.ini`. A normal native
 build stages it as `<build>/overlay/Data/INI/ModernWater.ini` (in this checkout,
 `build-linux/overlay/Data/INI/ModernWater.ini`). The game reads `Data/INI/ModernWater.ini`
-through its existing filesystem/overlay lookup at startup. There is no in-game settings
-control for these rules.
+through its existing filesystem/overlay lookup at startup. Edit the file to change individual
+rules. In the Linux game, material clarity applies only while **Underwater Clarity** is enabled
+on the Water tab. Changes to that setting take effect when you select **Accept**.
 
 Matching uses the effective map `StandingWaterColor` and `StandingWaterTexture` after
 the existing map overrides have loaded, including save restoration. It does not inspect
