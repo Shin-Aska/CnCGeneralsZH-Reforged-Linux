@@ -2345,6 +2345,13 @@ if(ZH_PLATFORM_POSIX)
   if(ZH_GAME_DATA)
     set_tests_properties(locomotor_check PROPERTIES ENVIRONMENT "ZH_DATA_DIR=${ZH_GAME_DATA}")
   endif()
+  # Render both infantry paradrops and the same soldiers' subsequent combat deaths.
+  add_test(NAME ragdoll_paradrop
+           COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/Tests/run_ragdoll_paradrop_check.sh $<TARGET_FILE:generals>)
+  set_tests_properties(ragdoll_paradrop PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+  if(ZH_GAME_DATA)
+    set_tests_properties(ragdoll_paradrop PROPERTIES ENVIRONMENT "ZH_DATA_DIR=${ZH_GAME_DATA}")
+  endif()
   # The game's data going away under it (a drive disconnected or asleep): the game must say so and stop
   # with exit status 3, never crash; the control, a rename, plays on.  macOS only for now (hdiutil); skipped
   # elsewhere and without game data.  See the script.
@@ -3588,7 +3595,7 @@ if(ZH_PLATFORM_POSIX)
   # one at a time is the belt to the braces above.  Readers that only open archives are not in it.
   foreach(_zh_test replay_check replay_check_app net_check overlay_crc_check ini_crlf_check packaging_resolution_check root_readonly_check
                    lod_first_run_check test_bigfilesystem test_install_textures test_milesaudiomanager
-                   data_gone_check locomotor_check)
+                   data_gone_check locomotor_check ragdoll_paradrop)
     if(TEST ${_zh_test})
       set_property(TEST ${_zh_test} APPEND PROPERTY RESOURCE_LOCK zh_install)
     endif()
@@ -3602,7 +3609,7 @@ if(ZH_PLATFORM_POSIX)
   # measured on a Linux x86_64 host).  Not dummy there: it has no Vulkan_CreateSurface, so SDL finds no GPU backend.
   if(APPLE)
     foreach(_zh_test sdl_gpu_frame_selfcheck sdl_program_cache_selfcheck sdl_pipeline_state_selfcheck
-                     posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck
+                     posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck ragdoll_paradrop
                      test_renderer_foundation_gpu test_renderer_lighting_gpu test_sdl_post_gpu test_sdl_ao_gpu test_sdl_storage_gpu test_sdl_atmosphere_gpu test_sdl_distortion_gpu test_sdl_heat_gpu test_sdl_reach_gpu test_sdl_owner_release_gpu test_sdl_classic_foam_gpu test_sdl_gpu_particles_gpu test_renderer_particles_gpu test_renderer_effects_gpu test_renderer_water_foam_gpu test_sdl_gpu_particles_context test_renderer_atmosphere_gpu test_team_glow_gpu test_baseline_weather_gpu)
       if(TEST ${_zh_test})
         set_property(TEST ${_zh_test} APPEND PROPERTY ENVIRONMENT "SDL_VIDEO_DRIVER=dummy" "ZH_SDL_GPU_METAL_WINDOWLESS=1")
@@ -3610,7 +3617,7 @@ if(ZH_PLATFORM_POSIX)
     endforeach()
   elseif(ZH_PLATFORM_LINUX)
     foreach(_zh_test sdl_gpu_frame_selfcheck sdl_program_cache_selfcheck sdl_pipeline_state_selfcheck
-                     posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck test_sun_shadow_sorting
+                     posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck test_sun_shadow_sorting ragdoll_paradrop
                      test_renderer_foundation_gpu test_renderer_lighting_gpu test_sdl_post_gpu test_sdl_ao_gpu test_sdl_storage_gpu test_sdl_atmosphere_gpu test_sdl_distortion_gpu test_sdl_heat_gpu test_sdl_reach_gpu test_sdl_owner_release_gpu test_sdl_classic_foam_gpu test_sdl_gpu_particles_gpu test_renderer_particles_gpu test_renderer_effects_gpu test_renderer_water_foam_gpu test_sdl_gpu_particles_context test_renderer_atmosphere_gpu test_team_glow_gpu test_baseline_weather_gpu)
       if(TEST ${_zh_test})
         set_property(TEST ${_zh_test} APPEND PROPERTY ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")

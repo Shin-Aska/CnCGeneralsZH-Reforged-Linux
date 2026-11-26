@@ -1554,6 +1554,7 @@ Data/Scenarios/piecetowerfilm.txt
 Data/Scenarios/powerpropcapture.txt
 Data/Scenarios/radarbatch.txt
 Data/Scenarios/ragdoll_mixed.txt
+Data/Scenarios/ragdoll_paradrop.txt
 Data/Scenarios/ragdoll_slope.txt
 Data/Scenarios/reachhills.txt
 Data/Scenarios/reachproof.txt
@@ -4678,6 +4679,7 @@ Tests/run_ini_crlf_check.sh
 Tests/run_lane_roster_check.ps1
 Tests/run_locomotor_check.sh
 Tests/run_net_check.sh
+Tests/run_ragdoll_paradrop_check.sh
 Tests/run_replay_check.sh
 Tests/sdl_gpu_probe.cpp
 Tests/shader_cases.h

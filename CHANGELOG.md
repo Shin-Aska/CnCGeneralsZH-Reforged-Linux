@@ -10,6 +10,8 @@ See [upstream status](docs/upstream-status.md) for which Linux features have bee
 
 - On Linux, turning off Underwater Clarity now restores the map's usual water opacity on shallow
   shelves and around sunken ruins.
+- With Ragdoll Deaths enabled, paradropped infantry now land on their feet and stay with their
+  selection circles when they move. This also fixes the opening reinforcements in USA mission 2.
 
 ## Linux 4.2.1 release
 

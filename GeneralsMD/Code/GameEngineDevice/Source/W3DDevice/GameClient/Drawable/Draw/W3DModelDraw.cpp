@@ -2626,7 +2626,7 @@ void W3DModelDraw::reactToImpact( const Coord3D &pos, Real radius, const Coord3D
 }
 
 //-------------------------------------------------------------------------------------------------
-static Bool stateIsDying(const ModelConditionInfo* state)
+static Bool stateSupportsDying(const ModelConditionInfo* state)
 {
 	if (state == NULL)
 		return FALSE;
@@ -2637,17 +2637,17 @@ static Bool stateIsDying(const ModelConditionInfo* state)
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The Ragdoll option, every draw of an infantry model once the drawable's transform is on it.  It goes
-	by the state this module last applied, never the object, which the tick may be writing beside the
-	render.  The option is asked only before a ragdoll starts, so one switched off mid-match lies down
-	as it was going to. */
+/** Start a ragdoll only after the drawable has observed the object's death at the render sync point.
+	FREEFALL and PARACHUTING both have DYING aliases, so a living soldier can use the same animation. */
 void W3DModelDraw::updateRagdoll()
 {
 	if (m_renderObject == NULL || m_ragdollRefused)
 		return;
 	if (m_ragdoll == NULL)
 	{
-		if (!W3DRagdoll::enabled() || (!stateIsDying(m_curState) && !stateIsDying(m_nextState)))
+		if (!getDrawable()->isObjectDeadForDraw() || !W3DRagdoll::enabled())
+			return;
+		if (!stateSupportsDying(m_curState) && !stateSupportsDying(m_nextState))
 			return;
 		m_ragdoll = W3DRagdoll::create(m_renderObject, m_ragdollImpact, getDrawable()->getTemplate());
 		if (m_ragdoll == NULL)

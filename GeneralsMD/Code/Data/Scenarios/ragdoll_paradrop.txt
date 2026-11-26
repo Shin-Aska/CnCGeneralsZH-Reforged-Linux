@@ -1,0 +1,28 @@
+# Twilight Flame, seed 7. USA and China's Infantry General are allies.
+# Use their command centers so both squads go through the actual paradrop.
+10   tally     0  AmericaInfantryRanger
+10   tally     1  Infa_ChinaInfantryMiniGunner
+20   purchase  0  SCIENCE_Paradrop1
+20   purchase  1  Infa_SCIENCE_InfantryParadrop1
+30   power     0  AmericaCommandCenter     1400 3650  SuperweaponParadropAmerica
+30   power     1  Infa_ChinaCommandCenter  1540 3650  Infa_SuperweaponInfantryParadrop
+
+# Both powers use AmericaParachute. Each cargo plane reaches the drop zone
+# at a different time. Sample the men in their chutes after their plane lets go.
+290  tally     1  AmericaParachute
+290  tally     1  Infa_ChinaInfantryMiniGunner
+380  tally     0  AmericaParachute
+380  tally     0  AmericaInfantryRanger
+
+# Walk the survivors away from their landing positions while the area is safe.
+500  move      0  AmericaInfantryRanger         1400 3790
+500  arrive    0  AmericaInfantryRanger         1400 3790  60
+500  move      1  Infa_ChinaInfantryMiniGunner  1540 3790
+500  arrive    1  Infa_ChinaInfantryMiniGunner  1540 3790  60
+710  tally     0  AmericaInfantryRanger
+710  tally     1  Infa_ChinaInfantryMiniGunner
+
+# Real combat deaths from both squads must still start ragdolls.
+720  health    0  AmericaInfantryRanger          5
+720  health    1  Infa_ChinaInfantryMiniGunner   5
+725  spawn     2  GLAVehicleQuadCannon           2  1470 3790  20
