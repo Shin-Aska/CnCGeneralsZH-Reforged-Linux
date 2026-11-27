@@ -7,6 +7,7 @@
 #include "Platform/WaterPathModelDigest.h"
 #include "Platform/WaterPathTerrainSnapshot.h"
 #include "Platform/WaterPathStaticSpans.h"
+#include "Platform/WaterPathRetainedPacket.h"
 #include "Platform/WaterPathSnapshotPolicy.h"
 #include "Platform/WaterPathTerrainGroups.h"
 #include "W3DDevice/GameClient/BaseHeightMap.h"
@@ -288,7 +289,7 @@ struct ReleaseMeshReference {
 };
 
 struct MeshTriangles {
-    uint64_t fingerprint=0;
+    uint64_t fingerprint=0, packetRevision=0;
     bool valid=false, moving=false, packetActive=false;
     // Retaining both objects prevents address recycling while this entry is active.
     std::unique_ptr<MeshClass,ReleaseMeshReference> mesh;
@@ -432,6 +433,10 @@ struct W3DWaterPathScene::State {
     uint64_t terrainProofMismatches=0,packetVerifications=0,packetMismatches=0;
     uint64_t rigidReuses=0,rigidChecks=0,rigidMismatches=0;
     std::vector<WaterPathTracing::StaticSpan> staticSpans;
+    std::vector<WaterPathTracing::PacketSpanStamp> packetSpans;
+    std::vector<WaterPathTracing::PrimaryMaterial> terrainMaterials;
+    uint64_t nextPacketRevision=0,terrainPacketRevision=0;
+    uint64_t packetTriangleRowsRetained=0,packetMaterialRowsRetained=0,packetTriangleRowsCopied=0,packetMaterialRowsCopied=0;
     uint64_t staticSpanPatchFrames=0,staticTriangleRowsPatched=0,staticMaterialRowsPatched=0,staticMeshRowsRetained=0;
     std::vector<Triangle> triangles, terrainTriangles;
     WaterPathTracing::PrimaryMaterialPacket materials;
@@ -564,6 +569,7 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
     const bool useTerrainSnapshot=capture!=Capture::SoftwarePath;
     if (!scene || !terrain || !terrain->getMap()) {
         m_state->meshTriangles.clear();m_state->modelOwnerScene=nullptr;m_state->modelOwnerMap=nullptr;
+        m_state->packetSpans.clear();
         m_state->hasScene=false;m_state->staticPrefixValid=false;
         m_state->modelProof.Clear();m_state->snapshotPolicy.Reset();return m_state->Fail(1,"scene or terrain is unavailable");
     }
@@ -593,6 +599,7 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
     const bool useModelProof=useTerrainSnapshot;
     if(m_state->modelOwnerScene!=scene || m_state->modelOwnerMap!=map) {
         m_state->meshTriangles.clear();
+        m_state->packetSpans.clear();
         m_state->hasScene=false;
         m_state->staticPrefixValid=false;
     }
@@ -880,7 +887,6 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
         && m_state->staticPrefixTerrainHash==ground.value && m_state->staticTerrainTriangleCount==terrainCount
         && terrainCount<=m_state->staticTriangleCount && terrainCount<=m_state->triangles.size()
         && terrainCount<=m_state->materials.triangles.size();
-    size_t retainedPrefix=0;
     std::vector<Triangle> output;
     std::vector<WaterPathTracing::PrimaryMaterial> primaryOutput;
     if(!hardwareStatic) {
@@ -943,6 +949,7 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
                 markMoving(transformed);
                 cached.triangles.swap(transformed);
                 cached.fingerprint = instance.fingerprint;
+                cached.packetRevision = ++m_state->nextPacketRevision;
                 ++m_state->rigidReuses;
                 skippedAlpha += cached.skippedAlpha;
                 if (!hardwareStatic) append(cached);
@@ -1048,6 +1055,7 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
         cached.triangles.swap(generated);
         cached.materials.swap(primaryGenerated);
         cached.fingerprint=instance.fingerprint; cached.valid=true;
+        cached.packetRevision=++m_state->nextPacketRevision;
         cached.appearance = retainAppearance ? instance.appearance : RigidAppearance{};
         if (!retainAppearance) rigidIndices.clear();
         cached.rigidIndices.swap(rigidIndices);
@@ -1057,107 +1065,105 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
     }
     digestReport.Mark(digestReport.generationDone);
     std::vector<WaterPathTracing::StaticSpan> currentSpans;
-    std::vector<const MeshTriangles *> staticMeshes,movingMeshes;
-    struct StaticPatch {const MeshTriangles *Mesh;size_t First,Count;bool Triangles,Materials;};
-    std::vector<StaticPatch> patches;
-    size_t staticTriangleCount=0,movingCount=0;
-    bool sameStaticLayout=false,patchedTriangles=false,patchedMaterials=false;
+    size_t staticTriangleCount=0;
+    bool sameStaticLayout=false;
+    const bool first=!m_state->hasScene;
     if(hardwareStatic) {
-        staticTriangleCount=terrainCount;currentSpans.reserve(meshes.size());staticMeshes.reserve(meshes.size());movingMeshes.reserve(meshes.size());
+        // Mesh cache rows are immutable until the next capture. Plan against the
+        // published packet, then patch it once, without assembling/copying an
+        // entire temporary moving suffix on every capture.
+        staticTriangleCount=terrainCount;
+        currentSpans.reserve(meshes.size());
         for(const auto &instance:meshes) {
             const auto &cached=m_state->meshTriangles.at(instance.mesh);
-            if(!cached.valid || cached.materials.size()!=cached.triangles.size())return m_state->Fail(9,"inconsistent native mesh appearance rows");
-            const bool keepStatic=instance.staticGeometry && !m_state->meshTriangles.at(instance.mesh).moving;
-            if(keepStatic) {
+            if(!cached.valid || cached.materials.size()!=cached.triangles.size())
+                return m_state->Fail(9,"inconsistent native mesh appearance rows");
+            if(instance.staticGeometry && !cached.moving) {
                 currentSpans.push_back({instance.mesh,staticTriangleCount,cached.triangles.size(),instance.fingerprint});
-                staticMeshes.push_back(&cached);staticTriangleCount+=cached.triangles.size();
-            } else if(instance.inScope){movingMeshes.push_back(&cached);movingCount+=cached.triangles.size();}
-        }
-        if(staticTriangleCount>TriangleLimit || movingCount>TriangleLimit-staticTriangleCount)
-            return capacityFailure(5,"scene exceeds the experimental triangle limit");
-        sameStaticLayout=reuseTerrainPrefix && staticTriangleCount==m_state->staticTriangleCount
-            && staticTriangleCount<=m_state->triangles.size() && staticTriangleCount<=m_state->materials.triangles.size()
-            && WaterPathTracing::SameStaticSpanLayout(m_state->staticSpans,currentSpans);
-        retainedPrefix=sameStaticLayout ? staticTriangleCount : reuseTerrainPrefix ? terrainCount : 0;
-        output.reserve(staticTriangleCount-retainedPrefix+movingCount);
-        primaryOutput.reserve(staticTriangleCount-retainedPrefix+movingCount);
-        if(!retainedPrefix){output.insert(output.end(),m_state->terrainTriangles.begin(),m_state->terrainTriangles.end());primaryOutput.resize(terrainCount);}
-        for(size_t i=0;i<currentSpans.size();++i) {
-            const auto &span=currentSpans[i];
-            const auto &cached=*staticMeshes[i];
-            if(!sameStaticLayout){append(cached);continue;}
-            if(span.Fingerprint==m_state->staticSpans[i].Fingerprint)continue;
-            const bool triangles=span.Count && std::memcmp(cached.triangles.data(),m_state->triangles.data()+span.First,span.Count*sizeof(Triangle))!=0;
-            const bool materials=span.Count && std::memcmp(cached.materials.data(),m_state->materials.triangles.data()+span.First,span.Count*sizeof(WaterPathTracing::PrimaryMaterial))!=0;
-            if(triangles || materials){patches.push_back({&cached,span.First,span.Count,triangles,materials});patchedTriangles|=triangles;patchedMaterials|=materials;}
-        }
-        for(const auto *mesh:movingMeshes)append(*mesh);
-    }
-    const size_t totalTriangles=retainedPrefix+output.size();
-    if(verify && hardwareStatic) {
-        std::vector<Triangle> reference=m_state->terrainTriangles;
-        std::vector<WaterPathTracing::PrimaryMaterial> referenceMaterials(terrainCount);
-        for(bool staticPart:{true,false})for(const auto &instance:meshes) {
-            const bool keepStatic=instance.staticGeometry && !m_state->meshTriangles.at(instance.mesh).moving;
-            if(keepStatic!=staticPart || (!keepStatic && !instance.inScope))continue;
-            const auto &cached=m_state->meshTriangles.at(instance.mesh);
-            reference.insert(reference.end(),cached.triangles.begin(),cached.triangles.end());
-            referenceMaterials.insert(referenceMaterials.end(),cached.materials.begin(),cached.materials.end());
-        }
-        std::vector<Triangle> candidatePrefix;
-        std::vector<WaterPathTracing::PrimaryMaterial> candidateMaterials;
-        const Triangle *prefix=m_state->triangles.data();
-        const WaterPathTracing::PrimaryMaterial *prefixMaterials=m_state->materials.triangles.data();
-        if(!patches.empty()) {
-            candidatePrefix.assign(m_state->triangles.begin(),m_state->triangles.begin()+retainedPrefix);
-            candidateMaterials.assign(m_state->materials.triangles.begin(),m_state->materials.triangles.begin()+retainedPrefix);
-            for(const auto &patch:patches) {
-                if(patch.Triangles)std::memcpy(candidatePrefix.data()+patch.First,patch.Mesh->triangles.data(),patch.Count*sizeof(Triangle));
-                if(patch.Materials)std::memcpy(candidateMaterials.data()+patch.First,patch.Mesh->materials.data(),patch.Count*sizeof(WaterPathTracing::PrimaryMaterial));
+                staticTriangleCount+=cached.triangles.size();
             }
-            prefix=candidatePrefix.data();prefixMaterials=candidateMaterials.data();
         }
-        ++m_state->packetVerifications;
-        const bool same=reference.size()==totalTriangles && referenceMaterials.size()==totalTriangles
-            && (!retainedPrefix || (std::memcmp(reference.data(),prefix,retainedPrefix*sizeof(Triangle))==0
-                && std::memcmp(referenceMaterials.data(),prefixMaterials,retainedPrefix*sizeof(WaterPathTracing::PrimaryMaterial))==0))
-            && (output.empty() || (std::memcmp(reference.data()+retainedPrefix,output.data(),output.size()*sizeof(Triangle))==0
-                && std::memcmp(referenceMaterials.data()+retainedPrefix,primaryOutput.data(),primaryOutput.size()*sizeof(WaterPathTracing::PrimaryMaterial))==0));
-        if(!same){++m_state->packetMismatches;return m_state->Fail(8,"retained native terrain prefix differs from full current packet");}
-    }
-    const bool first=!m_state->hasScene;
-    // A changed material on an omitted transparent mesh need not reset accumulation.
-    // Triangle contains exactly twelve floats, so comparison includes no padding.
-    static_assert(sizeof(Triangle)==12*sizeof(float),"Triangle comparison requires packed float members");
-    const bool materialChanged=patchedMaterials || totalTriangles!=m_state->materials.triangles.size()
-        || (!primaryOutput.empty() && std::memcmp(primaryOutput.data(),m_state->materials.triangles.data()+retainedPrefix,
-            primaryOutput.size()*sizeof(WaterPathTracing::PrimaryMaterial))!=0)
-        || m_state->materialsCommittedTexels!=m_state->materials.texels.size();
-    if (first || patchedTriangles || materialChanged || staticTriangleCount!=m_state->staticTriangleCount || totalTriangles!=m_state->triangles.size()
-        || (!output.empty() && std::memcmp(output.data(),m_state->triangles.data()+retainedPrefix,output.size()*sizeof(Triangle))!=0))
-        ++m_state->revision;
-    // All validation and packet comparison above precede mutation of published source rows.
-    for(const auto &patch:patches) {
-        if(patch.Triangles){std::memcpy(m_state->triangles.data()+patch.First,patch.Mesh->triangles.data(),patch.Count*sizeof(Triangle));m_state->staticTriangleRowsPatched+=patch.Count;}
-        if(patch.Materials){std::memcpy(m_state->materials.triangles.data()+patch.First,patch.Mesh->materials.data(),patch.Count*sizeof(WaterPathTracing::PrimaryMaterial));m_state->staticMaterialRowsPatched+=patch.Count;}
+        sameStaticLayout=reuseTerrainPrefix && staticTriangleCount==m_state->staticTriangleCount
+            && WaterPathTracing::SameStaticSpanLayout(m_state->staticSpans,currentSpans);
+        m_state->terrainMaterials.resize(terrainCount);
+        if(!reuseTerrainPrefix)m_state->terrainPacketRevision=++m_state->nextPacketRevision;
+        std::vector<WaterPathTracing::PacketSpanRows> rows;
+        rows.reserve(meshes.size()+1);
+        rows.push_back({{terrain,0,terrainCount,m_state->terrainPacketRevision},
+            m_state->terrainTriangles.data(),m_state->terrainMaterials.data()});
+        size_t totalTriangles=terrainCount;
+        for(bool staticPart:{true,false})for(const auto &instance:meshes) {
+            const auto &cached=m_state->meshTriangles.at(instance.mesh);
+            const bool keepStatic=instance.staticGeometry && !cached.moving;
+            if(keepStatic!=staticPart || (!keepStatic && !instance.inScope))continue;
+            if(cached.triangles.size()>TriangleLimit-totalTriangles)
+                return capacityFailure(5,"scene exceeds the experimental triangle limit");
+            rows.push_back({{instance.mesh,totalTriangles,cached.triangles.size(),cached.packetRevision},
+                cached.triangles.data(),cached.materials.data()});
+            totalTriangles+=cached.triangles.size();
+        }
+        WaterPathTracing::RetainedPacketUpdate update(m_state->packetSpans,rows,m_state->triangles,m_state->materials.triangles);
+        if(verify) {
+            std::vector<Triangle> reference;
+            std::vector<WaterPathTracing::PrimaryMaterial> referenceMaterials;
+            reference.reserve(totalTriangles);referenceMaterials.reserve(totalTriangles);
+            for(const auto &span:rows)if(span.Stamp.Count) {
+                reference.insert(reference.end(),span.Triangles,span.Triangles+span.Stamp.Count);
+                referenceMaterials.insert(referenceMaterials.end(),span.Materials,span.Materials+span.Stamp.Count);
+            }
+            auto candidate=m_state->triangles;
+            auto candidateMaterials=m_state->materials.triangles;
+            update.Apply(candidate,candidateMaterials);
+            ++m_state->packetVerifications;
+            if(candidate.size()!=reference.size() || candidateMaterials.size()!=referenceMaterials.size()
+                || (!reference.empty() && (std::memcmp(reference.data(),candidate.data(),reference.size()*sizeof(Triangle))!=0
+                    || std::memcmp(referenceMaterials.data(),candidateMaterials.data(),referenceMaterials.size()*sizeof(WaterPathTracing::PrimaryMaterial))!=0))) {
+                ++m_state->packetMismatches;
+                return m_state->Fail(8,"retained native mesh packet differs from full current packet");
+            }
+        }
+        const bool atlasChanged=m_state->materialsCommittedTexels!=m_state->materials.texels.size();
+        if(first || update.TrianglesChanged || update.MaterialsChanged || atlasChanged
+            || staticTriangleCount!=m_state->staticTriangleCount)++m_state->revision;
+        // All source generation, capacity checks and optional exact verification
+        // precede mutation of the published packet. IDs remain source-order slots.
+        update.Apply(m_state->triangles,m_state->materials.triangles);
+        m_state->packetSpans.swap(update.Stamps);
+        m_state->packetTriangleRowsRetained+=update.TriangleRowsRetained;
+        m_state->packetMaterialRowsRetained+=update.MaterialRowsRetained;
+        m_state->packetTriangleRowsCopied+=totalTriangles-update.TriangleRowsRetained;
+        m_state->packetMaterialRowsCopied+=totalTriangles-update.MaterialRowsRetained;
+        size_t staticRowsPatched=0;
+        bool staticPatched=false;
+        for(const auto &patch:update.Patches)if(patch.Rows.Stamp.First>=terrainCount
+            && patch.Rows.Stamp.First<staticTriangleCount) {
+            staticPatched=true;staticRowsPatched+=patch.Rows.Stamp.Count;
+            if(patch.Triangles)m_state->staticTriangleRowsPatched+=patch.Rows.Stamp.Count;
+            if(patch.Materials)m_state->staticMaterialRowsPatched+=patch.Rows.Stamp.Count;
+        }
+        if(sameStaticLayout) {
+            if(staticPatched)++m_state->staticSpanPatchFrames;else ++m_state->staticPrefixReuses;
+            m_state->staticMeshRowsRetained+=staticTriangleCount-terrainCount-staticRowsPatched;
+        } else ++m_state->staticPrefixBuilds;
+        if(profile || first)std::fprintf(stderr,"[water-path-packet] triangle_rows_retained=%llu material_rows_retained=%llu triangle_rows_copied=%llu material_rows_copied=%llu frame_triangle_rows_retained=%zu frame_material_rows_retained=%zu frame_triangle_rows_copied=%zu frame_material_rows_copied=%zu\n",
+            (unsigned long long)m_state->packetTriangleRowsRetained,(unsigned long long)m_state->packetMaterialRowsRetained,
+            (unsigned long long)m_state->packetTriangleRowsCopied,(unsigned long long)m_state->packetMaterialRowsCopied,
+            update.TriangleRowsRetained,update.MaterialRowsRetained,totalTriangles-update.TriangleRowsRetained,totalTriangles-update.MaterialRowsRetained);
+    } else {
+        // Keep the software/scoped export ordering and its existing exact revision.
+        const bool materialChanged=primaryOutput.size()!=m_state->materials.triangles.size()
+            || (!primaryOutput.empty() && std::memcmp(primaryOutput.data(),m_state->materials.triangles.data(),
+                primaryOutput.size()*sizeof(WaterPathTracing::PrimaryMaterial))!=0)
+            || m_state->materialsCommittedTexels!=m_state->materials.texels.size();
+        if(first || materialChanged || output.size()!=m_state->triangles.size() || m_state->staticTriangleCount
+            || (!output.empty() && std::memcmp(output.data(),m_state->triangles.data(),output.size()*sizeof(Triangle))!=0))
+            ++m_state->revision;
+        m_state->triangles.swap(output);m_state->materials.triangles.swap(primaryOutput);
+        m_state->packetSpans.clear();
     }
     m_state->staticTriangleCount=staticTriangleCount;
     m_state->staticTerrainTriangleCount=hardwareStatic ? terrainCount : 0;
     m_state->requestedCapture=capture;
-    if (retainedPrefix) {
-        m_state->triangles.resize(retainedPrefix);
-        m_state->triangles.insert(m_state->triangles.end(),output.begin(),output.end());
-        m_state->materials.triangles.resize(retainedPrefix);
-        m_state->materials.triangles.insert(m_state->materials.triangles.end(),primaryOutput.begin(),primaryOutput.end());
-    } else {
-        m_state->triangles.swap(output);
-        m_state->materials.triangles.swap(primaryOutput);
-    }
-    if(sameStaticLayout) {
-        if(patches.empty())++m_state->staticPrefixReuses;else ++m_state->staticSpanPatchFrames;
-        size_t patched=0;for(const auto &patch:patches)patched+=patch.Count;
-        m_state->staticMeshRowsRetained+=staticTriangleCount-terrainCount-patched;
-    } else if(hardwareStatic)++m_state->staticPrefixBuilds;
     m_state->staticSpans.swap(currentSpans);
     if(reuseTerrainPrefix){++m_state->terrainPrefixReuses;m_state->terrainPrefixTrianglesRetained+=terrainCount;}
     m_state->staticPrefixValid=hardwareStatic;
