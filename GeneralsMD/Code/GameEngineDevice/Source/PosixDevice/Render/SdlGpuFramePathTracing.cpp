@@ -731,7 +731,7 @@ std::string SdlGpuFrame::Water_Path_Report() const
         << ", profiled fence waits=" << WaterPath->Profile.FenceWaits
         << ", profiled no-work returns=" << WaterPath->Profile.NoWork;
     report << ", static AS builds=" << WaterPath->StaticBuilds << ", static AS reuses=" << WaterPath->StaticReuses
-        << ", dynamic AS builds=" << WaterPath->DynamicBuilds << ", dynamic AS reuses=" << WaterPath->DynamicReuses;
+        << ", dynamic geometry changes=" << WaterPath->DynamicBuilds << ", dynamic AS reuses=" << WaterPath->DynamicReuses;
     report << ", texture upload rows=" << WaterPath->TextureUploadRows
         << ", unchanged texture skips=" << WaterPath->TextureUploadSkips
         << ", data texture allocations=" << WaterPath->TextureReallocations
@@ -744,15 +744,25 @@ std::string SdlGpuFrame::Water_Path_Report() const
         << ", atlas texels checked=" << WaterPath->MaterialValidation.CheckedTexels
         << ", atlas texels reused=" << WaterPath->MaterialValidation.ReusedTexels;
 #if defined(__linux__)
-    if (WaterPath->UsingHardware && !WaterPath->UsingHardwarePath && WaterPath->HardwareScene) {
+    ZHR_SDLRayScene *nativeScene = WaterPath->UsingHardwarePath ? WaterPath->HardwarePathScene : WaterPath->HardwareScene;
+    if (WaterPath->UsingHardware && nativeScene) {
         ZHR_SDLRayWaterStorageStats storage{};
-        if (ZHR_SDLRayGetWaterStorageStats(WaterPath->HardwareScene, &storage)) {
+        if (ZHR_SDLRayGetWaterStorageStats(nativeScene, &storage)) {
             report << ", geometry allocations=" << storage.dynamicAllocations
                 << ", geometry count reuses=" << storage.dynamicCountReuses
                 << ", geometry reserve fallbacks=" << storage.reserveFallbacks
                 << ", geometry active triangles=" << storage.activePrimitives
                 << ", geometry triangle capacity=" << storage.primitiveCapacity
                 << ", geometry allocation bytes=" << storage.allocationBytes;
+            if (WaterPath->UsingHardwarePath)
+                report << ", dynamic AS builds=" << storage.dynamicFullBuilds
+                    << ", dynamic AS refits=" << storage.dynamicRefits
+                    << ", dynamic periodic builds=" << storage.dynamicPeriodicBuilds
+                    << ", dynamic pressure builds=" << storage.dynamicPressureBuilds
+                    << ", dynamic refit ineligible=" << storage.refitIneligibleFallbacks
+                    << ", dynamic refit allocation fallbacks=" << storage.refitAllocationFallbacks
+                    << ", dynamic refit enabled=" << storage.dynamicRefitEnabled
+                    << ", dynamic refit age=" << storage.dynamicRefitAge;
         }
     }
 #endif

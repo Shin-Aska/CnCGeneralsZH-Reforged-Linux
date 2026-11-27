@@ -16,6 +16,8 @@ See [upstream status](docs/upstream-status.md) for which Linux features have bee
   down and skip captures when water is hidden. Reflections refresh as soon as water returns to view.
 - On Linux, hardware path traced water reflections reuse unchanged terrain, model and material
   data between captures, reducing the work needed to prepare the reflected scene.
+- On Linux, hardware path traced water reflections update moving objects without rebuilding
+  their entire tracing data on every change, with periodic rebuilds to keep the search efficient.
 
 ## Linux 4.2.1 release
 
