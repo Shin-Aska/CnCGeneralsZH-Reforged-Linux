@@ -3,6 +3,10 @@
 
 namespace WaterPathTracing {
 
+// Three pixel constants between visual hull metadata (176..183) and material surface (189).
+constexpr unsigned HeldProjectionRegister = 184;
+using ProjectionRows = float[3][4];
+
 struct Vec3 { float x, y, z; };
 
 // World-space directions spanning the cropped reflected camera, with dy down.

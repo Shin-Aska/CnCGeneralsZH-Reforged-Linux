@@ -20,6 +20,114 @@ Triangle Face(float x,float z,Vec3 albedo={0.7f,0.4f,0.1f})
 }
 }
 
+TEST(water_path_capture_cadence_backs_off_and_recovers_on_rendered_frames)
+{
+    CaptureCadence cadence;
+    uint64_t now = 0;
+    cadence.BeginFrame(now);
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+    cadence.BeginFrame(now = 16);
+    CHECK(!cadence.ShouldCapture());
+    cadence.BeginFrame(now = 33);
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+
+    for (unsigned i = 0; i < 60; ++i) { // More than five consecutive slow windows.
+        cadence.BeginFrame(now += 60);
+        if (cadence.ShouldCapture()) cadence.MarkCaptured();
+    }
+    CHECK_EQ(cadence.IntervalMs(),200u);
+    CHECK_NEAR(cadence.MeasuredFps(),1000.0/60,0.01);
+    for (unsigned i = 0; i < 150; ++i) cadence.BeginFrame(now += 42); // 24 FPS holds the working rate.
+    CHECK_EQ(cadence.IntervalMs(),200u);
+    for (unsigned i = 0; i < 60; ++i) cadence.BeginFrame(now += 20);
+    CHECK_EQ(cadence.IntervalMs(),200u); // A short improvement doesn't trigger an upgrade.
+    for (unsigned i = 0; i < 550; ++i) cadence.BeginFrame(now += 20);
+    CHECK_EQ(cadence.IntervalMs(),33u);
+}
+
+TEST(water_path_cadence_counts_slow_captures_and_gives_gameplay_a_clear_frame)
+{
+    CaptureCadence cadence;
+    cadence.BeginFrame(0);
+    for (unsigned i = 1; i <= 10; ++i)
+        cadence.BeginFrame(i/2 * 110 + i%2 * 10); // Alternating 10 and 100 ms is 18 FPS.
+    CHECK_NEAR(cadence.MeasuredFps(),1000.0/55,0.01);
+    CHECK_EQ(cadence.IntervalMs(),66u);
+    cadence.MarkCaptured();
+    cadence.BeginFrame(800); // Even the full interval elapsed during the previous capture.
+    CHECK(!cadence.ShouldCapture());
+    cadence.BeginFrame(820);
+    CHECK(!cadence.ShouldCapture()); // Leave time for gameplay after the over-budget capture.
+    cadence.BeginFrame(833);
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+    cadence.BeginFrame(843);
+    CHECK(!cadence.ShouldCapture());
+    cadence.InvalidateCapture(); // Dry-to-shore transition or failed capture.
+    CHECK(cadence.ShouldCapture());
+    cadence.BeginFrame(844);
+    CHECK(cadence.ShouldCapture()); // No successful retry yet.
+    cadence.MarkCaptured();
+    cadence.BeginFrame(10); // Timer reset.
+    CHECK(cadence.ShouldCapture());
+    CHECK_EQ(cadence.IntervalMs(),33u);
+    cadence.MarkCaptured();
+    cadence.BeginFrame(6010); // Loading or suspension.
+    CHECK(cadence.ShouldCapture());
+}
+
+TEST(water_path_cadence_never_holds_a_previous_scene_or_map_capture)
+{
+    int scenes[2]{}, maps[2]{};
+    CaptureCadence cadence;
+    cadence.BeginFrame(0);
+    CHECK(cadence.ObserveContext(&scenes[0],&maps[0]));
+    cadence.MarkCaptured();
+    cadence.BeginFrame(16);
+    CHECK(!cadence.ObserveContext(&scenes[0],&maps[0]));
+    CHECK(!cadence.ShouldCapture());
+    // Equal camera, water level and output size do not validate an old-map image.
+    CHECK(cadence.ObserveContext(&scenes[0],&maps[1]));
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+    CHECK(!cadence.ShouldCapture());
+    CHECK(cadence.ObserveContext(&scenes[1],&maps[1]));
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+    // Map reset may recycle both addresses, so it resets capture state explicitly.
+    cadence = {};
+    cadence.BeginFrame(17);
+    CHECK(cadence.ObserveContext(&scenes[1],&maps[1]));
+    CHECK(cadence.ShouldCapture());
+}
+
+TEST(water_path_held_projection_follows_world_points_in_the_cropped_capture)
+{
+    View view;
+    view.origin = {420,150,-90};
+    view.waterLevel = 10;
+    view.rayTopLeft = {-0.3f,0.6f,0.8f};
+    view.rayDx = {0.6f,0.2f,0.0f};
+    view.rayDy = {0.05f,-0.3f,0.2f};
+    float rows[3][4];
+    CHECK(HeldProjection(view,rows));
+    for (float u : {-0.2f,0.0f,0.5f,1.0f})
+        for (float v : {0.0f,0.4f,1.0f,1.3f}) {
+            const Vec3 ray = Add(view.rayTopLeft,Add(Scale(view.rayDx,u),Scale(view.rayDy,v)));
+            const Vec3 point = Add(view.origin,Scale(ray,120.0f));
+            const auto project = [&](const float *row) {
+                return row[0]*point.x + row[1]*point.y + row[2]*(2*view.waterLevel-point.z) + row[3];
+            };
+            CHECK_NEAR(project(rows[2]),120.0f,0.001);
+            CHECK_NEAR(project(rows[0])/project(rows[2]),u,0.0001);
+            CHECK_NEAR(project(rows[1])/project(rows[2]),v,0.0001);
+        }
+    view.rayDy = view.rayDx;
+    CHECK(!HeldProjection(view,rows));
+}
+
 TEST(water_path_refresh_limits_stationary_export_independently_of_render_rate)
 {
     // At 10, 30, 60 and 144 FPS, intermediate render frames can accumulate the

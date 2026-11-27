@@ -791,6 +791,11 @@ bool HardwareAvailable(IDirect3DDevice9 *device, bool pathTracing)
     auto *posix = dynamic_cast<PosixDevice9 *>(device);
     return posix && posix->Get_Gpu() && posix->Get_Gpu()->Water_Hardware_Available(pathTracing);
 }
+bool HasCapture(IDirect3DDevice9 *device)
+{
+    auto *posix = dynamic_cast<PosixDevice9 *>(device);
+    return posix && posix->Get_Gpu() && posix->Get_Gpu()->Water_Path_Texture();
+}
 bool PrepareHardware(IDirect3DDevice9 *device, const std::vector<Triangle> &triangles, const View &view,
     uint64_t revision, const PrimaryMaterialPacket *materials)
 {

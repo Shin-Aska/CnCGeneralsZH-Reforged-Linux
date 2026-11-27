@@ -12,6 +12,8 @@ See [upstream status](docs/upstream-status.md) for which Linux features have bee
   shelves and around sunken ruins.
 - With Ragdoll Deaths enabled, paradropped infantry now land on their feet and stay with their
   selection circles when they move. This also fixes the opening reinforcements in USA mission 2.
+- On Linux, experimental path traced water reflections refresh less often when rendering slows
+  down and skip captures when water is hidden. Reflections refresh as soon as water returns to view.
 
 ## Linux 4.2.1 release
 

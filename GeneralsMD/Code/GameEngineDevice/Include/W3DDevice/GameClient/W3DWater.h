@@ -242,9 +242,15 @@ protected:
 	WaterScreenReflection::Mode m_waterReflectionMode;	///<last resolved mode, so returning to the mirror refreshes it
 	W3DWaterPathScene *m_waterPathScene;
 	Bool m_waterPathReady;
+	Bool m_waterPathReproject = FALSE;
 	Bool m_waterPathHasView;
 	WaterPathTracing::View m_waterPathView;
 	WaterPathTracing::RefreshSchedule m_waterPathSchedule;
+	WaterPathTracing::CaptureCadence m_waterPathCadence;
+	UnsignedInt m_waterPathAdmissionChecks=0, m_waterPathAdmissionSkips=0;
+	UnsignedInt m_waterPathAdmissionReports=0;
+	Int m_waterPathAdmissionReason=-1;
+	uint64_t m_waterPathAdmissionReportMs=0;
 #endif
 	long long m_reflectionDrawnTicks = 0;	///<Clock_Ticks when Classic map water's mirror was last drawn
 	Bool m_reflectionFresh = FALSE;	///<the mirror was drawn this frame, so its draw takes this frame's view
@@ -342,6 +348,7 @@ protected:
 	std::vector<UnsignedInt> m_modernObstacleObjectIDs;
 	UnsignedInt m_modernMotionFrame=0;
 	Bool m_modernMotionFrozen=FALSE,m_modernReadsReady=FALSE;
+	Bool m_modernGameplayForDraw=FALSE;
 	struct WaterPolygonForDraw {
 		std::vector<ICoord3D> points;
 		Coord3D center;
@@ -540,7 +547,9 @@ protected:
 	Int mapReflectionTargetSize() const;
 	void ensureMapReflectionTarget(void);
 #if defined(__linux__)
-	Bool updatePathTracedReflection(CameraClass *cam);
+	void invalidateWaterPathCapture(void);
+	Bool admitWaterPathCapture(CameraClass *cam, uint64_t nowMs);
+	Bool updatePathTracedReflection(CameraClass *cam, uint64_t nowMs, Bool paceCapture);
 #endif
 	void registerWaterStyleShaders(void);
 	void setupModernWaterShader(Bool river,Bool heightCorrection=FALSE,Bool waveCage=FALSE);
