@@ -424,3 +424,25 @@ const SdlProgram &SdlProgramCache::Sun_Pixel_Program(const CombinerDescription &
     SunPixelByBytes.Add(&lookup,sizeof(lookup),&PixelPrograms[key]);
     return made;
 }
+
+const SdlProgram &SdlProgramCache::Instanced_Sun_Program(bool vertexStage)
+{
+	static const std::string key = "sun-caster-instanced";
+	auto &cache = vertexStage ? VertexPrograms : PixelPrograms;
+	auto found = cache.find(key);
+	if (found != cache.end()) return found->second;
+	static const char vertex[] = R"(
+struct Input {
+    [[vk::location(0)]] float3 Position : POSITION;
+    [[vk::location(1)]] float4 Row0 : TEXCOORD0;
+    [[vk::location(2)]] float4 Row1 : TEXCOORD1;
+    [[vk::location(3)]] float4 Row2 : TEXCOORD2;
+    [[vk::location(4)]] float4 Row3 : TEXCOORD3;
+};
+float4 main(Input input) : SV_Position {
+    float4x4 wvp = float4x4(input.Row0, input.Row1, input.Row2, input.Row3);
+    return mul(float4(input.Position, 1.0), wvp);
+}
+)";
+	return Make(cache, key, true, vertexStage ? vertex : "void main() {}\n", vertexStage);
+}

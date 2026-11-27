@@ -18,6 +18,8 @@ See [upstream status](docs/upstream-status.md) for which Linux features have bee
   data between captures, reducing the work needed to prepare the reflected scene.
 - On Linux, hardware path traced water reflections update moving objects without rebuilding
   their entire tracing data on every change, with periodic rebuilds to keep the search efficient.
+- On Linux, sun shadow rendering groups repeated opaque models into fewer draws, reducing
+  rendering work in scenes with many copies of the same model.
 
 ## Linux 4.2.1 release
 

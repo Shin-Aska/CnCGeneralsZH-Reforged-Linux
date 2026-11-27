@@ -68,6 +68,9 @@ class SdlPipelineCache;
 class SdlProgramCache;
 class SdlResourceMirrors;
 class SdlSamplerCache;
+#if defined(__linux__)
+namespace SunShadow { struct InstancedCasterRun; }
+#endif
 struct CombinerDescription;
 struct VertexPipelineDescription;
 struct SdlVertexConstants;
@@ -195,6 +198,10 @@ public:
     bool Hardware_Sun_Owns_Target(const struct SdlTarget &target) const;
     void Clear_Hardware_Sun(bool release = false);
 	bool Begin_Sun_Shadow(unsigned size);
+#if defined(__linux__)
+	bool Draw_Instanced_Sun_Casters(const SunShadow::InstancedCasterRun *runs, unsigned runCount,
+		const float *const *worlds, unsigned instanceCount);
+#endif
 	// Optional submission status is independent of whether the shadow image can be used.
 	bool End_Sun_Shadow(bool *submission_ok = NULL);
 	bool Set_Sun_Shadow_Parameters(float bias, float strength, float widest, float narrowest,

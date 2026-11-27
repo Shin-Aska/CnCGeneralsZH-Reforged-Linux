@@ -2,8 +2,29 @@
 // Sun capture is independent of per-pixel lighting and of the renderer's API identity.
 #include <string>
 struct IDirect3DDevice9;
+#if defined(__linux__)
+struct IDirect3DVertexBuffer9;
+struct IDirect3DIndexBuffer9;
+#endif
 namespace SunShadow {
 bool Begin(IDirect3DDevice9 *device, unsigned size);
+#if defined(__linux__)
+struct InstancedCasterRun {
+    IDirect3DVertexBuffer9 *Vertices;
+    IDirect3DIndexBuffer9 *Indices;
+    unsigned Stride;
+    unsigned StartIndex;
+    unsigned IndexCount;
+    unsigned FirstInstance;
+    unsigned InstanceCount;
+    unsigned CullMode;
+    unsigned DepthFunction;
+    bool Strip;
+};
+// Each world is a W3D 3x4 matrix, or null for identity. A refusal records no caster draws.
+bool DrawInstancedCasters(IDirect3DDevice9 *device, const InstancedCasterRun *runs, unsigned runCount,
+    const float *const *worlds, unsigned instanceCount);
+#endif
 // End restores the scene and reports whether this capture can be used.
 bool End(IDirect3DDevice9 *device);
 void Clear(IDirect3DDevice9 *device);
