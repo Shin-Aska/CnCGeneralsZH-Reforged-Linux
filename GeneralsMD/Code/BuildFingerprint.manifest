@@ -3488,6 +3488,7 @@ Libraries/Include/Platform/WaterBowShoulder.h
 Libraries/Include/Platform/WaterBridgeConnections.h
 Libraries/Include/Platform/WaterCaptureClock.h
 Libraries/Include/Platform/WaterCaptureFixture.h
+Libraries/Include/Platform/WaterCaptureVisibility.h
 Libraries/Include/Platform/WaterCleanCollapse.h
 Libraries/Include/Platform/WaterCleanOpt.h
 Libraries/Include/Platform/WaterCleanPrecompute.h
@@ -3534,6 +3535,7 @@ Libraries/Include/Platform/WaterOpticalContext.h
 Libraries/Include/Platform/WaterOpticalModel.h
 Libraries/Include/Platform/WaterPathCaptureScope.h
 Libraries/Include/Platform/WaterPathModelDigest.h
+Libraries/Include/Platform/WaterPathRetainedPacket.h
 Libraries/Include/Platform/WaterPathSnapshotPolicy.h
 Libraries/Include/Platform/WaterPathStaticSpans.h
 Libraries/Include/Platform/WaterPathTerrainGroups.h
@@ -4832,6 +4834,7 @@ Tests/test_user_data_guard.cpp
 Tests/test_userfolders.cpp
 Tests/test_vendor_no_art.sh
 Tests/test_w3dlayout.cpp
+Tests/test_water_capture_visibility.cpp
 Tests/test_water_clarity.cpp
 Tests/test_water_clean_defaults.py
 Tests/test_water_grid.cpp

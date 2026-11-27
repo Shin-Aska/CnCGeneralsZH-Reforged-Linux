@@ -18,6 +18,7 @@ bool Prepare(IDirect3DDevice9 *device, const std::vector<Triangle> &triangles, c
 bool HardwareRequested();
 bool HardwarePathRequested();
 bool HardwareAvailable(IDirect3DDevice9 *device, bool pathTracing = false);
+bool HasCapture(IDirect3DDevice9 *device);
 bool PrepareHardware(IDirect3DDevice9 *device, const std::vector<Triangle> &triangles, const View &view,
     uint64_t revision = 0, const PrimaryMaterialPacket *materials = nullptr);
 // Optional source-order static prefix; renderer derives its packed size after degenerate filtering.

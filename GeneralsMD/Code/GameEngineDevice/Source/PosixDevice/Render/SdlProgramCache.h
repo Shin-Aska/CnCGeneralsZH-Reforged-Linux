@@ -75,6 +75,7 @@ public:
 	const SdlProgram &Water_Vertex_Program(const VertexPipelineDescription &description, bool textureArray=false, bool cleanMain=false);
 	const SdlProgram &Pixel_Program(const CombinerDescription &description);
 	const SdlProgram &Sun_Pixel_Program(const CombinerDescription &description, int engine);
+	const SdlProgram &Instanced_Sun_Program(bool vertexStage);
 	const SdlProgram &Shore_Pixel_Program(const CombinerDescription &description);
 	/// One of the engine's own programs (A3e), from D3's transcription (engineshader.cpp), keyed as the
 	/// Direct3D 11 backend keys it: the name, and for a pixel program the alpha test and fog written into

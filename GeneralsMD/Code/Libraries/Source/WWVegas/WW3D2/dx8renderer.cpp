@@ -2311,14 +2311,21 @@ const char * DX8MeshRendererClass::Shadow_Old_Reason_Name(int reason)
 	 out (Describe_Shadow_Caster_Piece, its base pass pieces as runs) and every instance after it
 	 only joins the model's group.  Each piece of each model is then one run over the group's
 	 instances, which a counting sort by group lays out one after another. */
+#if defined(__linux__)
+using ShadowCasterVertexBuffer = IDirect3DVertexBuffer9;
+using ShadowCasterIndexBuffer = IDirect3DIndexBuffer9;
+#else
+using ShadowCasterVertexBuffer = DX11BufferTwinClass;
+using ShadowCasterIndexBuffer = DX11BufferTwinClass;
+#endif
 struct ShadowCasterPiece
 {
 	TextureClass * Texture;				// stage 0 of an alpha tested piece, NULL otherwise
 	DX11ShadowCasterKind Kind;
-	DX11BufferTwinClass * Vertices;		// NULL for a skin, which reads the skin source
+	ShadowCasterVertexBuffer * Vertices;	// NULL for a skin, which reads the skin source
 	unsigned Stride;
 	unsigned TextureOffset;
-	DX11BufferTwinClass * Indices;
+	ShadowCasterIndexBuffer * Indices;
 	unsigned StartIndex;
 	unsigned IndexCount;
 	bool Strip;
@@ -2356,34 +2363,44 @@ static unsigned _ShadowCasterPass = 1;
 static std::vector<ShadowCasterPiece> _ShadowCasterPieces;
 static std::vector<ShadowCasterGroup> _ShadowCasterGroups;
 static std::vector<ShadowCasterInstance> _ShadowCasterInstances;
-static std::vector<MeshClass *> _ShadowCasterOrdered;
 static std::vector<const float *> _ShadowCasterWorlds;
-static std::vector<unsigned> _ShadowCasterFirstBones;
 static std::vector<const float *> _ShadowCasterBones;
+#if !defined(__linux__)
+static std::vector<MeshClass *> _ShadowCasterOrdered;
+static std::vector<unsigned> _ShadowCasterFirstBones;
 static std::vector<DX11ShadowCasterRun> _ShadowCasterRuns;
 static std::vector<unsigned> _ShadowCasterRunPieces;
 static std::vector<ShadowCasterRunEntry> _ShadowCasterRunEntries;
+static std::vector<DX11ShadowSkinVertex> _ShadowSkinVertices;
+#endif
 // The skeleton whose bones went in last, which the next skin of the same model reuses.
 static const HTreeClass * _ShadowCasterLastTree = NULL;
 static unsigned _ShadowCasterLastFirstBone = 0;
-static std::vector<DX11ShadowSkinVertex> _ShadowSkinVertices;
 
-static DX11BufferTwinClass * Shadow_Caster_Vertex_Twin(VertexBufferClass * buffer)
+static ShadowCasterVertexBuffer * Shadow_Caster_Vertex_Buffer(VertexBufferClass * buffer)
 {
 	if (buffer == NULL || buffer->Type() != BUFFER_TYPE_DX8) {
 		return NULL;
 	}
 	DX8VertexBufferClass * vertices = static_cast<DX8VertexBufferClass *>(buffer);
+#if defined(__linux__)
+	return vertices->Get_DX8_Vertex_Buffer();
+#else
 	return (vertices->Get_DX8_Vertex_Buffer() != NULL) ? vertices->Get_DX11_Twin() : NULL;
+#endif
 }
 
-static DX11BufferTwinClass * Shadow_Caster_Index_Twin(IndexBufferClass * buffer)
+static ShadowCasterIndexBuffer * Shadow_Caster_Index_Buffer(IndexBufferClass * buffer)
 {
 	if (buffer == NULL || buffer->Type() != BUFFER_TYPE_DX8) {
 		return NULL;
 	}
 	DX8IndexBufferClass * indices = static_cast<DX8IndexBufferClass *>(buffer);
+#if defined(__linux__)
+	return indices->Get_DX8_Index_Buffer();
+#else
 	return (indices->Get_DX8_Index_Buffer() != NULL) ? indices->Get_DX11_Twin() : NULL;
+#endif
 }
 
 /* Whether an alpha tested piece's test is stage 0's texel alpha alone, which is all the lean pixel
@@ -2429,10 +2446,19 @@ static int Describe_Shadow_Caster_Piece(DX8PolygonRendererClass * renderer, bool
 		return DX8MeshRendererClass::SHADOW_OLD_BLENDED;
 	}
 	const bool alpha_tested = shader.Get_Alpha_Test() != ShaderClass::ALPHATEST_DISABLE;
+#if defined(__linux__)
+	// The SDL program writes opaque depth. Keep material coverage and order-dependent
+	// depth tests on the legacy path.
+	if (alpha_tested) return DX8MeshRendererClass::SHADOW_OLD_ALPHA_TEST;
+	if (shader.Get_Color_Mask() != ShaderClass::COLOR_WRITE_ENABLE
+		|| (shader.Get_Depth_Compare() != ShaderClass::PASS_LESS && shader.Get_Depth_Compare() != ShaderClass::PASS_LEQUAL)) {
+		return DX8MeshRendererClass::SHADOW_OLD_FORMAT;
+	}
+#endif
 	if (alpha_tested && skin) {
 		return DX8MeshRendererClass::SHADOW_OLD_SKIN_ALPHA_TEST;
 	}
-	record.Indices = Shadow_Caster_Index_Twin(container->Peek_Index_Buffer());
+	record.Indices = Shadow_Caster_Index_Buffer(container->Peek_Index_Buffer());
 	record.Texture = NULL;
 	record.TextureOffset = 0;
 	if (skin) {
@@ -2447,7 +2473,7 @@ static int Describe_Shadow_Caster_Piece(DX8PolygonRendererClass * renderer, bool
 	} else {
 		VertexBufferClass * buffer = static_cast<DX8RigidFVFCategoryContainer *>(container)->Peek_Vertex_Buffer();
 		record.Kind = DX11_SHADOW_CASTER_RIGID;
-		record.Vertices = Shadow_Caster_Vertex_Twin(buffer);
+		record.Vertices = Shadow_Caster_Vertex_Buffer(buffer);
 		if ((container->Get_FVF() & D3DFVF_POSITION_MASK) != D3DFVF_XYZ || record.Vertices == NULL
 			|| record.Indices == NULL) {
 			return DX8MeshRendererClass::SHADOW_OLD_FORMAT;
@@ -2538,8 +2564,13 @@ bool DX8MeshRendererClass::Add_Shadow_Caster(MeshClass * mesh, bool has_material
 	} else if (!skin && mesh->Get_Base_Vertex_Offset() != 0) {
 		// A rigid mesh's offset is nought (only a skin's fill sets one) unless it is waiting for room.
 		reason = SHADOW_OLD_STREAMING;
+#if defined(__linux__)
+	} else if (skin || has_material_passes || model->Get_Pass_Count() != 1) {
+		reason = SHADOW_OLD_FORMAT;
+#else
 	} else if (skin && has_material_passes) {
 		reason = SHADOW_OLD_SKIN_PASSES;
+#endif
 	}
 	if (reason >= 0) {
 		++Shadow_Old_Meshes[reason];
@@ -2605,8 +2636,9 @@ bool DX8MeshRendererClass::Add_Shadow_Caster(MeshClass * mesh, bool has_material
 	instance.World = NULL;
 	instance.FirstBone = 0;
 	if (!skin) {
+		const Matrix3D &world = mesh->Get_Transform();
 		if (!mesh->Is_Transform_Identity()) {
-			instance.World = reinterpret_cast<const float *>(&mesh->Get_Transform());
+			instance.World = reinterpret_cast<const float *>(&world);
 		}
 	} else {
 		const HTreeClass * tree = mesh->Get_Container()->Get_HTree();
@@ -2636,6 +2668,7 @@ void DX8MeshRendererClass::Flush_Shadow_Casters()
 	// The sun's view is set but waits in the wrapper for the next draw; the backend reads it here.
 	DX8Wrapper::Apply_Render_State_Changes();
 
+#if !defined(__linux__)
 	/* The skins' bind poses into the skin source, a model the first time it is seen under the
 		 source's generation.  A model that does not fit starts a new source, which every model uploaded
 		 before it has to go into again, this pass's included, so the walk starts over. */
@@ -2670,6 +2703,7 @@ void DX8MeshRendererClass::Flush_Shadow_Casters()
 			group.BaseVertex = (unsigned)model->ShadowSkinSourceOffset;
 		}
 	}
+#endif
 
 	// The instances one group after another, a counting sort by group.
 	const unsigned count = (unsigned)_ShadowCasterInstances.size();
@@ -2680,22 +2714,53 @@ void DX8MeshRendererClass::Flush_Shadow_Casters()
 		next += group.InstanceCount;
 		group.InstanceCount = 0;
 	}
-	_ShadowCasterOrdered.resize(count);
 	_ShadowCasterWorlds.resize(count);
+#if !defined(__linux__)
+	_ShadowCasterOrdered.resize(count);
 	_ShadowCasterFirstBones.resize(count);
+#endif
 	for (unsigned index = 0; index < count; ++index) {
 		const ShadowCasterInstance & instance = _ShadowCasterInstances[index];
 		ShadowCasterGroup & group = _ShadowCasterGroups[instance.Group];
 		const unsigned slot = group.FirstInstance + group.InstanceCount++;
-		_ShadowCasterOrdered[slot] = instance.Mesh;
 		_ShadowCasterWorlds[slot] = instance.World;
+#if !defined(__linux__)
+		_ShadowCasterOrdered[slot] = instance.Mesh;
 		_ShadowCasterFirstBones[slot] = instance.FirstBone;
+#endif
 	}
 
+	const unsigned long cull = ShaderClass::Is_Backface_Culling_Inverted() ? D3DCULL_CCW : D3DCULL_CW;
+#if defined(__linux__)
+	static std::vector<SunShadow::InstancedCasterRun> runs;
+	runs.clear();
+	for (const ShadowCasterGroup &group : _ShadowCasterGroups) {
+		for (unsigned pieceIndex = group.FirstPiece; pieceIndex < group.FirstPiece + group.PieceCount; ++pieceIndex) {
+			const ShadowCasterPiece &piece = _ShadowCasterPieces[pieceIndex];
+			SunShadow::InstancedCasterRun run;
+			run.Vertices = piece.Vertices;
+			run.Indices = piece.Indices;
+			run.Stride = piece.Stride;
+			run.StartIndex = piece.StartIndex;
+			run.IndexCount = piece.IndexCount;
+			run.FirstInstance = group.FirstInstance;
+			run.InstanceCount = group.InstanceCount;
+			run.CullMode = piece.Culled ? cull : D3DCULL_NONE;
+			run.DepthFunction = piece.DepthFunction;
+			run.Strip = piece.Strip;
+			runs.push_back(run);
+		}
+	}
+	const bool ready = SunShadow::DrawInstancedCasters(DX8Wrapper::_Get_D3D_Device(), runs.data(), runs.size(),
+		_ShadowCasterWorlds.data(), count);
+	if (ready) {
+		Shadow_Lean_Draws += runs.size();
+		for (const auto &run : runs) Shadow_Lean_Instances += run.InstanceCount;
+	}
+#else
 	/* A run a piece of a model over all its instances, ordered by the texture an alpha tested one
 		 tests against (none first), then by kind, cull, depth test and vertex buffer so the binds and
 		 states change least. */
-	const unsigned long cull = ShaderClass::Is_Backface_Culling_Inverted() ? D3DCULL_CCW : D3DCULL_CW;
 	_ShadowCasterRunEntries.clear();
 	for (size_t index = 0; index < _ShadowCasterGroups.size(); ++index) {
 		const ShadowCasterGroup & group = _ShadowCasterGroups[index];
@@ -2733,8 +2798,9 @@ void DX8MeshRendererClass::Flush_Shadow_Casters()
 		_ShadowCasterRunPieces[index] = _ShadowCasterRunEntries[index].Piece;
 	}
 
-	if (uploaded && Direct3D11_Upload_Shadow_Casters(&_ShadowCasterWorlds[0], &_ShadowCasterFirstBones[0], count,
-			_ShadowCasterBones.empty() ? NULL : &_ShadowCasterBones[0], (unsigned)_ShadowCasterBones.size())) {
+	const bool ready = uploaded && Direct3D11_Upload_Shadow_Casters(&_ShadowCasterWorlds[0], &_ShadowCasterFirstBones[0], count,
+		_ShadowCasterBones.empty() ? NULL : &_ShadowCasterBones[0], (unsigned)_ShadowCasterBones.size());
+	if (ready) {
 		// A texture's runs at a time, the opaque and skinned ones (no texture) first: an alpha tested
 		// run's texture goes on stage 0 through the wrapper, as the texture category's walk sets it,
 		// so the backend samples it with the filter and addressing that walk would have given it.
@@ -2771,7 +2837,9 @@ void DX8MeshRendererClass::Flush_Shadow_Casters()
 			}
 			begin = end;
 		}
-	} else {
+	}
+#endif
+	if (!ready) {
 		// The backend would not draw them (a program or a buffer refused): every piece of every mesh
 		// taken goes to its texture category, and a skin to its container's fill, as it would have
 		// without this.

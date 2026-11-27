@@ -4701,12 +4701,10 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	// MeshClass::Render leaves the light pieces (beams, glows) out under this hint.
 	sunInfo.Push_Override_Flags( RenderInfoClass::RINFO_OVERRIDE_SHADOW_RENDERING );
 	MeshClass::Shadow_Pass_Light_Meshes = 0;
-	/* On Direct3D 11 the opaque casters (rigid, alpha tested and skins, the last skinned on the GPU)
-		 skip the texture categories and go into instanced depth-only draws, one a piece of a model
-		 (DX8MeshRendererClass::Flush_Shadow_Casters).  The SDL device has no such draw, and
-		 -shadowmapoldcasters keeps the old way for an A/B. */
+	/* Eligible meshes skip the texture categories for an instanced depth-only draw per model
+		 piece. The SDL path takes opaque rigid casters. -shadowmapoldcasters retains per-mesh draws. */
 #if defined(__linux__)
-	MeshClass::Shadow_Lean_Casters = false;
+	MeshClass::Shadow_Lean_Casters = !TheGlobalData->m_shadowMapOldCasters;
 #else
 	MeshClass::Shadow_Lean_Casters = Direct3D11_Shadow_Map_Bound() && !TheGlobalData->m_shadowMapOldCasters;
 #endif

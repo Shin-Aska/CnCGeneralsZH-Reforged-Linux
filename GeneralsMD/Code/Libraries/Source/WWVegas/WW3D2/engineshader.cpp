@@ -688,7 +688,7 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 static void write_modern_water(std::string & hlsl, bool river,
 	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration(),
 	bool waveHeading = false, bool waterOpenSea = false, bool liveTuning = false, bool cleanMain = false,
-	bool waterRayFilter = false)
+	bool waterRayFilter = false, bool heldProjection = false)
 {
 	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
 #if defined(__linux__)
@@ -720,7 +720,7 @@ static void write_modern_water(std::string & hlsl, bool river,
 		hlsl += line;
 	}
 	hlsl += "Texture2DArray OceanMaps : register(t8);\nSamplerState OceanSampler : register(s8);\n";
-	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0,visualContact,liveTuning,waterRayFilter);
+	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0,visualContact,liveTuning,waterRayFilter,heldProjection);
 	std::string sunSampling=SHADOW_SAMPLING SUN_SMOKE_SAMPLING;
 	for(const auto &binding : {std::pair<const char*,const char*>("register(t5)","register(t9)"),
 		{"register(s5)","register(s9)"},{"register(t6)","register(t10)"},{"register(s6)","register(s10)"}}) {
@@ -1483,7 +1483,16 @@ float4 main(Input input) : SV_Target
     float4 mirror=0.0, filteredMirror=0.0;
     float2 mirrorFilterSupport=abs(blur);
     bool pathTraced=WATER_SCENE_REFLECTIONS && MaterialParameters.w>1.5;
-    bool filteredPlanar=WATER_SCENE_REFLECTIONS && MaterialParameters.w>0.5 && !pathTraced && WaterParameters.z>0.5;
+)HLSL";
+    if (heldProjection) hlsl += R"HLSL(    if (pathTraced && MaterialParameters.w>2.5) {
+        float4 surfacePosition=float4(world,1.0);
+        float depthInCapture=dot(surfacePosition,HeldPathProjection[2]);
+        reflectionUV=depthInCapture>0.0001
+            ? float2(dot(surfacePosition,HeldPathProjection[0]),dot(surfacePosition,HeldPathProjection[1]))/depthInCapture
+            : float2(-2.0,-2.0);
+    }
+)HLSL";
+    hlsl += R"HLSL(    bool filteredPlanar=WATER_SCENE_REFLECTIONS && MaterialParameters.w>0.5 && !pathTraced && WaterParameters.z>0.5;
 #if WATER_SCENE_REFLECTIONS
     [branch] if (filteredPlanar) {
         uint mirrorWidth,mirrorHeight;
@@ -2587,7 +2596,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER, WaterPerformanceSettings::Applied(),
 				WaterFftSampling::Enabled(), waterOpenSea && program == ENGINE_SHADER_WATER_TRAPEZOID,true,
                 waterCleanMain && WaterCleanSpectrum::Enabled() && WaterFftSampling::Enabled() && program==ENGINE_SHADER_WATER_TRAPEZOID,
-				waterRayFilter);
+				waterRayFilter,true);
 			if (!water_material_profile(hlsl)) return false;
 			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
 			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);

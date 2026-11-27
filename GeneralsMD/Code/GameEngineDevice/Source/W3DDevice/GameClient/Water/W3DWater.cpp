@@ -63,6 +63,7 @@
 #endif
 #if defined(__linux__)
 #include "Platform/WaterPathTracing.h"
+#include "Platform/WaterCaptureVisibility.h"
 #include "W3DWaterPathScene.h"
 #include "Platform/WaterFftSampling.h"
 #include "Platform/WaterWaveHeading.h"
@@ -871,6 +872,7 @@ Real WaterRenderObjClass::getSkirtSeaLevel(Real x, Real y) const
 void WaterRenderObjClass::takeMotionReadsForRender(void)
 {
 	m_modernMotionFrame=TheGameLogic ? TheGameLogic->getFrame() : 0;
+	m_modernGameplayForDraw=TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame();
 	m_modernMotionFrozen=(TheGameLogic && TheGameLogic->isGamePaused()) || (TheScriptEngine &&
 		(TheScriptEngine->isTimeFrozenScript() || TheScriptEngine->isTimeFrozenDebug()));
 }
@@ -931,6 +933,7 @@ if (WaterScreenReflection::Supported() && m_waterTrackSystem) m_waterTrackSystem
 		if (!m_waterPathScene) {
 			m_waterPathScene=new W3DWaterPathScene;
 			m_waterPathSchedule.Reset();m_waterPathHasView=FALSE;
+			m_waterPathCadence = {};
 		}
 		m_waterPathScene->takeReadsForRender(TheTerrainRenderObject);
 	}
@@ -2073,6 +2076,13 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 		materialOptics.x = max(materialOptics.x, WaterUnderwaterClarity::Strength);
 	materialParameters.w = pathReady ? 2.0f
 		: (WaterScreenReflection::Traces(mode) || WaterScreenReflection::IsPathTraced(mode) ? 1.0f : 0.0f);
+	if (pathReady && m_waterPathReproject) {
+		WaterPathTracing::ProjectionRows rows;
+		if (WaterPathTracing::HeldProjection(m_waterPathView,rows)) {
+			setModernWaterConstants(WaterPathTracing::HeldProjectionRegister,rows[0],3);
+			materialParameters.w = 3.0f;
+		}
+	}
 #endif
 	setModernWaterConstants(ModernWaterMaterial::RegisterColor, materialColor, 1);
 	setModernWaterConstants(ModernWaterMaterial::RegisterParameters, materialParameters, 1);
@@ -3922,6 +3932,13 @@ void WaterRenderObjClass::updateMapOverrides(void)
 // ------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::reset( void )
 {
+#if defined(__linux__)
+	invalidateWaterPathCapture();
+	m_waterPathCadence = {};
+	WaterPathTracing::Clear(DX8Wrapper::_Get_D3D_Device());
+	delete m_waterPathScene;
+	m_waterPathScene = NULL;
+#endif
 #if ZH_MODERN_WATER
 	m_modernObjectsForDraw.clear();m_modernObstacleObjectIDs.clear();m_waterPolygonsForDraw.clear();
 	m_modernReadsReady=FALSE;
@@ -4304,6 +4321,7 @@ void WaterRenderObjClass::synchronizeWaterReflection(void)
 		WaterPerformanceSettings::Applied().refraction, WaterScreenReflection::Traces(mode));
 	if (mode != m_waterReflectionMode)
 	{
+		m_waterPathCadence = {};
 		if (WaterScreenReflection::IsPathTraced(m_waterReflectionMode))
 		{
 			WaterPathTracing::Clear(DX8Wrapper::_Get_D3D_Device());
@@ -4335,6 +4353,7 @@ void WaterRenderObjClass::synchronizeWaterReflection(void)
 		m_waterPathScene = NULL;
 	}
 	m_waterPathReady = FALSE;
+	m_waterPathReproject = FALSE;
 }
 #endif
 
@@ -4390,11 +4409,34 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 	const Bool pathTracing=m_useModernWater && (WaterScreenReflection::IsPathTraced(mode) ||
         (WaterPathTracing::HardwareRequested() && WaterPerformanceSettings::Applied().sceneReflections &&
             WaterPathTracing::HardwareAvailable(DX8Wrapper::_Get_D3D_Device())));
+	const Bool paceCapture = pathTracing && WaterScreenReflection::IsPathTraced(mode)
+		&& m_modernGameplayForDraw && !GameEngine_isVideoFrame();
+	const uint64_t nowMs = pathTracing ? uint64_t(Clock_Ticks())/(uint64_t(Clock_Ticks_Per_Second())/1000) : 0;
+	if (paceCapture && m_waterPathCadence.BeginFrame(nowMs) && std::getenv("ZH_WATER_CADENCE_PROFILE"))
+		std::fprintf(stderr,"[water-path-cadence] logic=%u fps=%.1f interval_ms=%u captures=%u\n",
+			m_modernMotionFrame,m_waterPathCadence.MeasuredFps(),m_waterPathCadence.IntervalMs(),
+			m_waterPathCadence.LastWindowCaptures());
 #else
 	const Bool pathTracing = FALSE;
 #endif
-	if (!cam || !TheTerrainRenderObject || !TheTerrainRenderObject->getMap())
+	if (!cam || !TheTerrainRenderObject || !TheTerrainRenderObject->getMap()) {
+#if defined(__linux__)
+		invalidateWaterPathCapture();
+#endif
 		return;
+	}
+#if defined(__linux__)
+	if (pathTracing && m_waterPathCadence.ObserveContext(m_parentScene,TheTerrainRenderObject->getMap()))
+		invalidateWaterPathCapture();
+	// Visibility is independent of the selected PT backend/quality and is evaluated
+	// before held-capture reuse, scene export, or native capture work.
+	if (pathTracing && m_waterType == WATER_TYPE_0_TRANSLUCENT && !admitWaterPathCapture(cam,nowMs)) {
+		invalidateWaterPathCapture();
+		m_reflectionFresh = FALSE;
+		m_reflectionAreaMax = m_reflectionAreaMin;
+		return;
+	}
+#endif
 
 	if (m_waterType == WATER_TYPE_2_PVSHADER && getClippedWaterPlane(cam, NULL))
 	{
@@ -4468,8 +4510,12 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 		}
 	}
 
-	if (!waterInView)
+	if (!waterInView) {
+#if defined(__linux__)
+		invalidateWaterPathCapture();
+#endif
 		return;
+	}
 
 	// Classic's texture reaches a little past the screen, so a kept one still has the strip a
 	// scrolling camera brings in (below).  Modern's shader reads the area as part of the screen.
@@ -4482,8 +4528,12 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 
 	const Vector2 drawMin(max(areaMin.X - WATER_REFLECTION_AREA_MARGIN, -limit), max(areaMin.Y - WATER_REFLECTION_AREA_MARGIN, -limit));
 	const Vector2 drawMax(min(areaMax.X + WATER_REFLECTION_AREA_MARGIN, limit), min(areaMax.Y + WATER_REFLECTION_AREA_MARGIN, limit));
-	if (drawMin.X >= drawMax.X || drawMin.Y >= drawMax.Y)
+	if (drawMin.X >= drawMax.X || drawMin.Y >= drawMax.Y) {
+#if defined(__linux__)
+		invalidateWaterPathCapture();
+#endif
 		return;	//every corner is off one side of the screen
+	}
 
 	// A camera that has not moved looks at the same water from the same place, so a reflection one
 	// frame old lines up with it exactly and only what moved in it is a frame late.  Such a frame
@@ -4523,7 +4573,7 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 	m_reflectionAreaMax = drawMax;
 
 #if defined(__linux__)
-	if (pathTracing && updatePathTracedReflection(cam))
+	if (pathTracing && updatePathTracedReflection(cam,nowMs,paceCapture))
 		return;
     // A refused hardware override retains the selected SSR/Sky behavior. Mirror/Hybrid
     // retain their planar capture, and PathTraced already retried its software tracer.
@@ -4538,7 +4588,80 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 }
 
 #if defined(__linux__)
-Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
+void WaterRenderObjClass::invalidateWaterPathCapture(void)
+{
+	m_waterPathCadence.InvalidateCapture();
+	m_waterPathSchedule.Reset();
+	m_waterPathHasView = FALSE;
+	m_waterPathReady = FALSE;
+	m_waterPathReproject = FALSE;
+}
+
+Bool WaterRenderObjClass::admitWaterPathCapture(CameraClass *cam, uint64_t nowMs)
+{
+	using namespace WaterCaptureVisibility;
+	WorldHeightMap *map = TheTerrainRenderObject->getMap();
+	const double vertical = WaterSurfaceModel::MaxDisplacement + 0.01;
+	const double horizontal = WaterFftGeometry::MaxHorizontalDisplacement + 0.01;
+	const int width = map->getXExtent(), height = map->getYExtent(), border = map->getBorderSize();
+	const uint8_t *heights = map->getDataPtr();
+	const Vector3 eye = cam->Get_Position();
+	Point3 nearCorners[4];
+	const Vector3 *corners = cam->Get_Frustum_Corners(); // Engine order: the first four are near.
+	for (int i = 0; i < 4; ++i) nearCorners[i] = {corners[i].X,corners[i].Y,corners[i].Z};
+	const Bool eyeClear = WaterTerrainCulling::CameraAboveTerrain(heights,width,height,border,
+		MAP_XY_FACTOR,MAP_HEIGHT_SCALE,eye.X,eye.Y,eye.Z);
+	const Bool nearClear = NearPlaneAboveTerrain(nearCorners,heights,width,height,border,MAP_XY_FACTOR,MAP_HEIGHT_SCALE);
+	Result reason = Result::Offscreen;
+	if (m_drawnMotionEnabled)
+		reason = Result::UnknownSurface; // The independent simulation grid is not a flat polygon.
+	else {
+		Plane planes[6];
+		const PlaneClass *frustum = cam->Get_Frustum_Planes();
+		for (int i = 0; i < 6; ++i)
+			planes[i] = {-frustum[i].N.X,-frustum[i].N.Y,-frustum[i].N.Z,frustum[i].D};
+		// Reuse only the exact immutable snapshot the terrain cache belongs to.
+		// A changed live height byte must immediately restore capture admission.
+		const Bool sameTerrain = map == m_modernHeightMap && heights == m_modernHeightData
+			&& border == m_modernHeightBorder && width == m_modernHeightWidth && height == m_modernHeightHeight
+			&& m_modernHeights.size() == size_t(width)*height
+			&& memcmp(m_modernHeights.data(),heights,m_modernHeights.size()) == 0;
+		WaterTerrainCulling::WetNodeCache *cache = sameTerrain ? &m_modernTerrainProofCache : nullptr;
+		for (const auto &polygon : m_waterPolygonsForDraw) {
+			if (polygon.getNumPoints() < 3) continue;
+			const double level = polygon.points[0].z;
+			Bounds bounds = {double(polygon.points[0].x),double(polygon.points[0].y),
+				double(polygon.points[0].x),double(polygon.points[0].y)};
+			Bool flat = !polygon.isRiver();
+			for (const auto &point : polygon.points) {
+				bounds.minX = min(bounds.minX,double(point.x)); bounds.maxX = max(bounds.maxX,double(point.x));
+				bounds.minY = min(bounds.minY,double(point.y)); bounds.maxY = max(bounds.maxY,double(point.y));
+				flat = flat && point.z == level;
+			}
+			if (!flat) { reason = Result::UnknownSurface; break; }
+			const Result area = Classify(bounds,level,planes,sameTerrain ? m_modernHeights.data() : heights,
+				width,height,border,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,vertical,horizontal,cache,
+				eyeClear && nearClear && eye.Z > level + vertical);
+			if (!Hidden(area)) { reason = area; break; }
+			if (area == Result::Dry) reason = area;
+		}
+	}
+	const Bool admitted = !Hidden(reason);
+	++m_waterPathAdmissionChecks;
+	if (!admitted) ++m_waterPathAdmissionSkips;
+	if (m_waterPathAdmissionReports < 64 && std::getenv("ZH_WATER_VISIBILITY_PROFILE")
+		&& (m_waterPathAdmissionReason != Int(reason) || nowMs-m_waterPathAdmissionReportMs >= 500)) {
+		std::fprintf(stderr,"[water-path-admission] reason=%s admitted=%u checks=%u skips=%u eye=%.2f,%.2f,%.2f map=%dx%d eye_clear=%u near_clear=%u\n",
+			Name(reason),unsigned(admitted),m_waterPathAdmissionChecks,m_waterPathAdmissionSkips,
+			eye.X,eye.Y,eye.Z,width,height,unsigned(eyeClear),unsigned(nearClear));
+		m_waterPathAdmissionReason = Int(reason);
+		m_waterPathAdmissionReportMs = nowMs;
+		++m_waterPathAdmissionReports;
+	}
+	return admitted;
+}
+
+Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam, uint64_t nowMs, Bool paceCapture)
 {
 	if (!m_waterPathScene) return FALSE;
 
@@ -4580,7 +4703,6 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
 	}
 	const Bool viewChanged = !m_waterPathHasView
 		|| memcmp(&view,&m_waterPathView,sizeof(view))!=0;
-	const uint64_t nowMs = uint64_t(Clock_Ticks())/(uint64_t(Clock_Ticks_Per_Second())/1000);
     const Bool hardwarePathRequested=WaterScreenReflection::IsPathTraced(m_waterReflectionMode) &&
         (HardwareRayTracing::Requested() || WaterPathTracing::HardwarePathRequested());
     const Bool useHardwarePath=hardwarePathRequested &&
@@ -4592,6 +4714,14 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
     const Capture capture=useHardwarePath ? Capture::HardwarePath
         : hardwareOneBounce ? Capture::HardwareReflection : Capture::SoftwarePath;
     const Bool captureChanged=m_waterPathScene->RequestedCapture()!=capture;
+	if (paceCapture && !m_waterPathCadence.ShouldCapture() && !captureChanged && m_waterPathHasView
+		&& view.waterLevel == m_waterPathView.waterLevel && view.size == m_waterPathView.size
+		&& WaterPathTracing::HasCapture(DX8Wrapper::_Get_D3D_Device())) {
+		m_waterPathReady = TRUE;
+		m_waterPathReproject = viewChanged;
+		return TRUE;
+	}
+	m_waterPathCadence.InvalidateCapture(); // A failed export or submission must be retried.
     const auto hardwareLogicFrame = useHardwarePath ? std::optional<uint32_t>(m_modernMotionFrame) : std::nullopt;
 	if (m_waterPathSchedule.ShouldRefresh(nowMs,viewChanged || captureChanged,hardwareLogicFrame))
 	{
@@ -4618,6 +4748,8 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
         m_waterPathReady = WaterPathTracing::Prepare(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
             m_waterPathScene->Revision(),&m_waterPathScene->Materials());
     }
+	if (paceCapture && m_waterPathReady)
+		m_waterPathCadence.MarkCaptured();
 	return m_waterPathReady;
 }
 #endif

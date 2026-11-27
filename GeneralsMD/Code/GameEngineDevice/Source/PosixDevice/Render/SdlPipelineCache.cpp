@@ -330,17 +330,24 @@ SDL_GPUGraphicsPipeline *SdlPipelineCache::Pipeline(const SdlPipelineKey &key, b
 	std::string refusal;
 	SDL_GPUGraphicsPipeline *pipeline = NULL;
 	if (Sdl_Vertex_Layout(key.FVF, layout, refusal)) {
-		SDL_GPUVertexBufferDescription buffer;
-		SDL_zero(buffer);
-		buffer.slot = 0;
-		buffer.pitch = layout.Stride;
-		buffer.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
-		SDL_GPUVertexAttribute attributes[SdlVertexLayout::MAXIMUM_ATTRIBUTES];
+		SDL_GPUVertexBufferDescription buffers[2] = {};
+		buffers[0].pitch = key.ShadowCasterStride ? key.ShadowCasterStride : layout.Stride;
+		buffers[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+		SDL_GPUVertexAttribute attributes[SdlVertexLayout::MAXIMUM_ATTRIBUTES + 4];
 		for (unsigned int i = 0; i < layout.AttributeCount; ++i) {
 			attributes[i].location = layout.Location[i];
 			attributes[i].buffer_slot = 0;
 			attributes[i].format = (SDL_GPUVertexElementFormat)layout.Format[i];
 			attributes[i].offset = layout.Offset[i];
+		}
+		if (key.ShadowCasterStride) {
+			buffers[1].slot = 1;
+			buffers[1].pitch = 16 * sizeof(float);
+			buffers[1].input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE;
+			for (unsigned row = 0; row < 4; ++row) {
+				attributes[layout.AttributeCount + row] = { row + 1, 1,
+					SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, row * 16 };
+			}
 		}
 
 		SDL_GPUColorTargetDescription target;
@@ -360,10 +367,10 @@ SDL_GPUGraphicsPipeline *SdlPipelineCache::Pipeline(const SdlPipelineKey &key, b
 		SDL_zero(info);
 		info.vertex_shader = key.VertexShader;
 		info.fragment_shader = key.PixelShader;
-		info.vertex_input_state.vertex_buffer_descriptions = &buffer;
-		info.vertex_input_state.num_vertex_buffers = 1;
+		info.vertex_input_state.vertex_buffer_descriptions = buffers;
+		info.vertex_input_state.num_vertex_buffers = key.ShadowCasterStride ? 2 : 1;
 		info.vertex_input_state.vertex_attributes = attributes;
-		info.vertex_input_state.num_vertex_attributes = layout.AttributeCount;
+		info.vertex_input_state.num_vertex_attributes = layout.AttributeCount + (key.ShadowCasterStride ? 4 : 0);
 		info.primitive_type = (SDL_GPUPrimitiveType)key.Primitive;
 		info.rasterizer_state.fill_mode = (SDL_GPUFillMode)key.Fill;
 		info.rasterizer_state.cull_mode = (SDL_GPUCullMode)key.Cull;

@@ -247,6 +247,92 @@ static void check_sorted_coverage(PosixDevice9 *device, bool reverse)
     DX8Wrapper::Invalidate_Cached_Render_States();
 }
 
+static void check_instanced_depth(PosixDevice9 *device)
+{
+    auto *vb = new DX8VertexBufferClass(D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEX2, 6);
+    auto *ib = new DX8IndexBufferClass(6);
+    {
+        VertexBufferClass::WriteLockClass lock(vb);
+        auto *vertices = static_cast<VertexFormatXYZNDUV2 *>(lock.Get_Vertex_Array());
+        for (unsigned i = 0; i < 6; ++i) {
+            vertices[i] = {};
+            vertices[i].x = i % 3 == 1 ? .125f : -.125f;
+            vertices[i].y = i % 3 == 2 ? .25f : -.25f;
+            vertices[i].z = i < 3 ? .5f : .625f;
+        }
+    }
+    {
+        IndexBufferClass::WriteLockClass lock(ib);
+        for (unsigned i = 0; i < 6; ++i) lock.Get_Index_Array()[i] = i;
+    }
+    Matrix3D left(1), identity(1), right(1);
+    left.Set_Translation(Vector3(-.5f, 0, -.125f));
+    right.Set_Translation(Vector3(.5f, 0, 0));
+    right[1][1] = .5f;
+    const float *worlds[] = { &left[0][0], nullptr, &right[0][0] };
+    const unsigned stride = vb->FVF_Info().Get_FVF_Size();
+    const SunShadow::InstancedCasterRun runs[] = {
+        { vb->Get_DX8_Vertex_Buffer(), ib->Get_DX8_Index_Buffer(), stride, 0, 3, 0, 2,
+            D3DCULL_NONE, D3DCMP_LESSEQUAL, false },
+        { vb->Get_DX8_Vertex_Buffer(), ib->Get_DX8_Index_Buffer(), stride, 3, 3, 2, 1,
+            D3DCULL_NONE, D3DCMP_LESSEQUAL, true },
+    };
+    const auto capture = [&](bool instanced) {
+        CHECK(SunShadow::Begin(device, 64));
+        Matrix3D view(1);
+        view.Set_Translation(Vector3(.03125f, -.0625f, 0));
+        DX8Wrapper::Set_Transform(D3DTS_VIEW, view);
+        Matrix4x4 projection(true);
+        projection[0][0] = .875f;
+        DX8Wrapper::Set_Projection_Transform_With_Z_Bias(projection, 0, 1);
+        ShaderClass shader;
+        shader.Set_Texturing(ShaderClass::TEXTURING_DISABLE);
+        shader.Set_Cull_Mode(ShaderClass::CULL_MODE_DISABLE);
+        DX8Wrapper::Set_Shader(shader);
+        auto *material = VertexMaterialClass::Get_Preset(VertexMaterialClass::PRELIT_DIFFUSE);
+        DX8Wrapper::Set_Material(material);
+        material->Release_Ref();
+        DX8Wrapper::Set_DX8_Render_State(D3DRS_LIGHTING, FALSE);
+        DX8Wrapper::Set_DX8_Render_State(D3DRS_FILLMODE, D3DFILL_SOLID);
+        DX8Wrapper::Set_Vertex_Buffer(vb);
+        DX8Wrapper::Set_Index_Buffer(ib, 0);
+        DX8Wrapper::Apply_Render_State_Changes();
+        const unsigned before = device->Draws_Recorded();
+        if (instanced) {
+            device->Get_Gpu()->Fail_Next_Native_Record_For_Test();
+            CHECK(!SunShadow::DrawInstancedCasters(device, runs, 2, worlds, 3));
+            CHECK(device->Draws_Recorded() == before);
+            CHECK(SunShadow::DrawInstancedCasters(device, runs, 2, worlds, 3));
+            CHECK(device->Draws_Recorded() == before + 2);
+        } else {
+            DX8Wrapper::Set_Transform(D3DTS_WORLD, left);
+            DX8Wrapper::Draw_Triangles(0, 1, 0, 3);
+            DX8Wrapper::Set_Transform(D3DTS_WORLD, identity);
+            DX8Wrapper::Draw_Triangles(0, 1, 0, 3);
+            DX8Wrapper::Set_Transform(D3DTS_WORLD, right);
+            DX8Wrapper::Draw_Strip(3, 1, 3, 3);
+            CHECK(device->Draws_Recorded() == before + 3);
+        }
+        DX8Wrapper::Invalidate_Cached_Render_States();
+        CHECK(SunShadow::End(device));
+        std::vector<float> depth;
+        CHECK(device->Read_Sun_Shadow(depth));
+        return depth;
+    };
+    const auto ordinary = capture(false);
+    const auto instanced = capture(true);
+    CHECK(ordinary == instanced);
+    unsigned leftPixels = 0, middlePixels = 0, rightPixels = 0;
+    for (float depth : instanced) {
+        leftPixels += depth == .375f;
+        middlePixels += depth == .5f;
+        rightPixels += depth == .625f;
+    }
+    CHECK(leftPixels > 30 && middlePixels > 30 && rightPixels > 15);
+    vb->Release_Ref();
+    ib->Release_Ref();
+}
+
 int main()
 {
     setenv("ZH_SUN_SHADOW_MODE", "mapped", 1);
@@ -275,6 +361,7 @@ int main()
     WW3D::Enable_Sorting(true);
     check_sorted_coverage(device, false);
     check_sorted_coverage(device, true); // Reuses recycled nodes and reverses the final effect.
+    check_instanced_depth(device);
     check_sorted_model_packets(device);
     SortingRendererClass::Deinit();
     DX8Wrapper::Shutdown();

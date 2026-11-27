@@ -1,14 +1,18 @@
 // Render-only sun capture. The snapshot owns COM references across caster queue flushes.
 #include "PosixDevice9.h"
+#include "PosixResources9.h"
 #include "SdlGpuFrame.h"
 #include "SdlConstants.h"
 #include "SdlPipelineCache.h"
+#include "SdlProgramCache.h"
 #include "SdlRenderMatrix.h"
+#include "SdlResourceMirror.h"
 #include "engineshader.h"
 #include "Platform/SunShadowMode.h"
 #include "Platform/SunShadow.h"
 #include "Platform/SunSmoke.h"
 #include "ffshader.h"
+#include <SDL3/SDL.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -115,6 +119,111 @@ bool PosixDevice9::Sun_Target(SdlTarget &target) const
     target = Sun->Target;
     return true;
 }
+
+#if defined(__linux__)
+bool PosixDevice9::Draw_Instanced_Sun_Casters(const SunShadow::InstancedCasterRun *runs, unsigned runCount,
+    const float *const *worlds, unsigned instanceCount)
+{
+    if (!SunActive || !Sun || SunFailed || RenderStates[D3DRS_CLIPPLANEENABLE]
+        || !runs || !runCount || runCount > 4096 || !worlds || !instanceCount)
+        return false;
+
+    const Uint64 start = Timing_Is_Asked() ? SDL_GetTicksNS() : 0;
+    auto *vertexShader = Programs->Instanced_Sun_Program(true).Shader;
+    auto *pixelShader = Programs->Instanced_Sun_Program(false).Shader;
+    if (!vertexShader || !pixelShader) return false;
+
+    RenderUInt32 states[RENDER_STATE_COUNT] = {};
+    states[D3DRS_FILLMODE] = RenderStates[D3DRS_FILLMODE];
+    states[D3DRS_ZENABLE] = D3DZB_TRUE;
+    states[D3DRS_ZWRITEENABLE] = 1;
+    states[D3DRS_DEPTHBIAS] = RenderStates[D3DRS_DEPTHBIAS];
+    states[D3DRS_SLOPESCALEDEPTHBIAS] = RenderStates[D3DRS_SLOPESCALEDEPTHBIAS];
+
+    std::string refusal;
+    std::vector<SdlNativeDrawPacket> packets(runCount);
+    Mirrors->Collect_Dead();
+    uint64_t batch;
+    do {
+        batch = Gpu->Batch();
+        for (unsigned i = 0; i < runCount; ++i) {
+            const auto &run = runs[i];
+            if (!run.Vertices || !run.Indices || run.Stride < 3 * sizeof(float) || run.IndexCount < 3
+                || (!run.Strip && run.IndexCount % 3 != 0) || !run.InstanceCount
+                || run.FirstInstance >= instanceCount || run.InstanceCount > instanceCount - run.FirstInstance
+                || (run.DepthFunction != D3DCMP_LESS && run.DepthFunction != D3DCMP_LESSEQUAL)) return false;
+
+            auto *vertices = static_cast<PosixVertexBuffer9 *>(run.Vertices);
+            auto *indices = static_cast<PosixIndexBuffer9 *>(run.Indices);
+            const unsigned indexSize = indices->format() == D3DFMT_INDEX32 ? 4 : 2;
+            if (vertices->storage().lockCount() || indices->storage().lockCount()
+                || run.Stride > vertices->storage().length()
+                || (uint64_t(run.StartIndex) + run.IndexCount) * indexSize > indices->storage().length()) return false;
+
+            states[D3DRS_CULLMODE] = run.CullMode;
+            states[D3DRS_ZFUNC] = run.DepthFunction;
+            SdlPipelineKey key;
+            if (!Sdl_Pipeline_Key(states, run.Strip ? D3DPT_TRIANGLESTRIP : D3DPT_TRIANGLELIST,
+                vertexShader, pixelShader, D3DFVF_XYZ, 0, Sun->Target.DepthFormat, key, refusal)) return false;
+            key.ShadowCasterStride = run.Stride;
+
+            auto &packet = packets[i];
+            packet.Target = Sun->Target;
+            auto &draw = packet.Draw;
+            draw.Pipeline = Pipelines->Pipeline(key);
+            if (!draw.Pipeline) return false;
+            draw.VertexBuffer = Mirrors->Buffer(vertices, vertices->storage(), refusal);
+            draw.IndexBuffer = Mirrors->Buffer(indices, indices->storage(), refusal);
+            if (!draw.VertexBuffer || !draw.IndexBuffer) return false;
+            draw.IndexSize = indexSize;
+            draw.First = run.StartIndex;
+            draw.Count = run.IndexCount;
+            draw.InstanceCount = run.InstanceCount;
+            // Match the D3D9 viewport in Gpu_Draw, including the half-pixel offset.
+            draw.Viewport[0] = draw.Viewport[1] = 0.5f;
+            draw.Viewport[2] = float(Sun->Target.Width);
+            draw.Viewport[3] = float(Sun->Target.Height);
+            draw.Viewport[5] = 1.0f;
+            draw.Scissor[2] = int32_t(Sun->Target.Width);
+            draw.Scissor[3] = int32_t(Sun->Target.Height);
+        }
+        if (Gpu->Flush_Failure_Serial() != Sun->FlushFailureSerial) return false;
+        // A mirror update may submit the batch. Mark all the borrowed buffers again in the new batch.
+    } while (Gpu->Batch() != batch);
+
+    constexpr unsigned matrixStride = 16 * sizeof(float);
+    const uint64_t instanceBytes = uint64_t(instanceCount) * matrixStride;
+    if (instanceBytes + Gpu->Stage_Offset_Next() > UINT32_MAX) return false;
+    uint32_t offset = 0;
+    uint8_t *matrices = Gpu->Stage(uint32_t(instanceBytes), offset);
+    const float *view = &Transforms[D3DTS_VIEW]._11;
+    const float *projection = &Transforms[D3DTS_PROJECTION]._11;
+    float identityWvp[16];
+    multiply(view, projection, identityWvp);
+    for (unsigned i = 0; i < instanceCount; ++i) {
+        const float *world = worlds[i];
+        float wvp[16];
+        if (world) {
+            const float transposed[16] = {
+                world[0], world[4], world[8], 0, world[1], world[5], world[9], 0,
+                world[2], world[6], world[10], 0, world[3], world[7], world[11], 1,
+            };
+            float worldView[16];
+            multiply(transposed, view, worldView);
+            multiply(worldView, projection, wvp);
+        }
+        std::memcpy(matrices + size_t(i) * matrixStride, world ? wvp : identityWvp, matrixStride);
+    }
+    for (unsigned i = 0; i < runCount; ++i) {
+        packets[i].Draw.InstanceStride = matrixStride;
+        packets[i].Draw.InstanceOffset = offset + runs[i].FirstInstance * matrixStride;
+    }
+    if (!Gpu->Record_Native_Draw_Batch(packets.data(), runCount)) return false;
+    DrawsRecorded += runCount;
+    if (start) TimingDrawMs += double(SDL_GetTicksNS() - start) / 1.0e6;
+    return true;
+}
+#endif
 
 void PosixDevice9::Update_Sun_Shadow_Matrix()
 {
@@ -528,6 +637,13 @@ bool Begin(IDirect3DDevice9 *device, unsigned size)
     return false; // Preserve the existing macOS scene shadows.
 #endif
 }
+#if defined(__linux__)
+bool DrawInstancedCasters(IDirect3DDevice9 *device, const InstancedCasterRun *runs, unsigned runCount,
+    const float *const *worlds, unsigned instanceCount)
+{
+    return device && static_cast<PosixDevice9 *>(device)->Draw_Instanced_Sun_Casters(runs, runCount, worlds, instanceCount);
+}
+#endif
 bool End(IDirect3DDevice9 *d) { return d && static_cast<PosixDevice9*>(d)->End_Sun_Shadow(); }
 void Clear(IDirect3DDevice9 *d) {
     // A nested view's renderShadowMap starts with Clear, even when Begin will be

@@ -47,6 +47,24 @@ inline Vec3 Cross(Vec3 a, Vec3 b)
 {
     return {a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};
 }
+
+// Invert the capture's cropped ray basis. Reflecting the current water surface
+// about the capture plane makes a held sample follow the world during camera pans.
+inline bool HeldProjection(const View &view, ProjectionRows &rows)
+{
+    const Vec3 basis[] = {Cross(view.rayDy,view.rayTopLeft), Cross(view.rayTopLeft,view.rayDx),
+                          Cross(view.rayDx,view.rayDy)};
+    const float det = Dot(view.rayTopLeft,basis[2]);
+    if (std::abs(det) < 1e-10f) return false;
+    for (unsigned i=0; i<3; ++i) {
+        const Vec3 n = Scale(basis[i],1.0f/det);
+        rows[i][0] = n.x;
+        rows[i][1] = n.y;
+        rows[i][2] = -n.z;
+        rows[i][3] = 2.0f*view.waterLevel*n.z - Dot(n,view.origin);
+    }
+    return true;
+}
 inline bool Finite(Vec3 v) { return std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z); }
 inline float Component(Vec3 v, unsigned axis) { return axis==0?v.x:axis==1?v.y:v.z; }
 inline Vec3 Minimum(Vec3 a, Vec3 b)

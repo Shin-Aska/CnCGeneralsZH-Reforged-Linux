@@ -17,6 +17,7 @@ typedef struct ZHR_RayBuffer {
 } ZHR_RayBuffer;
 
 enum { ZHR_MaxSunBuildings = 128, ZHR_SunBuildingBytes = 32 * 1024 * 1024 };
+enum { ZHR_WaterRefitInterval = 32, ZHR_WaterRefitRetryInterval = 60 };
 
 typedef struct ZHR_RaySunBuilding {
     ZHR_SDLRayScene *scene;
@@ -57,7 +58,11 @@ struct ZHR_SDLRayScene {
     struct ZHR_SDLRayScene *parts[2];
     ZHR_RaySunBuildings *sunBuildings;
     Uint32 vertexCapacity, primitiveCapacity;
+    bool fixedDynamic, hasFullBuild;
+    Uint32 activeVertices, activePrimitives, refitAge, fullBuildPrimitives, refitRetry;
     Uint64 dynamicAllocations, dynamicRebuildReuses, dynamicCountReuses, reserveFallbacks, splitUpdates;
+    Uint64 dynamicFullBuilds, dynamicRefits, dynamicPeriodicBuilds, dynamicPressureBuilds;
+    Uint64 refitIneligibleFallbacks, refitAllocationFallbacks;
     bool storageProfile;
     VkQueryPool profilePool;
     Uint32 profileValidBits;
@@ -131,6 +136,8 @@ static bool ZHR_RayASCreate(VulkanRenderer *r, ZHR_RayBuffer *buffer, VkAccelera
     if (ZHR_VK(vkCreateAccelerationStructureKHR)(r->logicalDevice, &info, NULL, handle) != VK_SUCCESS) return SDL_SetError("ray query acceleration structure creation failed");
     build->dstAccelerationStructure = *handle;
     if (sizes.buildScratchSize > *scratchSize) *scratchSize = sizes.buildScratchSize;
+    if ((build->flags & VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR) && sizes.updateScratchSize > *scratchSize)
+        *scratchSize = sizes.updateScratchSize;
     return true;
 }
 
@@ -141,10 +148,13 @@ static void ZHR_RayProfileLog(ZHR_SDLRayScene *s, bool final)
 {
     if (!s->profileDispatchSamples) return;
     SDL_LogInfo(SDL_LOG_CATEGORY_GPU,
-        "Water hardware GPU timing%s: AS-build avg=%.3fms samples=%llu; query-dispatch avg=%.3fms samples=%llu",
+        "Water hardware GPU timing%s: AS-build avg=%.3fms samples=%llu; query-dispatch avg=%.3fms samples=%llu; dynamic-builds=%llu dynamic-refits=%llu periodic-builds=%llu pressure-builds=%llu refit-ineligible=%llu refit-allocation-fallbacks=%llu",
         final ? " (scene teardown)" : "", s->profileBuildSamples ? s->profileBuildMs / s->profileBuildSamples : 0.0,
         (unsigned long long)s->profileBuildSamples, s->profileDispatchMs / s->profileDispatchSamples,
-        (unsigned long long)s->profileDispatchSamples);
+        (unsigned long long)s->profileDispatchSamples,(unsigned long long)s->dynamicFullBuilds,
+        (unsigned long long)s->dynamicRefits,(unsigned long long)s->dynamicPeriodicBuilds,
+        (unsigned long long)s->dynamicPressureBuilds,(unsigned long long)s->refitIneligibleFallbacks,
+        (unsigned long long)s->refitAllocationFallbacks);
 }
 
 static void ZHR_RayProfileRead(ZHR_SDLRayScene *s)
@@ -214,6 +224,8 @@ static void ZHR_RayOwnGeometryDestroy(ZHR_SDLRayScene *s)
     SDL_zero(s->bottomBuild); SDL_zero(s->topBuild);
     SDL_zero(s->bottomRange); SDL_zero(s->topRange);
     s->built = false; s->vertexCapacity = s->primitiveCapacity = 0;
+    s->fixedDynamic = s->hasFullBuild = false;
+    s->activeVertices = s->activePrimitives = s->refitAge = s->fullBuildPrimitives = 0;
 }
 
 static void ZHR_RaySunBuildingDestroy(ZHR_RaySunBuilding *building)
@@ -292,7 +304,7 @@ void ZHR_SDLRayDestroyScene(ZHR_SDLRayScene *s)
 }
 
 static bool ZHR_RayGeometryCreateCapacity(ZHR_SDLRayScene *s, const float *xyz, Uint32 vertexCount,
-    const Uint32 *indices, Uint32 indexCount, bool blasOnly, Uint32 vertexCapacity, Uint32 primitiveCapacity)
+    const Uint32 *indices, Uint32 indexCount, bool blasOnly, Uint32 vertexCapacity, Uint32 primitiveCapacity, bool allowUpdate)
 {
     VulkanRenderer *r = s->renderer;
     VkBufferUsageFlags input = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
@@ -311,6 +323,7 @@ static bool ZHR_RayGeometryCreateCapacity(ZHR_SDLRayScene *s, const float *xyz, 
     s->bottomBuild.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
     s->bottomBuild.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
     s->bottomBuild.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    if (allowUpdate) s->bottomBuild.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
     s->bottomBuild.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
     s->bottomBuild.geometryCount = 1; s->bottomBuild.pGeometries = &s->bottomGeometry;
     s->bottomRange.primitiveCount = indexCount / 3;
@@ -356,7 +369,7 @@ fail:
 static bool ZHR_RayGeometryCreate(ZHR_SDLRayScene *s, const float *xyz, Uint32 vertexCount,
     const Uint32 *indices, Uint32 indexCount, bool blasOnly)
 {
-    return ZHR_RayGeometryCreateCapacity(s,xyz,vertexCount,indices,indexCount,blasOnly,vertexCount,indexCount/3);
+    return ZHR_RayGeometryCreateCapacity(s,xyz,vertexCount,indices,indexCount,blasOnly,vertexCount,indexCount/3,false);
 }
 
 static bool ZHR_RayGeometryCreateReserved(ZHR_SDLRayScene *s, const ZHR_SDLRayMeshView *mesh,
@@ -375,7 +388,7 @@ static bool ZHR_RayGeometryCreateReserved(ZHR_SDLRayScene *s, const ZHR_SDLRayMe
     const Uint64 primitiveLimit=blasOnly ? SDL_min((Uint64)16777216,deviceLimit) : deviceLimit;
     const Uint32 primitiveCapacity=(Uint32)SDL_min(grownPrimitives,primitiveLimit);
     if (primitiveCapacity>=primitives && ZHR_RayGeometryCreateCapacity(s,mesh->xyz,mesh->vertexCount,
-        mesh->indices,mesh->indexCount,blasOnly,vertexCapacity,primitiveCapacity)) return true;
+        mesh->indices,mesh->indexCount,blasOnly,vertexCapacity,primitiveCapacity,false)) return true;
     if (vertexCapacity==mesh->vertexCount && primitiveCapacity==primitives) return false;
     ZHR_RayOwnGeometryDestroy(s); // reserve pressure must not sacrifice exact-size fallback
     if (!ZHR_RayGeometryCreate(s,mesh->xyz,mesh->vertexCount,mesh->indices,mesh->indexCount,blasOnly)) return false;
@@ -576,13 +589,66 @@ bool ZHR_SDLRayUpdateScene(ZHR_SDLRayScene *s, const float *xyz, Uint32 vertexCo
     return true;
 }
 
-static bool ZHR_RayMeshViewValid(const ZHR_SDLRayMeshView *mesh)
+static bool ZHR_RayMeshViewValid(const ZHR_SDLRayMeshView *mesh, bool *independentTriplets)
 {
+    if (independentTriplets) *independentTriplets = false;
     if (!mesh || (!mesh->vertexCount && !mesh->indexCount)) return true;
     if (!mesh->xyz || !mesh->indices || !mesh->vertexCount || mesh->indexCount < 3 || mesh->indexCount % 3)
         return SDL_SetError("invalid split ray-query mesh view");
-    for (Uint32 i = 0; i < mesh->indexCount; ++i)
+    bool identity = mesh->vertexCount == mesh->indexCount;
+    for (Uint32 i = 0; i < mesh->indexCount; ++i) {
         if (mesh->indices[i] >= mesh->vertexCount) return SDL_SetError("split ray-query local index out of bounds");
+        if (mesh->indices[i] != i) identity = false;
+    }
+    if (independentTriplets && identity) {
+        // NaN vertices are Vulkan inactive primitives, whose activation state may
+        // not change in UPDATE. Only finite, independently stored triplets qualify.
+        for (size_t i = 0; i < (size_t)mesh->vertexCount * 3; ++i)
+            if (!(mesh->xyz[i] >= -FLT_MAX && mesh->xyz[i] <= FLT_MAX)) { identity = false; break; }
+        *independentTriplets = identity;
+    }
+    return true;
+}
+
+static Uint32 ZHR_RayActiveVertices(const ZHR_SDLRayScene *part)
+{
+    return part->fixedDynamic ? part->activeVertices : part->bottomGeometry.geometry.triangles.maxVertex + 1;
+}
+
+static Uint32 ZHR_RayActivePrimitives(const ZHR_SDLRayScene *part)
+{
+    return part->fixedDynamic ? part->activePrimitives : part->bottomRange.primitiveCount;
+}
+
+static void ZHR_RayWriteDynamicTriplets(void *destination, const ZHR_SDLRayMeshView *mesh, Uint32 vertexCapacity)
+{
+    const size_t activeBytes = (size_t)mesh->vertexCount * 12;
+    SDL_memcpy(destination,mesh->xyz,activeBytes);
+    // Each spare primitive owns three finite coincident (0,0,0) vertices. These
+    // are degenerate, never inactive, and never intersect a ray. Slots can thus
+    // become nondegenerate on UPDATE without changing count or index topology.
+    SDL_memset((Uint8 *)destination+activeBytes,0,(size_t)(vertexCapacity-mesh->vertexCount)*12);
+}
+
+static bool ZHR_RayDynamicGeometryCreate(ZHR_SDLRayScene *s, const ZHR_SDLRayMeshView *mesh)
+{
+    VulkanRenderer *r = s->renderer;
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR properties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+    VkPhysicalDeviceProperties2 props = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2}; props.pNext = &properties;
+    r->vkGetPhysicalDeviceProperties2KHR(r->physicalDevice,&props);
+    const Uint32 active = mesh->indexCount/3;
+    const Uint64 limit = SDL_min((Uint64)16777216,properties.maxPrimitiveCount);
+    if (active > limit) return SDL_SetError("dynamic ray mesh exceeds device primitive limit");
+    const Uint32 capacity = (Uint32)SDL_min((Uint64)active+active/4,limit);
+    const Uint32 vertices = capacity*3;
+    float *padded = SDL_malloc((size_t)vertices*12);
+    if (!padded) return false;
+    ZHR_RayWriteDynamicTriplets(padded,mesh,vertices);
+    const bool created = ZHR_RayGeometryCreateCapacity(s,padded,vertices,NULL,vertices,true,vertices,capacity,true);
+    SDL_free(padded);
+    if (!created) return false;
+    s->fixedDynamic = true;
+    s->activeVertices = mesh->vertexCount; s->activePrimitives = active;
     return true;
 }
 
@@ -813,9 +879,10 @@ bool ZHR_SDLRayUpdateWaterPathSplitScene(ZHR_SDLRayScene *s,
     if (!s || !s->split || !s->waterPath) return SDL_SetError("ray-query scene is not split water path mode");
     const ZHR_SDLRayMeshView *views[2] = { staticMesh, dynamicMesh };
     Uint32 total = 0,activeCounts[2]={0,0};
+    bool dynamicEligible = false;
     for (Uint32 i = 0; i < 2; ++i) {
-        if (!ZHR_RayMeshViewValid(views[i])) return false;
-        Uint32 count = views[i] ? views[i]->indexCount / 3 : (s->parts[i] ? s->parts[i]->bottomRange.primitiveCount : 0);
+        if (!ZHR_RayMeshViewValid(views[i],i==1 ? &dynamicEligible : NULL)) return false;
+        Uint32 count = views[i] ? views[i]->indexCount / 3 : (s->parts[i] ? ZHR_RayActivePrimitives(s->parts[i]) : 0);
         if (count > 16777216u - total) return SDL_SetError("split water triangle IDs exceed exact RGBA32F range");
         total += count; activeCounts[i]=count;
     }
@@ -825,38 +892,52 @@ bool ZHR_SDLRayUpdateWaterPathSplitScene(ZHR_SDLRayScene *s,
     SDL_zero(topReplacement); topReplacement.renderer = r;
     void *mappedVertex[2] = { NULL, NULL }, *mappedIndex[2] = { NULL, NULL }, *mappedInstances = NULL;
     bool changed[2] = { false, false }, allocated[2] = { false, false }, replaceTop = false;
-    bool dynamicCountReuse=false,reserveFallback=false;
+    bool dynamicCountReuse=false,reserveFallback=false,refitAllocationFallback=false;
     // Prepare both parts before changing any existing input bytes, AS handle or ID offset.
     for (Uint32 i = 0; i < 2; ++i) {
         const ZHR_SDLRayMeshView *mesh = views[i];
         if (!mesh) continue;
         ZHR_SDLRayScene *old = s->parts[i];
         if (!mesh->indexCount) { next[i] = NULL; changed[i] = old != NULL; continue; }
-        const bool countsEqual=old && mesh->vertexCount==old->bottomGeometry.geometry.triangles.maxVertex+1 &&
-            mesh->indexCount==old->bottomRange.primitiveCount*3;
+        const bool padded=i==1 && dynamicEligible && (!s->refitRetry || (old && old->fixedDynamic));
+        const bool sameRepresentation=old && old->fixedDynamic==padded;
+        const bool countsEqual=old && mesh->vertexCount==ZHR_RayActiveVertices(old) &&
+            mesh->indexCount==ZHR_RayActivePrimitives(old)*3;
         const bool withinDynamicCapacity=i==1 && old && mesh->vertexCount<=old->vertexCapacity &&
             mesh->indexCount/3<=old->primitiveCapacity;
-        if (countsEqual || withinDynamicCapacity) {
+        if (sameRepresentation && (countsEqual || withinDynamicCapacity)) {
             size_t vertexBytes = (size_t)mesh->vertexCount * 12, indexBytes = (size_t)mesh->indexCount * 4;
             void *mapped = NULL;
-            if (r->vkMapMemory(r->logicalDevice, old->vertex.memory, 0, vertexBytes, 0, &mapped) != VK_SUCCESS) {
+            if (r->vkMapMemory(r->logicalDevice, old->vertex.memory, 0,
+                old->fixedDynamic ? (VkDeviceSize)old->vertexCapacity*12 : vertexBytes, 0, &mapped) != VK_SUCCESS) {
                 SDL_SetError("split ray-query vertex mapping failed"); goto fail;
             }
             mappedVertex[i] = mapped; mapped = NULL;
-            if (r->vkMapMemory(r->logicalDevice, old->index.memory, 0, indexBytes, 0, &mapped) != VK_SUCCESS) {
-                SDL_SetError("split ray-query index mapping failed"); goto fail;
+            if (!old->fixedDynamic) {
+                if (r->vkMapMemory(r->logicalDevice, old->index.memory, 0, indexBytes, 0, &mapped) != VK_SUCCESS) {
+                    SDL_SetError("split ray-query index mapping failed"); goto fail;
+                }
+                mappedIndex[i] = mapped;
             }
-            mappedIndex[i] = mapped;
             changed[i] = !countsEqual || SDL_memcmp(mappedVertex[i], mesh->xyz, vertexBytes) != 0 ||
-                SDL_memcmp(mappedIndex[i], mesh->indices, indexBytes) != 0;
+                (!old->fixedDynamic && SDL_memcmp(mappedIndex[i], mesh->indices, indexBytes) != 0);
             if(i==1 && !countsEqual) dynamicCountReuse=true;
         } else {
             next[i] = SDL_calloc(1, sizeof(*next[i]));
             if (!next[i]) goto fail;
             allocated[i] = true; next[i]->renderer = r;
-            const bool created=i==1 ? ZHR_RayGeometryCreateReserved(next[i],mesh,true,4,&reserveFallback)
+            bool created = false;
+            if (padded) {
+                created = ZHR_RayDynamicGeometryCreate(next[i],mesh);
+                if (!created) {
+                    ZHR_RayOwnGeometryDestroy(next[i]);
+                    refitAllocationFallback = true;
+                }
+            }
+            if (!created) created=i==1 ? ZHR_RayGeometryCreateReserved(next[i],mesh,true,4,&reserveFallback)
                 : ZHR_RayGeometryCreate(next[i],mesh->xyz,mesh->vertexCount,mesh->indices,mesh->indexCount,true);
             if (!created) goto fail;
+            if (refitAllocationFallback) SDL_ClearError();
             changed[i] = true;
         }
     }
@@ -891,14 +972,19 @@ bool ZHR_SDLRayUpdateWaterPathSplitScene(ZHR_SDLRayScene *s,
         ZHR_SDLRayScene *old = s->parts[i];
         if (mappedVertex[i]) {
             if (changed[i]) {
-                SDL_memcpy(mappedVertex[i], views[i]->xyz, (size_t)views[i]->vertexCount * 12);
-                SDL_memcpy(mappedIndex[i], views[i]->indices, (size_t)views[i]->indexCount * 4);
-                old->bottomGeometry.geometry.triangles.maxVertex=views[i]->vertexCount-1;
-                old->bottomRange.primitiveCount=views[i]->indexCount/3;
+                if (old->fixedDynamic) {
+                    ZHR_RayWriteDynamicTriplets(mappedVertex[i],views[i],old->vertexCapacity);
+                    old->activeVertices=views[i]->vertexCount; old->activePrimitives=views[i]->indexCount/3;
+                } else {
+                    SDL_memcpy(mappedVertex[i], views[i]->xyz, (size_t)views[i]->vertexCount * 12);
+                    SDL_memcpy(mappedIndex[i], views[i]->indices, (size_t)views[i]->indexCount * 4);
+                    old->bottomGeometry.geometry.triangles.maxVertex=views[i]->vertexCount-1;
+                    old->bottomRange.primitiveCount=views[i]->indexCount/3;
+                }
                 old->built = false;
             }
             r->vkUnmapMemory(r->logicalDevice, old->vertex.memory);
-            r->vkUnmapMemory(r->logicalDevice, old->index.memory);
+            if (mappedIndex[i]) r->vkUnmapMemory(r->logicalDevice, old->index.memory);
         }
         if (old != next[i] && old) { ZHR_RayOwnGeometryDestroy(old); SDL_free(old); }
         s->parts[i] = next[i];
@@ -910,13 +996,16 @@ bool ZHR_SDLRayUpdateWaterPathSplitScene(ZHR_SDLRayScene *s,
     if(mappedVertex[1] && changed[1]) ++s->dynamicRebuildReuses;
     if(dynamicCountReuse) ++s->dynamicCountReuses;
     if(reserveFallback) ++s->reserveFallbacks;
+    if (dynamicMesh && dynamicMesh->indexCount && !dynamicEligible) ++s->refitIneligibleFallbacks;
+    if (s->refitRetry) --s->refitRetry;
+    if (refitAllocationFallback) { ++s->refitAllocationFallbacks; s->refitRetry=ZHR_WaterRefitRetryInterval; }
     if(s->storageProfile && (s->splitUpdates==1 || s->splitUpdates%60==0)) {
         ZHR_SDLRayScene *part=s->parts[1];
         SDL_LogInfo(SDL_LOG_CATEGORY_GPU,"Water hardware dynamic storage: updates=%llu allocations=%llu rebuild-reuses=%llu count-reuses=%llu reserve-fallbacks=%llu active=%u/%u capacity=%u/%u",
             (unsigned long long)s->splitUpdates,(unsigned long long)s->dynamicAllocations,
             (unsigned long long)s->dynamicRebuildReuses,(unsigned long long)s->dynamicCountReuses,
-            (unsigned long long)s->reserveFallbacks,part ? part->bottomGeometry.geometry.triangles.maxVertex+1 : 0,
-            part ? part->bottomRange.primitiveCount : 0,part ? part->vertexCapacity : 0,part ? part->primitiveCapacity : 0);
+            (unsigned long long)s->reserveFallbacks,part ? ZHR_RayActiveVertices(part) : 0,
+            part ? ZHR_RayActivePrimitives(part) : 0,part ? part->vertexCapacity : 0,part ? part->primitiveCapacity : 0);
     }
     if (staticChanged) *staticChanged = changed[0];
     if (dynamicChanged) *dynamicChanged = changed[1];
@@ -939,10 +1028,15 @@ bool ZHR_SDLRayGetWaterStorageStats(const ZHR_SDLRayScene *s, ZHR_SDLRayWaterSto
     SDL_zero(*stats);
     stats->dynamicAllocations=s->dynamicAllocations; stats->dynamicRebuildReuses=s->dynamicRebuildReuses;
     stats->dynamicCountReuses=s->dynamicCountReuses; stats->reserveFallbacks=s->reserveFallbacks;
+    stats->dynamicFullBuilds=s->dynamicFullBuilds; stats->dynamicRefits=s->dynamicRefits;
+    stats->dynamicPeriodicBuilds=s->dynamicPeriodicBuilds; stats->dynamicPressureBuilds=s->dynamicPressureBuilds;
+    stats->refitIneligibleFallbacks=s->refitIneligibleFallbacks; stats->refitAllocationFallbacks=s->refitAllocationFallbacks;
+    stats->dynamicRefitInterval=ZHR_WaterRefitInterval;
     const ZHR_SDLRayScene *part = s->split ? s->parts[1] : s;
     if (part) {
-        stats->activeVertices=part->bottomGeometry.geometry.triangles.maxVertex+1;
-        stats->activePrimitives=part->bottomRange.primitiveCount;
+        stats->activeVertices=ZHR_RayActiveVertices(part);
+        stats->activePrimitives=ZHR_RayActivePrimitives(part);
+        stats->dynamicRefitEnabled=part->fixedDynamic; stats->dynamicRefitAge=part->refitAge;
         stats->vertexCapacity=part->vertexCapacity; stats->primitiveCapacity=part->primitiveCapacity;
         stats->allocationBytes = part->vertex.bytes + part->index.bytes + part->instance.bytes
             + part->blasBuffer.bytes + part->tlasBuffer.bytes + part->scratch.bytes;
@@ -954,7 +1048,7 @@ ZHR_SDLRayScene *ZHR_SDLRayCreateWaterPathSplitScene(SDL_GPUDevice *device,
     const ZHR_SDLRayMeshView *staticMesh, const ZHR_SDLRayMeshView *dynamicMesh,
     const void *spirv, size_t spirvBytes)
 {
-    if (!ZHR_RayMeshViewValid(staticMesh) || !ZHR_RayMeshViewValid(dynamicMesh)) return NULL;
+    if (!ZHR_RayMeshViewValid(staticMesh,NULL) || !ZHR_RayMeshViewValid(dynamicMesh,NULL)) return NULL;
     const ZHR_SDLRayMeshView *first = staticMesh && staticMesh->indexCount ? staticMesh : dynamicMesh;
     if (!first || !first->indexCount) { SDL_SetError("split water path requires a nonempty mesh"); return NULL; }
     ZHR_SDLRayScene *s = ZHR_RayCreateScene(device, first->xyz, first->vertexCount, first->indices,
@@ -1032,7 +1126,33 @@ static void ZHR_RayRecordBuild(ZHR_SDLRayScene *s, VulkanCommandBuffer *cb)
                 ZHR_SDLRayScene *part = s->parts[i];
                 if (part && !part->built) {
                     const VkAccelerationStructureBuildRangeInfoKHR *range = &part->bottomRange;
-                    ZHR_VK(vkCmdBuildAccelerationStructuresKHR)(cb->commandBuffer, 1, &part->bottomBuild, &range);
+                    VkAccelerationStructureBuildGeometryInfoKHR build = part->bottomBuild;
+                    if (i==1 && s->waterPath) {
+                        const Uint32 drift = part->activePrimitives > part->fullBuildPrimitives
+                            ? part->activePrimitives-part->fullBuildPrimitives : part->fullBuildPrimitives-part->activePrimitives;
+                        const bool pressure = part->fixedDynamic && part->hasFullBuild &&
+                            (Uint64)drift*4 > part->fullBuildPrimitives;
+                        const bool periodic = part->fixedDynamic && part->hasFullBuild && part->refitAge>=ZHR_WaterRefitInterval;
+                        const bool refit = part->fixedDynamic && part->hasFullBuild && !pressure && !periodic;
+                        if (refit) {
+                            // The caller waited this scene's prior SDL fence. Keep
+                            // device AS writes visible to UPDATE's source-AS reads;
+                            // the existing post-BLAS barrier then orders TLAS+query.
+                            ZHR_RayBuildBarrier(r,cb->commandBuffer,VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR);
+                            build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
+                            build.srcAccelerationStructure = part->blas;
+                            ++part->refitAge; ++s->dynamicRefits;
+                        } else {
+                            build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+                            build.srcAccelerationStructure = VK_NULL_HANDLE;
+                            ++s->dynamicFullBuilds;
+                            if (pressure) ++s->dynamicPressureBuilds;
+                            else if (periodic) ++s->dynamicPeriodicBuilds;
+                            part->hasFullBuild = true; part->refitAge = 0;
+                            part->fullBuildPrimitives = part->activePrimitives;
+                        }
+                    }
+                    ZHR_VK(vkCmdBuildAccelerationStructuresKHR)(cb->commandBuffer, 1, &build, &range);
                     part->built = true; builtPart = true;
                 }
             }

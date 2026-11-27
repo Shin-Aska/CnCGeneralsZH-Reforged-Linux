@@ -64,6 +64,7 @@
 #if defined(__linux__)
 #include <spirv_cross_c.h>
 #include "../GameEngineDevice/Source/PosixDevice/Render/SdlConstants.h"
+#include "Platform/WaterPathTracingView.h"
 #endif
 
 #include "sdl3shadercompile.h"
@@ -460,8 +461,10 @@ void checkCompiledWaterUniformLayout(const std::string &source, bool vertex,
     size_t blockSize = 0;
     CHECK(spvc_compiler_get_declared_struct_size(compiler, type, &blockSize) == SPVC_SUCCESS);
     const bool tuning=WaterTuning::Enabled();
-    CHECK_EQ(blockSize, tuning ? (visual?sizeof(SdlWaterTunedVisualPixelConstants):sizeof(SdlWaterTunedPixelConstants))
-        : (visual?sizeof(SdlWaterVisualPixelConstants):sizeof(SdlWaterPixelConstants)));
+    const size_t waterBytes = tuning ? (visual?sizeof(SdlWaterTunedVisualPixelConstants):sizeof(SdlWaterTunedPixelConstants))
+        : (visual?sizeof(SdlWaterVisualPixelConstants):sizeof(SdlWaterPixelConstants));
+    const WaterUniformMember projection = {"HeldPathProjection",waterBytes,sizeof(WaterPathTracing::ProjectionRows)};
+    CHECK_EQ(blockSize, waterBytes + (vertex ? 0 : projection.size));
     const unsigned commonMembers = sizeof(WaterUniformMembers) / sizeof(WaterUniformMembers[0]);
     const unsigned memberCount = spvc_type_get_num_member_types(type);
     const WaterUniformMember tuningMembers[]={
@@ -473,14 +476,15 @@ void checkCompiledWaterUniformLayout(const std::string &source, bool vertex,
         {"WaterTuningShore",sizeof(SdlWaterPixelConstants)+offsetof(SdlWaterTuningConstants,WaterTuningShore),16},
         {"WaterTuningHeading",sizeof(SdlWaterPixelConstants)+offsetof(SdlWaterTuningConstants,WaterTuningHeading),16}};
     const unsigned tuningCount=tuning?7:0;
-    CHECK_EQ(memberCount, commonMembers + tuningCount + (visual ? 1u : 0u));
+    const unsigned projectionIndex = commonMembers + tuningCount + (visual ? 1u : 0u);
+    CHECK_EQ(memberCount, projectionIndex + (vertex ? 0u : 1u));
     for (unsigned i = 0; i < memberCount; ++i) {
         const WaterUniformMember metadata = { "VisualHullMeta",
             tuning?offsetof(SdlWaterTunedVisualPixelConstants,VisualHullMeta):offsetof(SdlWaterVisualPixelConstants, VisualHullMeta),
             sizeof(((SdlWaterVisualPixelConstants *)NULL)->VisualHullMeta) };
-        if(i>=commonMembers+tuningCount && (!visual || i!=commonMembers+tuningCount))continue;
         const WaterUniformMember &expected=i<commonMembers?WaterUniformMembers[i]
-            : i<commonMembers+tuningCount?tuningMembers[i-commonMembers]:metadata;
+            : i<commonMembers+tuningCount?tuningMembers[i-commonMembers]
+            : i<projectionIndex?metadata:projection;
         const char *name = spvc_compiler_get_member_name(compiler, block->base_type_id, i);
         unsigned offset = 0;
         size_t size = 0;

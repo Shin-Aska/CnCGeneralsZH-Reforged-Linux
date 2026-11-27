@@ -259,6 +259,9 @@ bool SdlGpuFrame::Record_Native_Draw_Batch(const SdlNativeDrawPacket *packets, u
 	for (unsigned i = 0; i < count; ++i) {
 		const SdlNativeDrawPacket &packet = packets[i];
 		if (!valid_native_draw(packet.Target, packet.Draw, packet.Blocks, packet.Count)) return false;
+		const SdlRecordedDraw &draw = packet.Draw;
+		if (draw.InstanceStride && (!draw.InstanceCount || uint64_t(draw.InstanceOffset)
+			+ uint64_t(draw.InstanceCount) * draw.InstanceStride > StreamBytes.size())) return false;
 		for (unsigned b = 0; b < packet.Count; ++b) {
 			constantSize += size_t(packet.Blocks[b].Size) + STAGING_ALIGNMENT - 1;
 			if (constantSize > std::numeric_limits<uint32_t>::max()) return false;
@@ -696,6 +699,10 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			SDL_GPUBufferBinding binding = { vertices, draw.VertexOffset };
 			SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
 		}
+		if (draw.InstanceStride && (last == NULL || !last->InstanceStride || last->InstanceOffset != draw.InstanceOffset)) {
+			SDL_GPUBufferBinding binding = { stream, draw.InstanceOffset };
+			SDL_BindGPUVertexBuffers(pass, 1, &binding, 1);
+		}
 		if (draw.IndexSize != 0 && (last == NULL || last->IndexSize == 0 || last->IndexBuffer != draw.IndexBuffer
 			|| last->IndexOffset != draw.IndexOffset || last->IndexSize != draw.IndexSize)) {
 			SDL_GPUBufferBinding binding = { draw.IndexBuffer != NULL ? draw.IndexBuffer : stream, draw.IndexOffset };
@@ -750,7 +757,8 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 		const bool modernWater=draw.PixelWaterConstantsSize[0]>0;
 		if(modernWater) SDL_PushGPUDebugGroup(commands,"Modern water material");
 		if (draw.IndexSize != 0) {
-			SDL_DrawGPUIndexedPrimitives(pass, draw.Count, 1, draw.First, draw.BaseVertex, 0);
+			SDL_DrawGPUIndexedPrimitives(pass, draw.Count, draw.InstanceCount ? draw.InstanceCount : 1,
+				draw.First, draw.BaseVertex, 0);
 		}
 		else {
 			SDL_DrawGPUPrimitives(pass, draw.Count, draw.InstanceCount ? draw.InstanceCount : 1, draw.First, 0);

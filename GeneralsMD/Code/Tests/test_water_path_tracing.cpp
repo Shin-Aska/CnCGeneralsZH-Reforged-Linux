@@ -3,6 +3,7 @@
 #include "Platform/WaterPathTracingMaterials.h"
 #include "Platform/WaterPathTerrainSnapshot.h"
 #include "Platform/WaterPathStaticSpans.h"
+#include "Platform/WaterPathRetainedPacket.h"
 #include "Platform/WaterPathSnapshotPolicy.h"
 #include "Platform/WaterPathTerrainGroups.h"
 #include "WaterPathBuildReference.h"
@@ -18,6 +19,217 @@ Triangle Face(float x,float z,Vec3 albedo={0.7f,0.4f,0.1f})
 {
     return {{x-0.4f,-0.4f,z},{x+0.4f,-0.4f,z},{x,0.4f,z},albedo};
 }
+}
+
+TEST(water_native_packet_retains_unchanged_mesh_rows_and_separates_appearance)
+{
+    int identities[2]{};
+    std::vector<Triangle> first={Face(0,0),Face(1,0)},second={Face(2,0)};
+    std::vector<PrimaryMaterial> firstMaterials(2),secondMaterials(1);
+    std::vector<Triangle> published;
+    std::vector<PrimaryMaterial> appearance;
+    std::vector<PacketSpanStamp> stamps;
+    const auto rows=[&](uint64_t revision) {
+        return std::vector<PacketSpanRows>{
+            {{&identities[0],0,first.size(),1},first.data(),firstMaterials.data()},
+            {{&identities[1],first.size(),second.size(),revision},second.data(),secondMaterials.data()}};
+    };
+    RetainedPacketUpdate initial(stamps,rows(2),published,appearance);
+    CHECK(initial.TrianglesChanged);CHECK(initial.MaterialsChanged);
+    initial.Apply(published,appearance);stamps=initial.Stamps;
+    RetainedPacketUpdate retained(stamps,rows(2),published,appearance);
+    CHECK(!retained.TrianglesChanged);CHECK(!retained.MaterialsChanged);
+    CHECK_EQ(retained.TriangleRowsRetained,3u);CHECK_EQ(retained.MaterialRowsRetained,3u);
+    CHECK(retained.Patches.empty());
+
+    second[0].a.x+=3; // Changed rigid transform, unchanged primary bindings.
+    RetainedPacketUpdate moved(stamps,rows(3),published,appearance);
+    CHECK(moved.TrianglesChanged);CHECK(!moved.MaterialsChanged);
+    CHECK_EQ(moved.TriangleRowsRetained,2u);CHECK_EQ(moved.MaterialRowsRetained,3u);
+    moved.Apply(published,appearance);stamps=moved.Stamps;
+    CHECK_MEM(&published[2],second.data(),sizeof(Triangle));
+    secondMaterials[0].uvAB.x=0.75f; // Appearance changes independently of positions.
+    RetainedPacketUpdate material(stamps,rows(4),published,appearance);
+    CHECK(!material.TrianglesChanged);CHECK(material.MaterialsChanged);
+    material.Apply(published,appearance);stamps=material.Stamps;
+    CHECK_MEM(&appearance[2],secondMaterials.data(),sizeof(PrimaryMaterial));
+    second[0].albedo.y=0.9f; // Secondary transport appearance lives in Triangle.
+    RetainedPacketUpdate albedo(stamps,rows(5),published,appearance);
+    CHECK(albedo.TrianglesChanged);CHECK(!albedo.MaterialsChanged);
+    albedo.Apply(published,appearance);
+    CHECK_MEM(&published[2],second.data(),sizeof(Triangle));
+}
+
+TEST(water_native_packet_matches_fresh_rows_and_packed_ids_through_layout_changes)
+{
+    struct Source {int Identity=0;uint64_t Revision=0;std::vector<Triangle> Triangles;std::vector<PrimaryMaterial> Materials;};
+    Source sources[4];
+    uint64_t serial=0;
+    for(unsigned i=0;i<4;++i) {
+        sources[i].Revision=++serial;
+        sources[i].Triangles={Face(float(i),0),Face(float(i),2)};
+        sources[i].Materials.resize(2);sources[i].Materials[0].uvAB.x=float(i);
+    }
+    std::vector<Triangle> published;
+    std::vector<PrimaryMaterial> appearance;
+    std::vector<PacketSpanStamp> stamps;
+    Scene packed;
+    for(unsigned step=0;step<40;++step) {
+        Source &changed=sources[step%4];changed.Revision=++serial;
+        changed.Triangles[0].a.x+=0.1f;
+        changed.Materials[0].uvAB.y=float(step);
+        // Model/topology changes and degenerate inclusion changes preserve exact IDs.
+        changed.Triangles.resize(1+step%3,Face(float(step),3));
+        changed.Materials.resize(changed.Triangles.size());
+        if(step%4==0)changed.Triangles.back().b=changed.Triangles.back().a;
+        std::vector<PacketSpanRows> rows;
+        std::vector<Triangle> fresh;
+        std::vector<PrimaryMaterial> freshMaterials;
+        // Scope/visibility removal, insertion, and reordered source identities.
+        for(unsigned slot=0;slot<4;++slot) {
+            const unsigned i=(slot+step/3)%4;
+            if(step%5==i)continue;
+            const auto &source=sources[i];
+            rows.push_back({{&source.Identity,fresh.size(),source.Triangles.size(),source.Revision},
+                source.Triangles.data(),source.Materials.data()});
+            fresh.insert(fresh.end(),source.Triangles.begin(),source.Triangles.end());
+            freshMaterials.insert(freshMaterials.end(),source.Materials.begin(),source.Materials.end());
+        }
+        const bool geometryChanged=published.size()!=fresh.size() || (!fresh.empty()
+            && std::memcmp(published.data(),fresh.data(),fresh.size()*sizeof(Triangle))!=0);
+        const bool materialChanged=appearance.size()!=freshMaterials.size() || (!freshMaterials.empty()
+            && std::memcmp(appearance.data(),freshMaterials.data(),freshMaterials.size()*sizeof(PrimaryMaterial))!=0);
+        RetainedPacketUpdate update(stamps,rows,published,appearance);
+        CHECK_EQ(update.TrianglesChanged,geometryChanged);CHECK_EQ(update.MaterialsChanged,materialChanged);
+        update.Apply(published,appearance);stamps=update.Stamps;
+        CHECK_EQ(published.size(),fresh.size());CHECK_EQ(appearance.size(),freshMaterials.size());
+        CHECK_MEM(published.data(),fresh.data(),fresh.size()*sizeof(Triangle));
+        CHECK_MEM(appearance.data(),freshMaterials.data(),freshMaterials.size()*sizeof(PrimaryMaterial));
+        Scene reference;
+        CHECK(packed.PackLinear(published,false,1));CHECK(reference.PackLinear(fresh,false,1));
+        CHECK_EQ(packed.triangles.size(),reference.triangles.size());
+        CHECK_MEM(packed.triangleTexels.data(),reference.triangleTexels.data(),reference.triangleTexels.size()*sizeof(Float4));
+        for(unsigned i=0;i<packed.triangles.size();++i)CHECK_EQ(packed.SourceTriangleIndex(i),reference.SourceTriangleIndex(i));
+    }
+    // New scene/owner generations may reuse an address, but never its packet stamp.
+    sources[0].Revision=++serial;
+    sources[0].Triangles[0]=Face(9,9);
+    std::vector<PacketSpanRows> replacement={{{&sources[0].Identity,0,sources[0].Triangles.size(),sources[0].Revision},
+        sources[0].Triangles.data(),sources[0].Materials.data()}};
+    RetainedPacketUpdate reset(stamps,replacement,published,appearance);
+    CHECK(reset.TrianglesChanged);reset.Apply(published,appearance);
+    CHECK_MEM(published.data(),sources[0].Triangles.data(),published.size()*sizeof(Triangle));
+    RetainedPacketUpdate empty(reset.Stamps,{},published,appearance);
+    CHECK(empty.TrianglesChanged);empty.Apply(published,appearance);
+    CHECK(published.empty());CHECK(appearance.empty());
+}
+
+TEST(water_path_capture_cadence_backs_off_and_recovers_on_rendered_frames)
+{
+    CaptureCadence cadence;
+    uint64_t now = 0;
+    cadence.BeginFrame(now);
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+    cadence.BeginFrame(now = 16);
+    CHECK(!cadence.ShouldCapture());
+    cadence.BeginFrame(now = 33);
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+
+    for (unsigned i = 0; i < 60; ++i) { // More than five consecutive slow windows.
+        cadence.BeginFrame(now += 60);
+        if (cadence.ShouldCapture()) cadence.MarkCaptured();
+    }
+    CHECK_EQ(cadence.IntervalMs(),200u);
+    CHECK_NEAR(cadence.MeasuredFps(),1000.0/60,0.01);
+    for (unsigned i = 0; i < 150; ++i) cadence.BeginFrame(now += 42); // 24 FPS holds the working rate.
+    CHECK_EQ(cadence.IntervalMs(),200u);
+    for (unsigned i = 0; i < 60; ++i) cadence.BeginFrame(now += 20);
+    CHECK_EQ(cadence.IntervalMs(),200u); // A short improvement doesn't trigger an upgrade.
+    for (unsigned i = 0; i < 550; ++i) cadence.BeginFrame(now += 20);
+    CHECK_EQ(cadence.IntervalMs(),33u);
+}
+
+TEST(water_path_cadence_counts_slow_captures_and_gives_gameplay_a_clear_frame)
+{
+    CaptureCadence cadence;
+    cadence.BeginFrame(0);
+    for (unsigned i = 1; i <= 10; ++i)
+        cadence.BeginFrame(i/2 * 110 + i%2 * 10); // Alternating 10 and 100 ms is 18 FPS.
+    CHECK_NEAR(cadence.MeasuredFps(),1000.0/55,0.01);
+    CHECK_EQ(cadence.IntervalMs(),66u);
+    cadence.MarkCaptured();
+    cadence.BeginFrame(800); // Even the full interval elapsed during the previous capture.
+    CHECK(!cadence.ShouldCapture());
+    cadence.BeginFrame(820);
+    CHECK(!cadence.ShouldCapture()); // Leave time for gameplay after the over-budget capture.
+    cadence.BeginFrame(833);
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+    cadence.BeginFrame(843);
+    CHECK(!cadence.ShouldCapture());
+    cadence.InvalidateCapture(); // Dry-to-shore transition or failed capture.
+    CHECK(cadence.ShouldCapture());
+    cadence.BeginFrame(844);
+    CHECK(cadence.ShouldCapture()); // No successful retry yet.
+    cadence.MarkCaptured();
+    cadence.BeginFrame(10); // Timer reset.
+    CHECK(cadence.ShouldCapture());
+    CHECK_EQ(cadence.IntervalMs(),33u);
+    cadence.MarkCaptured();
+    cadence.BeginFrame(6010); // Loading or suspension.
+    CHECK(cadence.ShouldCapture());
+}
+
+TEST(water_path_cadence_never_holds_a_previous_scene_or_map_capture)
+{
+    int scenes[2]{}, maps[2]{};
+    CaptureCadence cadence;
+    cadence.BeginFrame(0);
+    CHECK(cadence.ObserveContext(&scenes[0],&maps[0]));
+    cadence.MarkCaptured();
+    cadence.BeginFrame(16);
+    CHECK(!cadence.ObserveContext(&scenes[0],&maps[0]));
+    CHECK(!cadence.ShouldCapture());
+    // Equal camera, water level and output size do not validate an old-map image.
+    CHECK(cadence.ObserveContext(&scenes[0],&maps[1]));
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+    CHECK(!cadence.ShouldCapture());
+    CHECK(cadence.ObserveContext(&scenes[1],&maps[1]));
+    CHECK(cadence.ShouldCapture());
+    cadence.MarkCaptured();
+    // Map reset may recycle both addresses, so it resets capture state explicitly.
+    cadence = {};
+    cadence.BeginFrame(17);
+    CHECK(cadence.ObserveContext(&scenes[1],&maps[1]));
+    CHECK(cadence.ShouldCapture());
+}
+
+TEST(water_path_held_projection_follows_world_points_in_the_cropped_capture)
+{
+    View view;
+    view.origin = {420,150,-90};
+    view.waterLevel = 10;
+    view.rayTopLeft = {-0.3f,0.6f,0.8f};
+    view.rayDx = {0.6f,0.2f,0.0f};
+    view.rayDy = {0.05f,-0.3f,0.2f};
+    float rows[3][4];
+    CHECK(HeldProjection(view,rows));
+    for (float u : {-0.2f,0.0f,0.5f,1.0f})
+        for (float v : {0.0f,0.4f,1.0f,1.3f}) {
+            const Vec3 ray = Add(view.rayTopLeft,Add(Scale(view.rayDx,u),Scale(view.rayDy,v)));
+            const Vec3 point = Add(view.origin,Scale(ray,120.0f));
+            const auto project = [&](const float *row) {
+                return row[0]*point.x + row[1]*point.y + row[2]*(2*view.waterLevel-point.z) + row[3];
+            };
+            CHECK_NEAR(project(rows[2]),120.0f,0.001);
+            CHECK_NEAR(project(rows[0])/project(rows[2]),u,0.0001);
+            CHECK_NEAR(project(rows[1])/project(rows[2]),v,0.0001);
+        }
+    view.rayDy = view.rayDx;
+    CHECK(!HeldProjection(view,rows));
 }
 
 TEST(water_path_refresh_limits_stationary_export_independently_of_render_rate)

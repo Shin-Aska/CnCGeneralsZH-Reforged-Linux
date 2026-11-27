@@ -116,20 +116,28 @@ ZHR_SDLRayScene *ZHR_SDLRayCreateWaterPathSplitScene(SDL_GPUDevice *,
 /* Same submitted-and-waited scene fence contract as UpdateScene. NULL retains a
    part; explicit zero vertex/index counts removes it. Updates are prepared before
    commit; failure leaves the old scene safely usable/destructible. Unchanged part
-   BLAS resources survive. Dirty part BLAS plus TLAS rebuild on next RecordWaterPath.
+   BLAS resources survive. Dirty part BLAS plus TLAS refresh on next RecordWaterPath.
    All-empty updates succeed but RecordWaterPath refuses until geometry returns.
    Dynamic part1 keeps bounded ~1.25x vertex/primitive/BLAS/scratch capacity across
-   nonempty count changes; static part0 remains exact-sized. Inputs copy active
-   bytes only. BUILD uses active counts, never reserved tail or UPDATE mode.
+   nonempty count changes; static part0 remains exact-sized. Finite independent
+   triplets (vertexCount==indexCount, identity indices) use nonindexed ALLOW_UPDATE
+   BLAS with a fixed capacity count and finite degenerate padding. Logical active
+   counts and packed shader IDs exclude padding. After 32 refits, or active-count
+   drift greater than 25% since BUILD, the next dirty record uses full BUILD.
+   Other indexed representations/allocation pressure retain indexed BUILD fallback.
    Combined UpdateScene is rejected for split scenes. No global idle on update. */
 bool ZHR_SDLRayUpdateWaterPathSplitScene(ZHR_SDLRayScene *,
     const ZHR_SDLRayMeshView *staticOrNull, const ZHR_SDLRayMeshView *dynamicOrNull,
     bool *staticChanged, bool *dynamicChanged);
-/* Reports the mutable geometry of a one-bounce scene or the dynamic part of
-   a split water scene. Every BUILD uses the exact active counts. */
+/* Reports logical active geometry independently of fixed BLAS capacity. Command
+   counters below count actual recorded split-water dynamic BLAS BUILD/UPDATE. */
 typedef struct ZHR_SDLRayWaterStorageStats {
     Uint64 dynamicAllocations, dynamicRebuildReuses, dynamicCountReuses, reserveFallbacks, allocationBytes;
+    Uint64 dynamicFullBuilds, dynamicRefits, dynamicPeriodicBuilds, dynamicPressureBuilds;
+    Uint64 refitIneligibleFallbacks, refitAllocationFallbacks;
     Uint32 activeVertices, activePrimitives, vertexCapacity, primitiveCapacity;
+    Uint32 dynamicRefitAge, dynamicRefitInterval;
+    bool dynamicRefitEnabled;
 } ZHR_SDLRayWaterStorageStats;
 bool ZHR_SDLRayGetWaterStorageStats(const ZHR_SDLRayScene *, ZHR_SDLRayWaterStorageStats *);
 typedef enum ZHR_SDLRayRetirement {

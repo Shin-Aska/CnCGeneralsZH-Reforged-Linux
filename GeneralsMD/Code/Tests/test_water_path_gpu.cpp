@@ -457,15 +457,17 @@ void CheckHardwareSplitPath(SdlGpuFrame *frame)
     view.rayTopLeft={.55f,-.2f,1}; view.rayDx={.2f,0,0}; view.rayDy={0,.4f,0};
     view.skyLow=view.skyHigh={0,0,0}; view.sunDirection=Normalized({1,0,.5f});
     view.sunRadiance={3.14159265f,3.14159265f,3.14159265f};
+    const View transportView=view;
     std::vector<Triangle> scene(1); // A removed degenerate must not inflate the dynamic ID base.
     Quad(scene,{0,-10,1},{0,10,1},{0,10,5},{0,-10,5},{.8f,.8f,.8f});
     Quad(scene,{-4,-100,-100},{-4,100,-100},{-4,100,100},{-4,-100,100},{.8f,.02f,.02f});
     PrimaryMaterialPacket materials;
     const auto setMaterials = [&]() {
         materials.triangles.assign(scene.size(),{});
-        materials.texels={{1,1,1,1}};
-        for (auto &material : materials.triangles) {
-            material.uvCSize={0,0,1,1}; material.diffuseOffset={.8f,.8f,.8f,1};
+        materials.texels={{1,1,1,1},{.1f,.2f,.8f,1}};
+        for (size_t i=0;i<materials.triangles.size();++i) {
+            auto &material=materials.triangles[i];
+            material.uvCSize={0,0,1,1}; material.diffuseOffset={.8f,.8f,.8f,i>=5 ? 2.f : 1.f};
         }
     };
     setMaterials();
@@ -494,6 +496,8 @@ void CheckHardwareSplitPath(SdlGpuFrame *frame)
     prepare(3); checkIds(0,2,2,2);
     CHECK(NativeCounter(frame,"static AS builds=")==1);
     CHECK(NativeCounter(frame,"dynamic AS builds=")==1);
+    CHECK(NativeCounter(frame,"dynamic AS refits=")==0);
+    CHECK(NativeCounter(frame,"dynamic geometry changes=")==1);
     auto pixels=Read(frame,32);
     double red=0,green=0;
     for (unsigned i=0;i<1024 && pixels.size()==4096;++i) { red+=pixels[i*4]; green+=pixels[i*4+1]; }
@@ -505,13 +509,17 @@ void CheckHardwareSplitPath(SdlGpuFrame *frame)
     prepare(3); checkIds(0,2,2,2);
     CHECK(NativeCounter(frame,"static AS builds=")==1);
     CHECK(NativeCounter(frame,"dynamic AS builds=")==1);
+    CHECK(NativeCounter(frame,"dynamic AS refits=")==0);
+    CHECK(NativeCounter(frame,"dynamic geometry changes=")==1);
     pixels=Read(frame,32); red=green=0;
     for (unsigned i=0;i<1024 && pixels.size()==4096;++i) { red+=pixels[i*4]; green+=pixels[i*4+1]; }
     CHECK(green>1 && green>red*2);
     for (unsigned i=3;i<scene.size();++i) { scene[i].a.x-=.25f; scene[i].b.x-=.25f; scene[i].c.x-=.25f; }
     prepare(3); checkIds(0,2,2,2);
     CHECK(NativeCounter(frame,"static AS builds=")==1);
-    CHECK(NativeCounter(frame,"dynamic AS builds=")==2);
+    CHECK(NativeCounter(frame,"dynamic AS builds=")==1);
+    CHECK(NativeCounter(frame,"dynamic AS refits=")==1); // Moved vertices record UPDATE, retaining the initial BUILD.
+    CHECK(NativeCounter(frame,"dynamic geometry changes=")==2);
     CHECK(NativeCounter(frame,"static AS reuses=")==2);
     CHECK(NativeCounter(frame,"static native pack skips=")>=2);
     CHECK(NativeCounter(frame,"material records reused=")>=6);
@@ -521,8 +529,10 @@ void CheckHardwareSplitPath(SdlGpuFrame *frame)
     // so the temporary occluder extends to z=0 to cover every primary ray. A wall
     // starting at z=1 correctly leaves 416/1024 pixels hitting the static wall.
     // Shrinking must remove this near wall even while its bytes remain reserved.
-    const auto checkCountRange=[&](const char *stage,unsigned first,unsigned count) {
+    view.skyLow=view.skyHigh={1,1,1}; view.sunRadiance={0,0,0}; view.secondaryDistance=.001f;
+    const auto checkCountRange=[&](const char *stage,unsigned first,unsigned count,Vec3 colour) {
         const auto hits=Read(frame,32,frame->Water_Hardware_Hits(),0,true);
+        const auto shaded=Read(frame,32);
         unsigned histogram[8]={},misses=0,unexpected=0;
         bool correct=hits.size()==4096;
         float nearest=INFINITY,farthest=0;
@@ -538,12 +548,18 @@ void CheckHardwareSplitPath(SdlGpuFrame *frame)
             stage,first,first+count-1,histogram[0],histogram[1],histogram[2],histogram[3],
             histogram[4],histogram[5],histogram[6],histogram[7],misses,unexpected,nearest,farthest);
         CHECK(correct && !misses && !unexpected);
+        CHECK(shaded.size()==4096);
+        for(unsigned i=0;i<1024 && shaded.size()==4096;++i) {
+            CHECK(Approx(shaded[i*4],colour.x) && Approx(shaded[i*4+1],colour.y)
+                && Approx(shaded[i*4+2],colour.z) && Approx(shaded[i*4+3],1));
+        }
     };
     Quad(scene,{-1,-10,0},{-1,10,0},{-1,10,5},{-1,-10,5},{.1f,.2f,.8f});
-    setMaterials(); prepare(3); checkCountRange("grow4",4,2);
+    setMaterials(); prepare(3); checkCountRange("grow4",4,2,{.08f,.16f,.64f});
     scene.push_back({{100000,0,100000},{100001,0,100000},{100000,1,100000},{.1f,.1f,.1f}});
-    setMaterials(); prepare(3); checkCountRange("grow5-in-capacity",4,2);
-    scene.resize(5); setMaterials(); prepare(3); checkCountRange("shrink2-no-stale-tail",0,2);
+    setMaterials(); prepare(3); checkCountRange("grow5-in-capacity",4,2,{.08f,.16f,.64f});
+    scene.resize(5); setMaterials(); prepare(3); checkCountRange("shrink2-no-stale-tail",0,2,{.8f,.8f,.8f});
+    view=transportView; prepare(3);
     checkIds(0,2,2,2);
     CHECK(NativeCounter(frame,"static AS builds=")==1);
 
@@ -560,12 +576,15 @@ void CheckHardwareSplitPath(SdlGpuFrame *frame)
     for (unsigned i=0;i<1024 && pixels.size()==4096;++i) { red+=pixels[i*4]; green+=pixels[i*4+1]; }
     CHECK(red>1 && red>green*2); // Primary gets its textured material despite zero fallback albedo.
     const unsigned dynamicBuilds=NativeCounter(frame,"dynamic AS builds=");
+    const unsigned dynamicRefits=NativeCounter(frame,"dynamic AS refits=");
     scene.erase(scene.begin()+1); materials.triangles.erase(materials.triangles.begin()+1);
     prepare(2); checkIds(1,2,0,1); // Static count changes the TLAS base, preserving the dynamic BLAS.
     CHECK(NativeCounter(frame,"dynamic AS builds=")==dynamicBuilds);
+    CHECK(NativeCounter(frame,"dynamic AS refits=")==dynamicRefits);
     scene.erase(scene.begin(),scene.begin()+2); materials.triangles.erase(materials.triangles.begin(),materials.triangles.begin()+2);
     prepare(0); checkIds(0,2,0,0);
     CHECK(NativeCounter(frame,"dynamic AS builds=")==dynamicBuilds);
+    CHECK(NativeCounter(frame,"dynamic AS refits=")==dynamicRefits);
     // Reclassifying identical source geometry is observable even when its revision is unchanged.
     const unsigned staticBuilds=NativeCounter(frame,"static AS builds=");
     CHECK(frame->Prepare_Water_Path(scene,view,revision-1,&materials,true,true,1));
@@ -580,47 +599,153 @@ void CheckHardwareSplitPath(SdlGpuFrame *frame)
 void CheckHardwareDynamicStorage(SdlGpuFrame *frame)
 {
     std::vector<unsigned char> spirv; std::string error;
-    CHECK(SDL3_Compile_Ray_Query_GLSL(HardwarePathQuerySource(),spirv,error));
+    // Query each source slot directly, independently of the production tracer's
+    // normal/secondary reads. The static instance contributes one packed ID.
+    const char *query=R"glsl(#version 460
+#extension GL_EXT_ray_query : require
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=0,rgba32f) uniform writeonly image2D primaryHits;
+layout(set=0,binding=1) uniform accelerationStructureEXT scene;
+layout(set=0,binding=3,rgba32f) uniform writeonly image2D transportHits;
+void main() {
+    ivec2 pixel=ivec2(gl_GlobalInvocationID.xy);
+    if(any(greaterThanEqual(pixel,imageSize(primaryHits)))) return;
+    rayQueryEXT q;
+    rayQueryInitializeEXT(q,scene,gl_RayFlagsOpaqueEXT,0xff,
+        vec3(pixel.x==31 ? -9.75 : float(pixel.x)*2.0+0.25,0.25,-5.0),0.001,vec3(0,0,1),100.0);
+    while(rayQueryProceedEXT(q)) {}
+    vec4 hit=vec4(0,-1,0,0);
+    if(rayQueryGetIntersectionTypeEXT(q,true)==gl_RayQueryCommittedIntersectionTriangleEXT)
+        hit=vec4(rayQueryGetIntersectionTEXT(q,true),
+            float(rayQueryGetIntersectionInstanceCustomIndexEXT(q,true)+rayQueryGetIntersectionPrimitiveIndexEXT(q,true)),
+            rayQueryGetIntersectionBarycentricsEXT(q,true));
+    imageStore(primaryHits,pixel,hit);
+    imageStore(transportHits,pixel,vec4(-1,0,1,0));
+})glsl";
+    CHECK(SDL3_Compile_Ray_Query_GLSL(query,spirv,error));
     if(spirv.empty()) return;
-    const float staticXYZ[]={0,0,0,1,0,0,0,1,0}; const uint32_t staticIndices[]={0,1,2};
+    const float staticXYZ[]={-10,0,0,-9,0,0,-10,1,0}; const uint32_t staticIndices[]={0,1,2};
     ZHR_SDLRayMeshView staticMesh={staticXYZ,3,staticIndices,3};
+    struct Resources {
+        SDL_GPUDevice *device; ZHR_SDLRayScene *scene=nullptr;
+        SDL_GPUTexture *triangles=nullptr,*primary=nullptr,*transport=nullptr;
+        ~Resources() {
+            if(scene)ZHR_SDLRayDestroyScene(scene);
+            if(triangles)SDL_ReleaseGPUTexture(device,triangles);
+            if(primary)SDL_ReleaseGPUTexture(device,primary);
+            if(transport)SDL_ReleaseGPUTexture(device,transport);
+        }
+    } resources{frame->Device()};
+    SDL_GPUTextureCreateInfo texture{};
+    texture.type=SDL_GPU_TEXTURETYPE_2D; texture.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+    texture.layer_count_or_depth=texture.num_levels=1; texture.width=64; texture.height=1;
+    texture.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    resources.triangles=SDL_CreateGPUTexture(resources.device,&texture);
+    texture.width=texture.height=32; texture.usage=SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE;
+    resources.primary=SDL_CreateGPUTexture(resources.device,&texture);
+    resources.transport=SDL_CreateGPUTexture(resources.device,&texture);
+    CHECK(resources.triangles && resources.primary && resources.transport);
+    if(!resources.triangles || !resources.primary || !resources.transport)return;
     std::vector<float> xyz; std::vector<uint32_t> indices;
-    const auto mesh=[&](unsigned triangles) {
+    const auto mesh=[&](unsigned triangles,float pose=0) {
         xyz.resize(size_t(triangles)*9); indices.resize(size_t(triangles)*3);
         for(unsigned t=0;t<triangles;++t) {
-            const float vertices[]={float(t*2),0,1,float(t*2+1),0,1,float(t*2),1,1};
+            const float vertices[]={float(t*2),0,1+pose,float(t*2+1),0,1+pose,float(t*2),1,1+pose};
             std::copy(vertices,vertices+9,xyz.begin()+t*9);
             for(unsigned k=0;k<3;++k) indices[t*3+k]=t*3+k;
         }
         return ZHR_SDLRayMeshView{xyz.data(),triangles*3,indices.data(),triangles*3};
     };
     auto dynamicMesh=mesh(8);
-    ZHR_SDLRayScene *scene=ZHR_SDLRayCreateWaterPathSplitScene(frame->Device(),&staticMesh,&dynamicMesh,spirv.data(),spirv.size());
+    ZHR_SDLRayScene *scene=resources.scene=ZHR_SDLRayCreateWaterPathSplitScene(frame->Device(),&staticMesh,&dynamicMesh,spirv.data(),spirv.size());
     CHECK(scene); if(!scene) return;
     ZHR_SDLRayWaterStorageStats stats={};
     CHECK(ZHR_SDLRayGetWaterStorageStats(scene,&stats));
     CHECK(stats.dynamicAllocations==1 && stats.activeVertices==24 && stats.activePrimitives==8);
     CHECK(stats.vertexCapacity==30 && stats.primitiveCapacity==10);
-    const auto update=[&](unsigned count,Uint64 allocations) {
-        dynamicMesh=mesh(count); bool staticChanged=true,dynamicChanged=false;
+    CHECK(stats.dynamicRefitEnabled && stats.dynamicRefitInterval==32 && stats.dynamicRefitAge==0);
+    CHECK(stats.dynamicFullBuilds==0 && stats.dynamicRefits==0); // Allocation is not a recorded BUILD.
+    const auto record=[&](unsigned count,float pose) {
+        SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(resources.device);
+        CHECK(commands); if(!commands)return;
+        ZHR_SDLRayWaterPathParams params{};
+        const bool recorded=ZHR_SDLRayRecordWaterPath(scene,commands,resources.triangles,
+            resources.primary,resources.transport,32,32,&params);
+        CHECK(recorded);
+        if(!recorded){SDL_CancelGPUCommandBuffer(commands);return;}
+        SDL_GPUFence *fence=SDL_SubmitGPUCommandBufferAndAcquireFence(commands);
+        CHECK(fence); if(!fence)return;
+        CHECK(SDL_WaitForGPUFences(resources.device,true,&fence,1));
+        SDL_ReleaseGPUFence(resources.device,fence);
+        const auto hits=Read(frame,32,resources.primary,0,true);
+        CHECK(hits.size()==4096);
+        for(unsigned y=0;y<32 && hits.size()==4096;++y)for(unsigned x=0;x<32;++x) {
+            const size_t at=(y*32+x)*4;
+            CHECK(hits[at+1]==(x==31 ? 0.f : x<count ? float(x+1) : -1.f));
+            if(x==31)CHECK(Approx(hits[at],5,.0005f));
+            else if(x<count)CHECK(Approx(hits[at],6+pose,.0005f));
+        }
+        CHECK(ZHR_SDLRayGetWaterStorageStats(scene,&stats));
+    };
+    record(8,0);
+    CHECK(stats.dynamicFullBuilds==1 && stats.dynamicRefits==0);
+    const auto update=[&](unsigned count,Uint64 allocations,float pose=0) {
+        dynamicMesh=mesh(count,pose); bool staticChanged=true,dynamicChanged=false;
         CHECK(ZHR_SDLRayUpdateWaterPathSplitScene(scene,nullptr,&dynamicMesh,&staticChanged,&dynamicChanged));
         CHECK(!staticChanged && dynamicChanged);
         CHECK(ZHR_SDLRayGetWaterStorageStats(scene,&stats));
         CHECK(stats.activeVertices==count*3 && stats.activePrimitives==count);
         CHECK(stats.dynamicAllocations==allocations);
     };
-    update(10,1); update(2,1); update(9,1);
-    CHECK(stats.dynamicCountReuses==3 && stats.dynamicRebuildReuses==3);
-    update(11,2); CHECK(stats.vertexCapacity==41 && stats.primitiveCapacity==13);
-    // Validation failure must leave active counts, capacity and allocation epoch unchanged.
-    const auto before=stats; indices[0]=dynamicMesh.vertexCount;
-    CHECK(!ZHR_SDLRayUpdateWaterPathSplitScene(scene,nullptr,&dynamicMesh,nullptr,nullptr));
+    update(8,1,.01f);
+    CHECK(stats.dynamicFullBuilds==1 && stats.dynamicRefits==0); // Update prepares; Record executes.
+    record(8,.01f); CHECK(stats.dynamicFullBuilds==1 && stats.dynamicRefits==1);
+    update(9,1); record(9,0); CHECK(stats.dynamicRefits==2);
+    update(10,1); record(10,0); CHECK(stats.dynamicRefits==3);
+    update(8,1); record(8,0); CHECK(stats.dynamicRefits==4 && stats.dynamicFullBuilds==1);
+    CHECK(stats.dynamicCountReuses==3 && stats.dynamicRebuildReuses==4);
+    // Overflow allocates and records a full BUILD; a large active-count drop
+    // within that capacity also builds to bound refit degradation.
+    update(11,2); record(11,0);
+    CHECK(stats.primitiveCapacity==13 && stats.vertexCapacity>=33);
+    CHECK(stats.dynamicFullBuilds==2 && stats.dynamicRefits==4);
+    update(2,2); record(2,0);
+    CHECK(stats.dynamicFullBuilds==3 && stats.dynamicPressureBuilds==1 && stats.dynamicRefits==4);
+    // A rejected edit must preserve both host state and the previous query result.
+    const auto before=stats; const uint32_t savedIndex=indices[0]; indices[0]=dynamicMesh.vertexCount;
+    const float changedStaticXYZ[]={-10,0,.5f,-9,0,.5f,-10,1,.5f};
+    const ZHR_SDLRayMeshView changedStatic={changedStaticXYZ,3,staticIndices,3};
+    CHECK(!ZHR_SDLRayUpdateWaterPathSplitScene(scene,&changedStatic,&dynamicMesh,nullptr,nullptr));
     CHECK(ZHR_SDLRayGetWaterStorageStats(scene,&stats));
     CHECK(std::memcmp(&before,&stats,sizeof(stats))==0);
-    std::printf("hardware dynamic storage: allocations=%llu count-reuses=%llu active=%u/%u capacity=%u/%u\n",
+    record(2,0); CHECK(std::memcmp(&before,&stats,sizeof(stats))==0);
+    indices[0]=savedIndex;
+    // Unchanged inputs must not schedule another BUILD or UPDATE.
+    bool staticChanged=true,dynamicChanged=true;
+    CHECK(ZHR_SDLRayUpdateWaterPathSplitScene(scene,nullptr,&dynamicMesh,&staticChanged,&dynamicChanged));
+    CHECK(!staticChanged && !dynamicChanged);
+    record(2,0); CHECK(stats.dynamicFullBuilds==before.dynamicFullBuilds && stats.dynamicRefits==before.dynamicRefits);
+    for(unsigned i=0;i<33;++i) {
+        const float pose=i%2 ? .02f : .01f;
+        update(2,2,pose); record(2,pose);
+        CHECK(stats.dynamicRefits==before.dynamicRefits+std::min(i+1,32u));
+        CHECK(stats.dynamicFullBuilds==before.dynamicFullBuilds+(i==32));
+        CHECK(stats.dynamicRefitAge==(i<32 ? i+1 : 0));
+    }
+    CHECK(stats.dynamicPeriodicBuilds==1);
+    // Valid arbitrary indexed topology remains supported through a full BUILD.
+    const auto beforeIndexed=stats; std::swap(indices[0],indices[1]);
+    CHECK(ZHR_SDLRayUpdateWaterPathSplitScene(scene,nullptr,&dynamicMesh,nullptr,nullptr));
+    record(2,.01f);
+    CHECK(stats.dynamicFullBuilds==beforeIndexed.dynamicFullBuilds+1);
+    CHECK(stats.dynamicRefits==beforeIndexed.dynamicRefits);
+    CHECK(stats.refitIneligibleFallbacks>beforeIndexed.refitIneligibleFallbacks);
+    CHECK(!stats.dynamicRefitEnabled);
+    std::printf("hardware dynamic storage: allocations=%llu count-reuses=%llu full-builds=%llu refits=%llu periodic=%llu pressure=%llu active=%u/%u capacity=%u/%u\n",
         (unsigned long long)stats.dynamicAllocations,(unsigned long long)stats.dynamicCountReuses,
+        (unsigned long long)stats.dynamicFullBuilds,(unsigned long long)stats.dynamicRefits,
+        (unsigned long long)stats.dynamicPeriodicBuilds,(unsigned long long)stats.dynamicPressureBuilds,
         stats.activeVertices,stats.activePrimitives,stats.vertexCapacity,stats.primitiveCapacity);
-    ZHR_SDLRayDestroyScene(scene);
 }
 
 #endif

@@ -43,6 +43,7 @@
 #include "ffshader.h"
 #include "ffvertex.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterPathTracingView.h"
 #include "Platform/WaterMovementBehavior.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterFoamHistory.h"
@@ -1945,20 +1946,20 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
             SdlValidateWaterRayFilter(*Gpu, target, water_depth, waterRayView, water, waterRayAddresses);
         const auto uploadWaterConstants = [&](const auto &waterConstants) {
             using Layout = std::decay_t<decltype(waterConstants)>;
-            if (waterRayLayout) {
-                struct RayConstants {
-                    Layout Water;
-                    uint32_t Addresses[4];
-                };
-                static_assert(offsetof(RayConstants, Addresses) == sizeof(Layout));
-                RayConstants constants = {waterConstants, {}};
-                std::memcpy(constants.Addresses, waterRayAddresses, sizeof(waterRayAddresses));
-                draw.PixelConstants = Gpu->Constants(1, &constants, sizeof(constants));
-                draw.PixelConstantsSize = sizeof(constants);
-            } else {
-                draw.PixelConstants = Gpu->Constants(1, &waterConstants, sizeof(waterConstants));
-                draw.PixelConstantsSize = sizeof(waterConstants);
-            }
+            struct FragmentConstants {
+                Layout Water;
+                WaterPathTracing::ProjectionRows HeldPathProjection;
+                uint32_t Addresses[4];
+            };
+            static_assert(offsetof(FragmentConstants, HeldPathProjection) == sizeof(Layout));
+            FragmentConstants constants = {waterConstants, {}, {}};
+            if (water.MaterialParameters[3] > 2.5f)
+                std::memcpy(constants.HeldPathProjection, PixelShaderConstants[WaterPathTracing::HeldProjectionRegister],
+                    sizeof(constants.HeldPathProjection));
+            if (waterRayLayout) std::memcpy(constants.Addresses, waterRayAddresses, sizeof(constants.Addresses));
+            const size_t bytes = waterRayLayout ? sizeof(constants) : offsetof(FragmentConstants, Addresses);
+            draw.PixelConstants = Gpu->Constants(1, &constants, bytes);
+            draw.PixelConstantsSize = bytes;
         };
 		if (combiner.ShadowReceiving) {
 			SdlEnginePixelConstants sun={};Build_Sun_Constants(sun);

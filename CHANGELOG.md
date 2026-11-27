@@ -12,6 +12,14 @@ See [upstream status](docs/upstream-status.md) for which Linux features have bee
   shelves and around sunken ruins.
 - With Ragdoll Deaths enabled, paradropped infantry now land on their feet and stay with their
   selection circles when they move. This also fixes the opening reinforcements in USA mission 2.
+- On Linux, experimental path traced water reflections refresh less often when rendering slows
+  down and skip captures when water is hidden. Reflections refresh as soon as water returns to view.
+- On Linux, hardware path traced water reflections reuse unchanged terrain, model and material
+  data between captures, reducing the work needed to prepare the reflected scene.
+- On Linux, hardware path traced water reflections update moving objects without rebuilding
+  their entire tracing data on every change, with periodic rebuilds to keep the search efficient.
+- On Linux, sun shadow rendering groups repeated opaque models into fewer draws, reducing
+  rendering work in scenes with many copies of the same model.
 
 ## Linux 4.2.1 release
 
