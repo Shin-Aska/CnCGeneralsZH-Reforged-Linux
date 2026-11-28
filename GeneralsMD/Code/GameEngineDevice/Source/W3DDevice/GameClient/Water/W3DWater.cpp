@@ -4793,6 +4793,10 @@ void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 	Matrix3D reflectedTransform(rRight,rUp,rN,rPos);
 
 	DX8Wrapper::Set_Render_Target_With_Z((TextureClass*)m_pReflectionTexture);
+#if defined(__linux__) && ZH_MODERN_WATER
+	if (m_useModernWater)
+		PosixWaterMarkTimingMirror(DX8Wrapper::_Get_D3D_Device());
+#endif
 
 	// Clear the backbuffer
 	// The sea's cloud plane fills its background; map water has no such plane, so its target is

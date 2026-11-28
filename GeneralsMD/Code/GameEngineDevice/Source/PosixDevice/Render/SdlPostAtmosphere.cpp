@@ -292,6 +292,7 @@ bool SdlPostAtmosphere::Record_Water_Surface(SdlGpuFrame &frame,const SdlTarget 
     frame.Set_Target(surface);
     if(!s.WaterDrawn)frame.Clear_Back_Buffer(true,false,false,0xffffffff,1,0);
     SdlRecordedDraw draw=source;draw.Pipeline=pipeline;draw.SamplerCount=0;
+    draw.ModernWaterMaterial=false;
     draw.PixelConstants=draw.PixelConstantsSize=0;
     std::memset(draw.PixelWaterConstants,0,sizeof(draw.PixelWaterConstants));
     std::memset(draw.PixelWaterConstantsSize,0,sizeof(draw.PixelWaterConstantsSize));

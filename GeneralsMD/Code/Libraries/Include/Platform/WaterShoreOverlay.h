@@ -128,6 +128,7 @@ void PosixWaterShoreBegin(IDirect3DDevice9 *,bool enabled);
 void PosixWaterShoreEnd(IDirect3DDevice9 *);
 void PosixWaterShorePatch(IDirect3DDevice9 *,const WaterShoreOverlay::Quad *);
 void PosixWaterOpenSea(IDirect3DDevice9 *, bool enabled);
+void PosixWaterMarkTimingMirror(IDirect3DDevice9 *);
 void PosixWaterShoreTrack(IDirect3DDevice9 *,const WaterShoreOverlay::Quad *);
 namespace WaterShoreOverlay {
 struct Scope {

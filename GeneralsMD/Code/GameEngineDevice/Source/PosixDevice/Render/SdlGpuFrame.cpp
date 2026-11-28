@@ -33,6 +33,9 @@
 #include <exception>
 #include <SDL3/SDL.h>
 #include "SdlSunShadowDebug.h"
+#if defined(__linux__)
+#include "../../../../Libraries/Source/SDL_gpu_vulkan_rayquery.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -301,6 +304,15 @@ SdlGpuFrame::~SdlGpuFrame()
 		SDL_ReleaseGPUFence(GpuDevice, FlushFences[i]);
 	}
 	FlushFences.clear();
+#if defined(__linux__)
+	if (WaterGpuTimer) {
+		// Successful timestamp reads already waited on the covering SDL fence.
+		if (WaterGpuTimingFailed && ZHR_SDLRayWaitForRetirement(GpuDevice) == ZHR_SDLRAY_RETIRE_REFUSED)
+			std::terminate();
+		ZHR_SDLGpuTimerDestroy(WaterGpuTimer);
+		WaterGpuTimer = nullptr;
+	}
+#endif
 	Discard_Pending_Work_For_Teardown();
 	Clear_Clean_Water();
 	for(auto *sampler:CleanWaterSamplers) if(sampler) SDL_ReleaseGPUSampler(GpuDevice,sampler);
@@ -384,6 +396,102 @@ void SdlGpuFrame::Release_Targets()
 	DisplayTexture = NULL;		// made again at the new size by the next offscreen Present
 }
 
+static bool Ocean_Compute_Requested(SDL_GPUDevice *device)
+{
+#if defined(__linux__)
+	static const bool enabled = [] {
+		const char *option = std::getenv("ZH_WATER_COMPUTE_FFT");
+		return option && strcmp(option, "1") == 0;
+	}();
+	return enabled && strcmp(SDL_GetGPUDeviceDriver(device), "vulkan") == 0;
+#else
+	(void)device;
+	return false;
+#endif
+}
+
+static constexpr unsigned OceanComputeThreads = 128;
+
+static std::string Ocean_Compute_Hlsl(WaterFftSpectrum::Configuration configuration, bool vertical)
+{
+	std::string source = "#define FFT_SIDE " + std::to_string(configuration.resolution)
+		+ "\n#define FFT_PHASES " + std::to_string(configuration.phases)
+		+ "\n#define FFT_THREADS " + std::to_string(OceanComputeThreads)
+		+ (vertical ? "\n#define FFT_VERTICAL 1\n" : "\n#define FFT_VERTICAL 0\n");
+	source += R"HLSL(
+Texture2D<float4> Twiddle : register(t0, space0);
+SamplerState TwiddleSampler : register(s0, space0);
+Texture2D<float4> InputA : register(t1, space0);
+SamplerState InputSamplerA : register(s1, space0);
+#if FFT_VERTICAL
+Texture2D<float4> InputB : register(t2, space0);
+SamplerState InputSamplerB : register(s2, space0);
+#else
+cbuffer FftParameters : register(b0, space2) { float4 Parameters; };
+#endif
+RWTexture2D<float4> OutputA : register(u0, space1);
+RWTexture2D<float4> OutputB : register(u1, space1);
+groupshared float4 SharedA[2][FFT_SIDE];
+groupshared float4 SharedB[2][FFT_SIDE];
+)HLSL";
+	source += WaterFftSpectrum::ButterflySource();
+	if (!vertical)
+		source += WaterFftSpectrum::SpectrumSource();
+	return source + R"HLSL(
+int2 fieldPixel(uint lineIndex, uint sampleIndex) {
+#if FFT_VERTICAL
+    return int2(lineIndex, sampleIndex);
+#else
+    return int2(sampleIndex, lineIndex);
+#endif
+}
+
+[numthreads(FFT_THREADS, 1, 1)]
+void main(uint3 group : SV_GroupID, uint thread : SV_GroupIndex) {
+    [unroll] for (uint index = thread; index < FFT_SIDE; index += FFT_THREADS) {
+        int2 pixel = fieldPixel(group.x, index);
+        float2 uv = (float2(pixel) + 0.5) / FFT_SIDE;
+        float4 input = InputA.SampleLevel(InputSamplerA, uv, 0);
+        float4 a, b;
+#if FFT_VERTICAL
+        a = input;
+        b = InputB.SampleLevel(InputSamplerB, uv, 0);
+#else
+        spectrum(input, pixel, Parameters.z, a, b);
+#endif
+        SharedA[0][index] = a;
+        SharedB[0][index] = b;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // One group owns a whole row or column. Two shared banks keep every stage's
+    // inputs intact until all invocations have produced that stage's outputs.
+    for (uint phase = 0; phase < FFT_PHASES; ++phase) {
+        uint readBank = phase & 1, writeBank = readBank ^ 1;
+        [unroll] for (uint index = thread; index < FFT_SIDE; index += FFT_THREADS) {
+            float2 uv = float2((phase + 0.5) / FFT_PHASES, (index + 0.5) / FFT_SIDE);
+            float4 entry = Twiddle.SampleLevel(TwiddleSampler, uv, 0);
+            uint a = uint(entry.z), b = uint(entry.w);
+            SharedA[writeBank][index] = butterfly(SharedA[readBank][a], SharedA[readBank][b], entry.xy);
+            SharedB[writeBank][index] = butterfly(SharedB[readBank][a], SharedB[readBank][b], entry.xy);
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    [unroll] for (uint index = thread; index < FFT_SIDE; index += FFT_THREADS) {
+        int2 pixel = fieldPixel(group.x, index);
+        float scale = 1.0;
+#if FFT_VERTICAL
+        // Match the original inverse FFT normalization and centred-spectrum sign.
+        scale = ((pixel.x + pixel.y) & 1 ? -1.0 : 1.0) * FFT_SIDE * FFT_SIDE;
+#endif
+        OutputA[pixel] = SharedA[FFT_PHASES & 1][index] * scale;
+        OutputB[pixel] = SharedB[FFT_PHASES & 1][index] * scale;
+    }
+}
+)HLSL";
+}
+
 // Private native float targets bypass the legacy BGRA texture mirror. The field is independent of
 // window dimensions: resizing scene targets keeps both its seed and paused frame unchanged.
 struct SdlGpuFrame::OceanResources
@@ -392,11 +500,79 @@ struct SdlGpuFrame::OceanResources
 	SDL_GPUTexture *Initial[3]={}, *Ping[2][6]={}, *Maps[6]={}, *Array=NULL, *Butterfly=NULL;
 	SDL_GPUShader *Vertex = NULL, *Pixels[2][4] = {};
 	SDL_GPUGraphicsPipeline *Pipelines[2][4] = {};
+	SDL_GPUComputePipeline *Compute[2] = {};
+	bool FailNextComputePass = false;
 	SDL_GPUSampler *Point=NULL,*Linear=NULL;
 	bool ArrayOutput = false, HeadedOutput = false;
 	unsigned TuningRevision=0;
 
 	SDL_GPUTexture *Map(unsigned index) const { return ArrayOutput?Array:Maps[index]; }
+
+	void Release_Compute(SDL_GPUDevice *device)
+	{
+		for (auto *&pipeline : Compute) {
+			if (pipeline) SDL_ReleaseGPUComputePipeline(device, pipeline);
+			pipeline = nullptr;
+		}
+	}
+
+	bool Create_Compute(SDL_GPUDevice *device, std::string &error)
+	{
+		for (unsigned axis = 0; axis < 2; ++axis) {
+			const bool vertical = axis == 1;
+			std::vector<unsigned char> spirv;
+			if (!SDL3_Compile_HLSL_To_SPIRV(Ocean_Compute_Hlsl(Configuration, vertical),
+					SDL3_ShaderStage::Compute, spirv, error)) return false;
+			SDL_GPUComputePipelineCreateInfo info = {};
+			info.code = spirv.data();
+			info.code_size = spirv.size();
+			info.entrypoint = "main";
+			info.format = SDL_GPU_SHADERFORMAT_SPIRV;
+			info.num_samplers = vertical ? 3 : 2;
+			info.num_readwrite_storage_textures = 2;
+			info.num_uniform_buffers = vertical ? 0 : 1;
+			info.threadcount_x = OceanComputeThreads;
+			info.threadcount_y = info.threadcount_z = 1;
+			Compute[axis] = SDL_CreateGPUComputePipeline(device, &info);
+			if (!Compute[axis]) { error = SDL_GetError(); return false; }
+		}
+		return true;
+	}
+
+	bool Dispatch_Compute(SDL_GPUCommandBuffer *commands, float time, unsigned firstMap)
+	{
+		const unsigned side = Configuration.resolution;
+		for (unsigned axis = 0; axis < 2; ++axis) {
+			const bool vertical = axis == 1;
+			for (unsigned map = firstMap; map < WaterFftSpectrum::Maps; map += 2) {
+				if (FailNextComputePass && vertical && map != firstMap) {
+					FailNextComputePass = false;
+					return SDL_SetError("injected FFT compute pass failure");
+				}
+				SDL_GPUStorageTextureReadWriteBinding destination[2] = {};
+				for (unsigned i = 0; i < 2; ++i) {
+					destination[i].texture = vertical ? Map(map + i) : Ping[1][map + i];
+					destination[i].layer = vertical && ArrayOutput ? map + i : 0;
+				}
+				const SDL_GPUTextureSamplerBinding sources[] = {
+					{Butterfly, Point},
+					{vertical ? Ping[1][map] : Initial[map / 2], Point},
+					{Ping[1][map + 1], Point},
+				};
+				if (!vertical) {
+					const float parameters[4] = {float(side), time, float(WaterFftSpectrum::Sizes[map / 2]), 0};
+					SDL_PushGPUComputeUniformData(commands, 0, parameters, sizeof(parameters));
+				}
+				SDL_GPUComputePass *pass = SDL_BeginGPUComputePass(commands, destination, 2, nullptr, 0);
+				if (!pass) return false;
+				SDL_BindGPUComputePipeline(pass, Compute[axis]);
+				SDL_BindGPUComputeSamplers(pass, 0, sources, vertical ? 3 : 2);
+				SDL_DispatchGPUCompute(pass, side, 1, 1);
+				SDL_EndGPUComputePass(pass);
+			}
+		}
+		return true;
+	}
 
 	bool Pass(SDL_GPUCommandBuffer *commands, unsigned int which, SDL_GPUTexture **destination,
 		SDL_GPUTexture **source, unsigned int count, const float *parameters, bool arrayDestination = false,
@@ -459,6 +635,7 @@ static std::string Ocean_Mip_Hlsl(bool textureArray, bool headedOnly = false)
 void SdlGpuFrame::Release_Ocean()
 {
 	if(!Ocean) return;
+	Ocean->Release_Compute(GpuDevice);
 	for(auto *texture:Ocean->Initial) if(texture) SDL_ReleaseGPUTexture(GpuDevice,texture);
 	for(auto &pair:Ocean->Ping) for(auto *texture:pair) if(texture) SDL_ReleaseGPUTexture(GpuDevice,texture);
 	for(auto *texture:Ocean->Maps) if(texture) SDL_ReleaseGPUTexture(GpuDevice,texture);
@@ -500,8 +677,23 @@ bool SdlGpuFrame::Create_Ocean(WaterFftSpectrum::Configuration configuration)
 	SDL_GPUTextureCreateInfo texture={};texture.type=SDL_GPU_TEXTURETYPE_2D;
 	texture.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;texture.usage=usage;
 	texture.width=texture.height=Resolution;texture.layer_count_or_depth=texture.num_levels=1;
+	const bool computeRequested = Ocean_Compute_Requested(GpuDevice);
+	const auto storageUsage = usage | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE;
+	bool compute = computeRequested;
+	auto createComputeTarget = [&] {
+		if (compute) {
+			SDL_GPUTextureCreateInfo storage = texture;
+			storage.usage = storageUsage;
+			if (SDL_GPUTextureSupportsFormat(GpuDevice, storage.format, storage.type, storage.usage)) {
+				if (auto *target = SDL_CreateGPUTexture(GpuDevice, &storage)) return target;
+			}
+			compute = false;
+		}
+		return SDL_CreateGPUTexture(GpuDevice, &texture);
+	};
 	for(auto *&target:Ocean->Initial) target=SDL_CreateGPUTexture(GpuDevice,&texture);
-	for(auto &pair:Ocean->Ping) for(auto *&target:pair) target=SDL_CreateGPUTexture(GpuDevice,&texture);
+	for(auto *&target:Ocean->Ping[0]) target=SDL_CreateGPUTexture(GpuDevice,&texture);
+	for(auto *&target:Ocean->Ping[1]) target=createComputeTarget();
 	texture.num_levels=Phases+1;
 	// Array layers are independent render attachments in SDL/Vulkan. Keep the old
 	// map allocation if this optional combined colour/sampler usage cannot be made.
@@ -509,13 +701,13 @@ bool SdlGpuFrame::Create_Ocean(WaterFftSpectrum::Configuration configuration)
 		&& SDL_GPUTextureSupportsFormat(GpuDevice,texture.format,SDL_GPU_TEXTURETYPE_2D_ARRAY,usage);
 	if(Ocean->ArrayOutput) {
 		texture.type=SDL_GPU_TEXTURETYPE_2D_ARRAY;texture.layer_count_or_depth=6;
-		if(!FailNextOceanArray) Ocean->Array=SDL_CreateGPUTexture(GpuDevice,&texture);
+		if(!FailNextOceanArray) Ocean->Array=createComputeTarget();
 		FailNextOceanArray=false;
 		if(!Ocean->Array) Ocean->ArrayOutput=false;
 	}
 	if(!Ocean->ArrayOutput) {
 		texture.type=SDL_GPU_TEXTURETYPE_2D;texture.layer_count_or_depth=1;
-		for(auto *&target:Ocean->Maps) target=SDL_CreateGPUTexture(GpuDevice,&texture);
+		for(auto *&target:Ocean->Maps) target=createComputeTarget();
 		// One fragment binding leaves room for sun depth and smoke.
 		texture.type=SDL_GPU_TEXTURETYPE_2D_ARRAY;texture.layer_count_or_depth=6;
 		texture.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
@@ -590,12 +782,23 @@ bool SdlGpuFrame::Create_Ocean(WaterFftSpectrum::Configuration configuration)
 		} else if (headedOnly)
 			Ocean->HeadedOutput = true;
 	}
+	if (computeRequested) {
+		if (!compute)
+			error = "FFT storage targets unavailable";
+		else
+			compute = Ocean->Create_Compute(GpuDevice, error);
+		if (!compute) {
+			Ocean->Release_Compute(GpuDevice);
+			fprintf(stderr, "SdlGpuFrame: compute FFT unavailable; using raster FFT: %s\n", error.c_str());
+		}
+	}
 	if(!Upload_Ocean_Spectrum())return Fail_Ocean(SDL_GetError());
 	if (std::getenv("ZH_WATER_PROFILE"))
-		fprintf(stderr, "[water-profile-fft-storage] resolution=%u mode=%s full_copies_per_update=%u headed_copies_per_update=%u\n",
+		fprintf(stderr, "[water-profile-fft-storage] resolution=%u mode=%s full_copies_per_update=%u headed_copies_per_update=%u producer=%s\n",
 			Resolution, Ocean->ArrayOutput ? "array" : "legacy",
 			6 * Phases + (Ocean->ArrayOutput ? 0 : 6 * (Phases + 1)),
-			(Ocean->HeadedOutput ? 4 : 6) * (Phases + (Ocean->ArrayOutput ? 0 : Phases + 1)));
+			(Ocean->HeadedOutput ? 4 : 6) * (Phases + (Ocean->ArrayOutput ? 0 : Phases + 1)),
+			compute ? "compute" : "raster");
 	return true;
 }
 
@@ -700,18 +903,43 @@ bool SdlGpuFrame::Prepare_Ocean(float time, unsigned resolution, unsigned cascad
 	SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(GpuDevice);
 	if(!commands) return failure(SDL_GetError());
 	SDL_PushGPUDebugGroup(commands,"Modern water FFT");
-	float parameters[8]={float(Resolution),time,0,0,Sizes[0],Sizes[1],Sizes[2],0};
-	bool ok = Ocean->Pass(commands, 0, Ocean->Ping[0], Ocean->Initial, 3, parameters, false, headedOnly);
-	unsigned ping=0;
-	for(unsigned axis=0;ok && axis<2;++axis) for(unsigned phase=0;ok && phase<Phases;++phase) {
-		SDL_GPUTexture *sources[7];for(unsigned i=0;i<6;++i) sources[i]=Ocean->Ping[ping][i];sources[6]=Ocean->Butterfly;
-		parameters[2]=float(phase);parameters[3]=float(axis);
-			ok = Ocean->Pass(commands, 1, Ocean->Ping[1 - ping], sources, 7, parameters, false, headedOnly);
-			ping = 1 - ping;
-		}
+	Reset_Water_Timestamps(commands);
+	unsigned timestamp = Begin_Water_Timestamps(commands, SdlWaterGpuTiming::Fft);
+	bool compute = Ocean->Compute[0] != nullptr;
+	if (compute && !Ocean->Dispatch_Compute(commands, time, firstMap)) {
+		fprintf(stderr, "SdlGpuFrame: compute FFT recording failed; using raster FFT: %s\n", SDL_GetError());
+		SDL_PopGPUDebugGroup(commands);
+		const bool cancelled = SDL_CancelGPUCommandBuffer(commands);
+		if (WaterTimerBatch == commands) WaterTimerBatch = nullptr;
+		if (!cancelled) return failure(SDL_GetError());
+		Ocean->Release_Compute(GpuDevice);
+		compute = false;
+		commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
+		if (!commands) return failure(SDL_GetError());
+		SDL_PushGPUDebugGroup(commands, "Modern water FFT");
+		Reset_Water_Timestamps(commands);
+		timestamp = Begin_Water_Timestamps(commands, SdlWaterGpuTiming::Fft);
+	}
 	SDL_GPUTexture *maps[6];for(unsigned i=0;i<6;++i) maps[i]=Ocean->Map(i);
-	if (ok)
-		ok = Ocean->Pass(commands, 2, maps, Ocean->Ping[ping], 6, parameters, Ocean->ArrayOutput, headedOnly);
+	float parameters[8]={float(Resolution),time,0,0,Sizes[0],Sizes[1],Sizes[2],0};
+	bool ok = true;
+	if (!compute) {
+		ok = Ocean->Pass(commands, 0, Ocean->Ping[0], Ocean->Initial, 3, parameters, false, headedOnly);
+		unsigned ping=0;
+		for (unsigned axis = 0; ok && axis < 2; ++axis) {
+			for (unsigned phase = 0; ok && phase < Phases; ++phase) {
+				SDL_GPUTexture *sources[7];
+				for (unsigned i = 0; i < 6; ++i) sources[i] = Ocean->Ping[ping][i];
+				sources[6] = Ocean->Butterfly;
+				parameters[2] = float(phase);
+				parameters[3] = float(axis);
+				ok = Ocean->Pass(commands, 1, Ocean->Ping[1 - ping], sources, 7, parameters, false, headedOnly);
+				ping = 1 - ping;
+			}
+		}
+		if (ok)
+			ok = Ocean->Pass(commands, 2, maps, Ocean->Ping[ping], 6, parameters, Ocean->ArrayOutput, headedOnly);
+	}
 	for(unsigned level=1;ok && level<=Phases;++level) {
 		parameters[2]=float(level);
 		ok = Ocean->Pass(commands, 3, Ocean->Ping[0], maps, 6, parameters, false, headedOnly);
@@ -740,7 +968,15 @@ bool SdlGpuFrame::Prepare_Ocean(float time, unsigned resolution, unsigned cascad
 		}
 	}
 	SDL_PopGPUDebugGroup(commands);
-	if(!ok) {SDL_CancelGPUCommandBuffer(commands);return failure("could not record independent FFT passes");}
+	if(!ok) {
+		SDL_CancelGPUCommandBuffer(commands);
+		if (WaterTimerBatch == commands) {
+			WaterTimerBatch = nullptr;
+			++WaterGpuTiming.Missing;
+		}
+		return failure("could not record independent FFT passes");
+	}
+	End_Water_Timestamps(commands, timestamp);
 	ok=SerializeSubmits?Submit(commands):Submit_Flush(commands);
 	FlushMs+=double(SDL_GetTicksNS()-started)/1.0e6;++Flushes;++FlushesTotal;
 	if(!ok) return failure(SDL_GetError());
@@ -756,7 +992,7 @@ bool SdlGpuFrame::Prepare_Ocean(float time, unsigned resolution, unsigned cascad
 	OceanReady = true;
 	OceanReadyCascades = cascades;
 	++OceanUpdates;
-	OceanPasses += 2 + 3 * Phases;
+	OceanPasses += compute ? mapCount + Phases : 2 + 3 * Phases;
 	OceanCopies += mapCount * Phases + (Ocean->ArrayOutput ? 0 : mapCount * (Phases + 1));
 	return true;
 }
@@ -769,6 +1005,16 @@ WaterFftSpectrum::Configuration SdlGpuFrame::Ocean_Configuration() const
 bool SdlGpuFrame::Ocean_Array_Output() const
 {
 	return OceanReady && Ocean && Ocean->ArrayOutput;
+}
+
+bool SdlGpuFrame::Ocean_Uses_Compute_Fft() const
+{
+	return OceanReady && Ocean && Ocean->Compute[0];
+}
+
+void SdlGpuFrame::Fail_Next_Ocean_Compute_Pass_For_Test()
+{
+	if (Ocean) Ocean->FailNextComputePass = true;
 }
 
 SDL_GPUTexture *SdlGpuFrame::Ocean_Map(unsigned int index) const
@@ -1705,13 +1951,97 @@ bool SdlGpuFrame::Submit(SDL_GPUCommandBuffer * commands)
 	}
 	SDL_GPUFence * fence = SDL_SubmitGPUCommandBufferAndAcquireFence(commands);
 	if (fence == NULL) {
+		Collect_Water_Timestamps(commands, false);
 		return false;
 	}
 	const Uint64 start = SDL_GetTicksNS();
 	const bool waited = SDL_WaitForGPUFences(GpuDevice, true, &fence, 1);
 	FenceMs += (double)(SDL_GetTicksNS() - start) / 1.0e6;
+	Collect_Water_Timestamps(commands, waited);
 	SDL_ReleaseGPUFence(GpuDevice, fence);
 	return waited;
+}
+
+void SdlGpuFrame::Enable_Water_Gpu_Timing()
+{
+	if (TriedWaterGpuTiming) return;
+	TriedWaterGpuTiming = true;
+#if defined(__linux__)
+	WaterGpuTimer = ZHR_SDLGpuTimerCreate(GpuDevice, SDL_arraysize(WaterTimerPasses));
+#endif
+	fprintf(stderr, "Modern water GPU timestamps: %s\n", WaterGpuTimer ? "enabled" : "unavailable on this device");
+}
+
+void SdlGpuFrame::Reset_Water_Timestamps(SDL_GPUCommandBuffer *commands)
+{
+#if defined(__linux__)
+	if (!Water_Gpu_Timing_Enabled() || !SerializeSubmits) return;
+	WaterTimerBatch = commands;
+	WaterTimerCount = 0;
+	ZHR_SDLGpuTimerReset(WaterGpuTimer, commands);
+#else
+	(void)commands;
+#endif
+}
+
+unsigned SdlGpuFrame::Begin_Water_Timestamps(SDL_GPUCommandBuffer *commands, SdlWaterGpuTiming::Pass pass)
+{
+#if defined(__linux__)
+	if (WaterTimerBatch == commands) {
+		if (WaterTimerCount == SDL_arraysize(WaterTimerPasses)) {
+			++WaterGpuTiming.Missing;
+			return NoWaterTimestamp;
+		}
+		const unsigned scope = WaterTimerCount++;
+		WaterTimerPasses[scope] = pass;
+		ZHR_SDLGpuTimerStamp(WaterGpuTimer, commands, 2 * scope);
+		return scope;
+	}
+#else
+	(void)commands; (void)pass;
+#endif
+	return NoWaterTimestamp;
+}
+
+void SdlGpuFrame::End_Water_Timestamps(SDL_GPUCommandBuffer *commands, unsigned scope)
+{
+#if defined(__linux__)
+	if (scope != NoWaterTimestamp)
+		ZHR_SDLGpuTimerStamp(WaterGpuTimer, commands, 2 * scope + 1);
+#else
+	(void)commands; (void)scope;
+#endif
+}
+
+void SdlGpuFrame::Collect_Water_Timestamps(SDL_GPUCommandBuffer *commands, bool completed)
+{
+#if defined(__linux__)
+	if (WaterTimerBatch != commands) return;
+	WaterTimerBatch = nullptr;
+	double milliseconds[SDL_arraysize(WaterTimerPasses)];
+	if (WaterTimerCount && completed && ZHR_SDLGpuTimerRead(WaterGpuTimer, WaterTimerCount, milliseconds)) {
+		for (unsigned i = 0; i < WaterTimerCount; ++i) {
+			const auto pass = WaterTimerPasses[i];
+			WaterGpuTiming.Milliseconds[pass] += milliseconds[i];
+			++WaterGpuTiming.Scopes[pass];
+		}
+	} else {
+		WaterGpuTiming.Missing += WaterTimerCount;
+	}
+	// A refused fence leaves the pool potentially in flight. Teardown retires it.
+	if (!completed) WaterGpuTimingFailed = true;
+#else
+	(void)commands; (void)completed;
+#endif
+}
+
+SdlWaterGpuTiming SdlGpuFrame::Take_Water_Gpu_Timing()
+{
+	auto timing = WaterGpuTiming;
+	timing.Available = Water_Gpu_Timing_Enabled();
+	WaterGpuTiming = {};
+	WaterTimingMirrors.clear();
+	return timing;
 }
 
 void SdlGpuFrame::Set_Offscreen_Presents(unsigned int hz)

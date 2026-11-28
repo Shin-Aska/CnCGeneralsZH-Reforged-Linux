@@ -3,8 +3,8 @@
 #pragma once
 #include <string>
 namespace WaterWaveCageShader {
-inline std::string Source(bool vertex) {
-    return std::string(vertex ? R"HLSL(
+inline std::string Source(bool vertex, bool skipUnsupported = false) {
+    std::string source = std::string(vertex ? R"HLSL(
 Texture2D WaveCageTerrain : register(t3);
 SamplerState WaveCageSampler : register(s3);
 float4 waveCageTexel(float2 uv) {return WaveCageTerrain.SampleLevel(WaveCageSampler,uv,0);}
@@ -55,13 +55,20 @@ float3 waveCageFloor(float2 p,float level,float3 delta) {
     delta.z=min(fftVerticalBound,max(delta.z,floorHeight));
     return delta;
 }
-)HLSL"+(vertex?std::string():std::string(R"HLSL(
+)HLSL";
+    if(vertex) return source;
+    source+=R"HLSL(
 struct WaveCageSurface {float3 displacement,derivativeX,derivativeY;};
 float2 waveCageGradient(float value,float2 dx,float2 dy) {
     float determinant=dx.x*dy.y-dx.y*dy.x;
-    return abs(determinant)>0.000001?float2(ddx(value)*dy.y-ddy(value)*dx.y,
+)HLSL";
+    if(skipUnsupported) source+=R"HLSL(    float du=ddx(value),dv=ddy(value);
+    return abs(determinant)>0.000001?float2(du*dy.y-dv*dx.y,dv*dx.x-du*dy.x)/determinant:float2(0,0);
+)HLSL";
+    else source+=R"HLSL(    return abs(determinant)>0.000001?float2(ddx(value)*dy.y-ddy(value)*dx.y,
         ddy(value)*dx.x-ddx(value)*dy.x)/determinant:float2(0,0);
-}
+)HLSL";
+    source+=R"HLSL(}
 WaveCageSurface waveCageSurface(WaveCage c,float2 p,float level,float3 eta,float3 etaX,float3 etaY,
     float3 obstacle,float2 parameterDx,float2 parameterDy) {
     float2 nx=waveCageGradient(c.normal.x,parameterDx,parameterDy);
@@ -70,11 +77,19 @@ WaveCageSurface waveCageSurface(WaveCage c,float2 p,float level,float3 eta,float
     float2 rt=waveCageGradient(c.radii.x,parameterDx,parameterDy);
     float2 rn=waveCageGradient(c.radii.y,parameterDx,parameterDy);
     WaveCageSurface result;
-    float3 mapped=waveCageMap(c,eta);
+)HLSL";
+    // The material multiplies the fitted derivatives by support. At zero support
+    // the radii and displacement are zero, including in the blend's product rule.
+    // Keep both the axis/radius gradients above and the floor gradient below
+    // outside this per-fragment branch so shoreline neighbours still participate.
+    if(skipUnsupported) source+="    [branch] if(c.support>0.0) {\n";
+    source+=R"HLSL(    float3 mapped=waveCageMap(c,eta);
     result.displacement=mapped*obstacle.x;
     result.derivativeX=waveCageDerivative(c,eta,etaX,float3(nx.x,ny.x,nz.x),float2(rt.x,rn.x))*obstacle.x+mapped*obstacle.y;
     result.derivativeY=waveCageDerivative(c,eta,etaY,float3(nx.y,ny.y,nz.y),float2(rt.y,rn.y))*obstacle.x+mapped*obstacle.z;
-    float floorHeight=c.support>0.0 && obstacle.x>0.0?
+)HLSL";
+    if(skipUnsupported) source+="    } else { result=(WaveCageSurface)0; }\n";
+    source+=R"HLSL(    float floorHeight=c.support>0.0 && obstacle.x>0.0?
         waveCageHeight(p+result.displacement.xy)-level+0.035:-fftVerticalBound;
     float2 floorSlope=waveCageGradient(floorHeight,parameterDx,parameterDy);
     if(floorHeight>result.displacement.z) {
@@ -84,6 +99,7 @@ WaveCageSurface waveCageSurface(WaveCage c,float2 p,float level,float3 eta,float
     }
     return result;
 }
-)HLSL"));
+)HLSL";
+    return source;
 }
 }

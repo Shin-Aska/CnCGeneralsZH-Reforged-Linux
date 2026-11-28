@@ -67,6 +67,8 @@ struct TimingState
 	Uint64 LastPresent;
 	bool Reported;
 	std::vector<double> Frame, Work, DrawMs, FlushMs, PresentMs, AcquireMs, OffscreenMs, FenceMs, Draws, Flushes;
+	bool WaterGpu = false;
+	std::vector<SdlWaterGpuTiming> WaterGpuTimes;
 	unsigned int NotVisible;	///< measured frames presented to a window that was not visible
 	unsigned int NotShown;		///< measured frames with no drawable
 	bool Offscreen;
@@ -148,7 +150,9 @@ TimingState &timing_state()
 				fprintf(stderr, "PosixDevice9 timing: invalid ZH_GPU_TIMING_COLD (expected count 1..100000, without logic-window mode)\n");
 		}
 		const char *sync = getenv("ZH_GPU_TIMING_SYNC");
-		state.Sync = state.Asked && sync != NULL && sync[0] == '1';
+		const char *waterGpu = getenv("ZH_WATER_GPU_TIMING");
+		state.WaterGpu = state.Asked && waterGpu && strcmp(waterGpu, "1") == 0;
+		state.Sync = state.Asked && (state.WaterGpu || (sync && sync[0] == '1'));
 		state.FirstPresent = 0;
 		state.LastPresent = 0;
 		state.Reported = false;
@@ -228,7 +232,10 @@ bool PosixDevice9::Timing_Is_Asked()
 void PosixDevice9::Timing_Frame_Start()
 {
 	if (Gpu != NULL) {
-		Gpu->Serialize_Submits(timing_state().Sync);
+		const auto &state = timing_state();
+		Gpu->Serialize_Submits(state.Sync);
+		if (state.WaterGpu)
+			Gpu->Enable_Water_Gpu_Timing();
 	}
 }
 
@@ -239,6 +246,7 @@ void PosixDevice9::Timing_Present(double present_ms, unsigned int draws)
 	double flush_ms = 0.0, fence_ms = 0.0, acquire_ms = 0.0, offscreen_ms = 0.0;
 	unsigned int flushes = 0, not_visible = 0, not_shown = 0;
 	Gpu->Take_Timing(flush_ms, fence_ms, flushes, acquire_ms, offscreen_ms, not_visible, not_shown);
+	const auto water = state.WaterGpu ? Gpu->Take_Water_Gpu_Timing() : SdlWaterGpuTiming{};
 	state.Offscreen = Gpu->Offscreen_Presents();
 	if (state.FirstPresent == 0) {
 		state.FirstPresent = now;
@@ -277,6 +285,8 @@ void PosixDevice9::Timing_Present(double present_ms, unsigned int draws)
 		state.Flushes.push_back((double)flushes);
 		state.PresentMs.push_back(present_ms);
 		state.FenceMs.push_back(fence_ms);
+		if (state.WaterGpu)
+			state.WaterGpuTimes.push_back(water);
 		if (state.LogicMode || state.ColdMode) {
 			state.LogicFrames.push_back(state.StampFrame);
 			state.PresentNs.push_back(now);
@@ -299,6 +309,9 @@ void PosixDevice9::Timing_Present(double present_ms, unsigned int draws)
 
 void PosixDevice9::Timing_Report()
 {
+	static const char *const waterPasses[SdlWaterGpuTiming::Count] = {
+		"material", "planar", "fft", "scene_colour", "scene_depth"
+	};
 	TimingState &state = timing_state();
 	if (!state.Asked || state.Reported) {
 		return;
@@ -346,8 +359,14 @@ void PosixDevice9::Timing_Report()
 		if (!state.CsvPath.empty()) {
 			FILE *csv = fopen(state.CsvPath.c_str(), "w");
 			if (csv) {
-				fprintf(csv, "logic_frame,present_monotonic_ns,frame_ms,work_ms,device_draw_ms,device_flush_ms,device_present_ms,swapchain_wait_ms,offscreen_wait_ms,fence_ms,draws,flushes%s\n",
+				fprintf(csv, "logic_frame,present_monotonic_ns,frame_ms,work_ms,device_draw_ms,device_flush_ms,device_present_ms,swapchain_wait_ms,offscreen_wait_ms,fence_ms,draws,flushes%s",
 					state.ColdMode ? ",cold_transition" : "");
+				if (state.WaterGpu) {
+					for (const char *pass : waterPasses)
+						fprintf(csv, ",water_%s_gpu_ms,water_%s_scopes", pass, pass);
+					fprintf(csv, ",water_gpu_available,water_gpu_missing");
+				}
+				fputc('\n', csv);
 				for (size_t i = 0; i < state.Frame.size(); ++i) {
 					fprintf(csv, "%u,%llu,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.0f,%.0f",
 						state.LogicFrames[i], (unsigned long long) state.PresentNs[i], state.Frame[i], state.Work[i], state.DrawMs[i],
@@ -355,6 +374,12 @@ void PosixDevice9::Timing_Report()
 						state.Draws[i], state.Flushes[i]);
 					if (state.ColdMode)
 						fprintf(csv, ",%u", i == 0 ? 1u : 0u);
+					if (state.WaterGpu) {
+						const auto &water = state.WaterGpuTimes[i];
+						for (unsigned pass = 0; pass < SdlWaterGpuTiming::Count; ++pass)
+							fprintf(csv, ",%.9f,%u", water.Milliseconds[pass], water.Scopes[pass]);
+						fprintf(csv, ",%d,%u", water.Available, water.Missing);
+					}
 					fprintf(csv, "\n");
 				}
 				const bool failed = ferror(csv) != 0;
@@ -387,6 +412,21 @@ void PosixDevice9::Timing_Report()
 	report("device present", state.PresentMs, "ms");
 	if (state.Sync) {
 		report("GPU (fences)", state.FenceMs, "ms");
+	}
+	if (state.WaterGpu) {
+		for (unsigned pass = 0; pass < SdlWaterGpuTiming::Count; ++pass) {
+			std::vector<double> samples;
+			unsigned scopes = 0;
+			for (const auto &frame : state.WaterGpuTimes) {
+				if (!frame.Available || frame.Missing) continue;
+				samples.push_back(frame.Milliseconds[pass]);
+				scopes += frame.Scopes[pass];
+			}
+			if (samples.empty()) break;
+			fprintf(stderr, "Modern water GPU timing: %s scopes=%u frames=%zu/%zu\n",
+				waterPasses[pass], scopes, samples.size(), state.WaterGpuTimes.size());
+			report(waterPasses[pass], samples, "ms");
+		}
 	}
 }
 

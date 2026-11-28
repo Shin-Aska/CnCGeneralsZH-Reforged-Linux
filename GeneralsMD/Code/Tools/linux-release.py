@@ -41,7 +41,7 @@ GPU_TESTS = {
     "sdl_gpu_frame_selfcheck", "sdl_program_cache_selfcheck",
     "sdl_pipeline_state_selfcheck", "posix_gpu_draw_selfcheck",
     "ffref_gpu_selfcheck", "ffref_capture_selfcheck",
-    "test_water_path_gpu", "test_sun_shadow_sorting",
+    "test_water_path_gpu", "test_sun_shadow_sorting", "sdl_water_compute_fft",
 }
 GENERIC_RELEASE_NOTES = """Engine-only Linux x86_64 packages for Zero Hour Reforged.
 

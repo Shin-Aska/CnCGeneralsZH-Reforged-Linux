@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string_view>
 
 /*
 ** The terrain and the roads are eight variations on one program: a base colour, and then a chain of
@@ -688,7 +689,7 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 static void write_modern_water(std::string & hlsl, bool river,
 	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration(),
 	bool waveHeading = false, bool waterOpenSea = false, bool liveTuning = false, bool cleanMain = false,
-	bool waterRayFilter = false, bool heldProjection = false)
+	bool waterRayFilter = false, bool heldProjection = false, bool optimizeMaterial = false)
 {
 	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
 #if defined(__linux__)
@@ -989,7 +990,7 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 	hlsl += WaterHullModel::GetHlslSource();
 	hlsl += WaterFftSampling::PixelSource(bowLift, WaterBowShoulder::Enabled(), true,
 		WaterFftSpectrum::ForResolution(quality.activeFftResolution), waveHeading && !river, waterOpenSea && !river,cleanMain);
-	hlsl += WaterWaveCageShader::Source(false);
+	hlsl += WaterWaveCageShader::Source(false, optimizeMaterial);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
 		(double)WaterSurfaceModel::OceanMaxDisplacement);
@@ -1054,9 +1055,10 @@ float waterTerrainClarity(float2 p,float baseLevel,float terrain,float offshore)
 			: "float waveTerrainHeight(float2 p) { return terrainHeight(p); }\n";
 
 	}
-	if(visualContact) hlsl += WaterHullVisual::Source();
+	if(visualContact) hlsl += WaterHullVisual::Source(optimizeMaterial);
 	hlsl += WaterHullModel::GetEffectsHlslSource(true,visualContact);
-	if(visualContact) hlsl += R"HLSL(
+	if(visualContact) {
+		hlsl += R"HLSL(
 // Fresh visible contact uses the posed triangle slice at the raster surface, including
 // horizontal chop and geometric interpolation. It does not alter pressure or old wakes.
 // Shared contact material for normal shading and source-attribution diagnostics.
@@ -1105,7 +1107,10 @@ float2 oceanMeshHullEffects(float3 world,float level,float time,float offshore,
         // Both fresh-contact contributions are exactly zero; keep the checked geometry query for every active hull.
         if(moving==0.0 && collision==0.0) continue;
         float2 local=float2(dot(delta,axis.xy),dot(delta,float2(-axis.y,axis.x)));
-        WaterVisualResult contact=WaterVisualQuery(h,float3(local,world.z-level));
+)HLSL";
+		if(optimizeMaterial)
+			hlsl += "        [branch] if(!WaterVisualMayContact(h,local)) continue;\n";
+		hlsl += R"HLSL(        WaterVisualResult contact=WaterVisualQuery(h,float3(local,world.z-level));
         if(contact.hasSegment<0.5 || contact.distance>12.0) continue;
         float3 effects=oceanMeshContactFoam(contact,local,motion,axis.xy,
             speed,moving,collision,time,incomingHeight,footprint,waveImpact);
@@ -1115,6 +1120,7 @@ float2 oceanMeshHullEffects(float3 world,float level,float time,float offshore,
     return saturate(float2(foam,turbulence))*offshore;
 }
 )HLSL";
+	}
 	if(visualDiagnostic) hlsl += R"HLSL(
 // Diagnostic only: geometry is queried before optical eligibility. Normal effects are unchanged.
 // A nonzero red tag proves a valid source-band slice. All channels use one nearest hull.
@@ -1316,11 +1322,26 @@ float4 main(Input input) : SV_Target
     float3 cageObstacle=float3(saturate(input.Diffuse.r),fftParameterGradient(input.Diffuse.r,parameterDx,parameterDy));
     if(cageAmount>0.0)
         cageObstacle=vesselApplyHullDamping(wavePosition,baseLevel,cageObstacle,float3(1,0,0));
-    WaveCageSurface cagePhysical=waveCageSurface(cage,wavePosition,baseLevel,spectral.displacement,
+)HLSL";
+	static constexpr char physicalCage[] = R"HLSL(    WaveCageSurface cagePhysical=waveCageSurface(cage,wavePosition,baseLevel,spectral.displacement,
         spectral.derivativeX,spectral.derivativeY,cageObstacle,parameterDx,parameterDy);
-    WaveCageSurface cageShaded=waveCageSurface(cage,wavePosition,baseLevel,spectral.shadingDisplacement,
+)HLSL";
+	static constexpr char shadingCage[] = R"HLSL(    WaveCageSurface cageShaded=waveCageSurface(cage,wavePosition,baseLevel,spectral.shadingDisplacement,
         spectral.shadingDerivativeX,spectral.shadingDerivativeY,cageObstacle,parameterDx,parameterDy);
-    float fftCompression=1.0;
+)HLSL";
+	if (!optimizeMaterial) {
+		hlsl += physicalCage;
+		hlsl += shadingCage;
+	}
+	auto appendIndented = [&hlsl](std::string_view block, unsigned spaces) {
+		while (!block.empty()) {
+			const size_t newline = block.find('\n');
+			const size_t length = newline == std::string_view::npos ? block.size() : newline + 1;
+			hlsl.append(spaces, ' ').append(block.data(), length);
+			block.remove_prefix(length);
+		}
+	};
+	hlsl += R"HLSL(    float fftCompression=1.0;
     float fftDamping=0.0;
     float3 resolvedNormal=normal;
     float unresolvedSlopeVariance=0.0;
@@ -1356,7 +1377,8 @@ float4 main(Input input) : SV_Target
             spectral.derivativeX.y*horizontalWeight+spectral.displacement.y*horizontalSlope.x,heightSlope.x);
         float3 tangentY=float3(spectral.derivativeY.x*horizontalWeight+spectral.displacement.x*horizontalSlope.y,
             1.0+spectral.derivativeY.y*horizontalWeight+spectral.displacement.y*horizontalSlope.y,heightSlope.y);
-        float3 oldDelta=float3(spectral.displacement.xy*horizontalWeight,lerp(oldHeight,newHeight,fftWeight));
+)HLSL";
+	static constexpr char physicalTangents[] = R"HLSL(        float3 oldDelta=float3(spectral.displacement.xy*horizontalWeight,lerp(oldHeight,newHeight,fftWeight));
         float3 cageDelta=float3(cagePhysical.displacement.xy*fftWeight,lerp(oldHeight,cagePhysical.displacement.z,fftWeight));
         float3 cageX=float3(1,0,baseSlope.x)+cagePhysical.derivativeX*fftWeight
             +float3(cagePhysical.displacement.xy,cagePhysical.displacement.z-oldHeight)*weightSlope.x;
@@ -1366,8 +1388,12 @@ float4 main(Input input) : SV_Target
         cageY.z+=(slope.y-baseSlope.y)*(1.0-fftWeight);
         tangentX=lerp(tangentX,cageX,cageAmount)+(cageDelta-oldDelta)*cageAmountSlope.x;
         tangentY=lerp(tangentY,cageY,cageAmount)+(cageDelta-oldDelta)*cageAmountSlope.y;
-        normal=normalize(cross(tangentX,tangentY));
-        // Filter the same displacement derivatives for reflected/direct light only. Keep
+)HLSL";
+	if (!optimizeMaterial) {
+		hlsl += physicalTangents;
+		hlsl += "        normal=normalize(cross(tangentX,tangentY));\n";
+	}
+	hlsl += R"HLSL(        // Filter the same displacement derivatives for reflected/direct light only. Keep
         // level-zero geometry, refraction, contact and optical path reconstruction intact.
         )HLSL";
     if(bowLift) hlsl+=R"HLSL(float shadedHeight=spectral.shadingDisplacement.z*fftDamping+bowLiftField.x;)HLSL";
@@ -1384,7 +1410,8 @@ float4 main(Input input) : SV_Target
             spectral.shadingDerivativeX.y*horizontalWeight+spectral.shadingDisplacement.y*horizontalSlope.x,shadedHeightSlope.x);
         float3 shadedY=float3(spectral.shadingDerivativeY.x*horizontalWeight+spectral.shadingDisplacement.x*horizontalSlope.y,
             1.0+spectral.shadingDerivativeY.y*horizontalWeight+spectral.shadingDisplacement.y*horizontalSlope.y,shadedHeightSlope.y);
-        float3 shadedOldDelta=float3(spectral.shadingDisplacement.xy*horizontalWeight,lerp(oldHeight,shadedHeight,fftWeight));
+)HLSL";
+	static constexpr char shadingTangents[] = R"HLSL(        float3 shadedOldDelta=float3(spectral.shadingDisplacement.xy*horizontalWeight,lerp(oldHeight,shadedHeight,fftWeight));
         float3 shadedCageDelta=float3(cageShaded.displacement.xy*fftWeight,lerp(oldHeight,cageShaded.displacement.z,fftWeight));
         float3 shadedCageX=float3(1,0,baseSlope.x)+cageShaded.derivativeX*fftWeight
             +float3(cageShaded.displacement.xy,cageShaded.displacement.z-oldHeight)*weightSlope.x;
@@ -1394,7 +1421,24 @@ float4 main(Input input) : SV_Target
         shadedCageY.z+=(slope.y-baseSlope.y)*(1.0-fftWeight);
         shadedX=lerp(shadedX,shadedCageX,cageAmount)+(shadedCageDelta-shadedOldDelta)*cageAmountSlope.x;
         shadedY=lerp(shadedY,shadedCageY,cageAmount)+(shadedCageDelta-shadedOldDelta)*cageAmountSlope.y;
-        float restoredFftSlope=max(opticalContext.b,offshore)*shoreRippleWeight
+)HLSL";
+	if (optimizeMaterial) {
+		// FftParameters.x is uniform for this draw. Both surface evaluations need
+		// neighbouring fragments for their floor slopes, even on the support edge.
+		appendIndented(physicalCage, 4);
+		appendIndented(shadingCage, 4);
+		hlsl += R"HLSL(        float fittedHeight=newHeight;
+        [branch] if(cageAmount!=0.0 || any(cageAmountSlope!=0.0))
+        {
+)HLSL";
+		appendIndented(physicalTangents, 4);
+		hlsl += "            fittedHeight=lerp(newHeight,cagePhysical.displacement.z,cageAmount);\n\n";
+		appendIndented(shadingTangents, 4);
+		hlsl += "        }\n        normal=normalize(cross(tangentX,tangentY));\n";
+	} else {
+		hlsl += shadingTangents;
+	}
+	hlsl += R"HLSL(        float restoredFftSlope=max(opticalContext.b,offshore)*shoreRippleWeight
             *max(0.0,shoreRippleLimit-max(localTerrain,fftDamping));
         // Add parameter-space height derivatives before crossing the tangents so
         // horizontal FFT chop still maps the lighting slopes into world coordinates.
@@ -1403,8 +1447,10 @@ float4 main(Input input) : SV_Target
         resolvedNormal=normalize(cross(shadedX,shadedY));
         unresolvedSlopeVariance=spectral.unresolvedSlopeVariance*fftWeight*fftWeight
             *(fftDamping+restoredFftSlope)*(fftDamping+restoredFftSlope);
-        continuousHeight=baseLevel+lerp(oldHeight,lerp(newHeight,cagePhysical.displacement.z,cageAmount),fftWeight);
-        fftCompression=lerp(1.0,spectral.incidentCompression,saturate(input.Specular.w));
+)HLSL";
+	hlsl += optimizeMaterial ? "        continuousHeight=baseLevel+lerp(oldHeight,fittedHeight,fftWeight);\n"
+		: "        continuousHeight=baseLevel+lerp(oldHeight,lerp(newHeight,cagePhysical.displacement.z,cageAmount),fftWeight);\n";
+	hlsl += R"HLSL(        fftCompression=lerp(1.0,spectral.incidentCompression,saturate(input.Specular.w));
     }
     // Reconstruct the same continuous wave between mesh vertices for optical integration. The
     // rendered scene bottom stays exact; using coarse triangle heights here exposes their edges
@@ -1647,18 +1693,29 @@ float4 main(Input input) : SV_Target
     float foamWithoutShore=foam;
     // Contact wash follows the arriving broad FFT face on the deformed surface.
     // It is a bounded material approximation, not the paper's spray-particle solver.
-    float cageWash=0.0;
-    float broadSlope=length(spectral.contactIncident.yz);
+)HLSL";
+	if (optimizeMaterial) hlsl += R"HLSL(    float cageWash=0.0,cageContact=0.0,cageCrest=0.0;
+    [branch] if(cageAmount!=0.0)
+    {
+)HLSL";
+	else hlsl += "    float cageWash=0.0;\n";
+	const unsigned washIndent = optimizeMaterial ? 4 : 0;
+	appendIndented(R"HLSL(    float broadSlope=length(spectral.contactIncident.yz);
     float terrainSlope=length(terrainGradient);
     float arrival=dot(spectral.contactIncident.yz,-terrainGradient)/max(broadSlope*terrainSlope,0.00001);
     float cageTerrainMatch=1.0-smoothstep(0.5,1.5,abs(shoreSceneBottom.z-terrainHeight(shoreSceneBottom.xy)));
     float cageWet=smoothstep(0.015,0.18,depth)*cageTerrainMatch*saturate(cageObstacle.x);
-    float cageContact=1.0-smoothstep(0.2,2.5,max(0.0,world.z-surfaceTerrainHeight));
-    float cageCrest=smoothstep(0.05,0.7,spectral.contactIncident.x)*smoothstep(0.0,0.35,arrival);
-    float cagePores=smoothstep(0.24,0.72,oceanNoise(world.xy*0.6));
+)HLSL", washIndent);
+	const char *washAssignment = optimizeMaterial ? "        " : "    float ";
+	hlsl += washAssignment;
+	hlsl += "cageContact=1.0-smoothstep(0.2,2.5,max(0.0,world.z-surfaceTerrainHeight));\n";
+	hlsl += washAssignment;
+	hlsl += "cageCrest=smoothstep(0.05,0.7,spectral.contactIncident.x)*smoothstep(0.0,0.35,arrival);\n";
+	appendIndented(R"HLSL(    float cagePores=smoothstep(0.24,0.72,oceanNoise(world.xy*0.6));
     cageWash=cageAmount*fftWeight*cageWet*cageContact*cageCrest*lerp(0.45,1.0,cagePores);
     foam=max(foam*(1.0-cageAmount*fftWeight*cageTerrainMatch),cageWash*0.72);
-)HLSL";
+)HLSL", washIndent);
+	if (optimizeMaterial) hlsl += "    }\n";
 	if(coastalSurf) hlsl+=R"COAST(
     float gpuCoastFoam=0.0,gpuCoastRaw=0.0,gpuCoastGate=0.0;
     float2 gpuCoastDensityAge=0.0;
@@ -2596,7 +2653,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER, WaterPerformanceSettings::Applied(),
 				WaterFftSampling::Enabled(), waterOpenSea && program == ENGINE_SHADER_WATER_TRAPEZOID,true,
                 waterCleanMain && WaterCleanSpectrum::Enabled() && WaterFftSampling::Enabled() && program==ENGINE_SHADER_WATER_TRAPEZOID,
-				waterRayFilter,true);
+				waterRayFilter,true,program == ENGINE_SHADER_WATER_TRAPEZOID);
 			if (!water_material_profile(hlsl)) return false;
 			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
 			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);

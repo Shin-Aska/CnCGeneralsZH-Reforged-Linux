@@ -408,6 +408,20 @@ switches take precedence, and the next save replaces the old quality key.
 Changing these controls keeps reflection and refraction choices independent;
 selecting a global graphics preset intentionally sets its water controls too.
 
+Set `ZH_WATER_COMPUTE_FFT=1` when launching a Linux Vulkan build to try the compute
+wave update. Each compute workgroup keeps a full FFT row or column in shared GPU
+memory and writes to the existing wave textures. The experiment uses the selected
+wave resolution and automatically falls back to the raster FFT if compute setup
+or recording fails. Set `ZH_WATER_PROFILE=1` to see `producer=compute` or
+`producer=raster` in the FFT setup log.
+
+On Linux Vulkan, combine `ZH_WATER_GPU_TIMING=1` with `ZH_GPU_TIMING_LOGIC` and
+`ZH_GPU_TIMING_CSV` to record GPU times for the water material, planar capture,
+FFT, and scene colour and depth snapshots. The capture uses fence-synchronized
+submissions. The CSV reports GPU completion intervals, recorded scope counts, and
+the number of missing scopes for each sampled frame. Use a separate unsynchronized
+run for frame-rate comparisons.
+
 ## Boundary-aware water
 
 Modern FFT water uses terrain-fitted wave cages at exposed shores. The same incoming FFT

@@ -915,6 +915,14 @@ if(ZH_PLATFORM_POSIX)
   foreach(_sdl_on SDL_STATIC SDL_VIDEO SDL_GPU SDL_DIALOG)
     set(${_sdl_on} ON CACHE BOOL "" FORCE)
   endforeach()
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # The Vulkan bridge includes private sidecars copied by vendor.sh. Keep the
+    # generated copies current when rebuilding directly through CMake or an IDE.
+    foreach(_sidecar SDL_gpu_vulkan_rayquery.h SDL_gpu_vulkan_rayquery.inc
+                     SDL_gpu_vulkan_water_ray_filter.h SDL_gpu_vulkan_water_ray_filter.inc)
+      configure_file("${LIBSRC}/${_sidecar}" "${LIBSRC}/SDL3/src/gpu/vulkan/${_sidecar}" COPYONLY)
+    endforeach()
+  endif()
   add_subdirectory(${LIBSRC}/SDL3 ${CMAKE_CURRENT_BINARY_DIR}/SDL3)
 
   # miniaudio: one C file.  Its own CMakeLists builds extras and examples this does not want.
@@ -1567,6 +1575,10 @@ if(ZH_PLATFORM_POSIX)
   add_test(NAME sdl_gpu_frame_selfcheck COMMAND sdl_gpu_frame_selfcheck)
 
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME sdl_water_compute_fft COMMAND sdl_gpu_frame_selfcheck --water-compute-fft)
+    set_tests_properties(sdl_water_compute_fft PROPERTIES SKIP_RETURN_CODE 77
+      ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen;ZH_WATER_COMPUTE_FFT=1")
+
     # Explicit opt-in hardware proof: no window/assets; manual --require-rtx4060 asserts the proof GPU.
     add_executable(test_hardware_sun_shadow ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_hardware_sun_shadow.cpp)
     set_target_properties(test_hardware_sun_shadow PROPERTIES CXX_STANDARD 17)

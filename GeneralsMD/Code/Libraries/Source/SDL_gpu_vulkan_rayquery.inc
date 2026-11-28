@@ -1360,6 +1360,89 @@ bool ZHR_SDLRayRecordWaterPath(ZHR_SDLRayScene *s, SDL_GPUCommandBuffer *command
     VULKAN_INTERNAL_TextureSubresourceTransitionToDefaultUsage(r, cb, VULKAN_TEXTURE_USAGE_MODE_COMPUTE_STORAGE_READ_WRITE, ss);
     return true;
 }
+struct ZHR_SDLGpuTimer {
+    SDL_GPUDevice *device;
+    VkQueryPool pool;
+    Uint64 mask;
+    double millisecondsPerTick;
+    Uint32 pairs;
+    PFN_vkCmdResetQueryPool reset;
+    PFN_vkCmdWriteTimestamp stamp;
+    PFN_vkGetQueryPoolResults read;
+    PFN_vkDestroyQueryPool destroy;
+};
+enum { ZHR_GpuTimerMaxPairs = 64 };
+
+ZHR_SDLGpuTimer *ZHR_SDLGpuTimerCreate(SDL_GPUDevice *device, Uint32 pairs)
+{
+    if (!device || !pairs || pairs > ZHR_GpuTimerMaxPairs || SDL_strcmp(SDL_GetGPUDeviceDriver(device), "vulkan"))
+        return NULL;
+    VulkanRenderer *r = (VulkanRenderer *)device->driverData;
+    Uint32 count = 0;
+    r->vkGetPhysicalDeviceQueueFamilyProperties(r->physicalDevice, &count, NULL);
+    VkQueueFamilyProperties *queues = SDL_calloc(count, sizeof(*queues));
+    if (!queues) return NULL;
+    r->vkGetPhysicalDeviceQueueFamilyProperties(r->physicalDevice, &count, queues);
+    const Uint32 bits = r->queueFamilyIndex < count ? queues[r->queueFamilyIndex].timestampValidBits : 0;
+    SDL_free(queues);
+    const double period = r->physicalDeviceProperties.properties.limits.timestampPeriod;
+    if (!bits || bits > 64 || period <= 0.0) return NULL;
+
+    PFN_vkCreateQueryPool create = ZHR_VK(vkCreateQueryPool);
+    ZHR_SDLGpuTimer *timer = SDL_calloc(1, sizeof(*timer));
+    if (!timer) return NULL;
+    timer->device = device;
+    timer->pairs = pairs;
+    timer->mask = bits == 64 ? ~(Uint64)0 : ((Uint64)1 << bits) - 1;
+    timer->millisecondsPerTick = period / 1e6;
+    timer->reset = ZHR_VK(vkCmdResetQueryPool);
+    timer->stamp = ZHR_VK(vkCmdWriteTimestamp);
+    timer->read = ZHR_VK(vkGetQueryPoolResults);
+    timer->destroy = ZHR_VK(vkDestroyQueryPool);
+    VkQueryPoolCreateInfo info = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+    info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    info.queryCount = 2 * pairs;
+    if (!create || !timer->reset || !timer->stamp || !timer->read || !timer->destroy ||
+        create(r->logicalDevice, &info, NULL, &timer->pool) != VK_SUCCESS) {
+        SDL_free(timer);
+        return NULL;
+    }
+    return timer;
+}
+
+void ZHR_SDLGpuTimerReset(ZHR_SDLGpuTimer *timer, SDL_GPUCommandBuffer *command)
+{
+    VulkanCommandBuffer *cb = (VulkanCommandBuffer *)command;
+    timer->reset(cb->commandBuffer, timer->pool, 0, 2 * timer->pairs);
+}
+
+void ZHR_SDLGpuTimerStamp(ZHR_SDLGpuTimer *timer, SDL_GPUCommandBuffer *command, Uint32 query)
+{
+    VulkanCommandBuffer *cb = (VulkanCommandBuffer *)command;
+    // Completion-to-completion range; do not add a barrier inside the live render pass.
+    timer->stamp(cb->commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timer->pool, query);
+}
+
+bool ZHR_SDLGpuTimerRead(ZHR_SDLGpuTimer *timer, Uint32 pairs, double *milliseconds)
+{
+    VulkanRenderer *r = (VulkanRenderer *)timer->device->driverData;
+    Uint64 values[2 * ZHR_GpuTimerMaxPairs];
+    if (!pairs || pairs > timer->pairs ||
+        timer->read(r->logicalDevice, timer->pool, 0, 2 * pairs, 2 * pairs * sizeof(Uint64),
+                    values, sizeof(Uint64), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS)
+        return false;
+    for (Uint32 pair = 0; pair < pairs; ++pair)
+        milliseconds[pair] = ((values[2 * pair + 1] - values[2 * pair]) & timer->mask)
+            * timer->millisecondsPerTick;
+    return true;
+}
+
+void ZHR_SDLGpuTimerDestroy(ZHR_SDLGpuTimer *timer)
+{
+    VulkanRenderer *r = (VulkanRenderer *)timer->device->driverData;
+    timer->destroy(r->logicalDevice, timer->pool, NULL);
+    SDL_free(timer);
+}
 #undef ZHR_VK
 
 #include "SDL_gpu_vulkan_water_ray_filter.inc"

@@ -231,9 +231,8 @@ inline std::string Resources(unsigned count, unsigned firstMap = 0) {
     return source;
 }
 
-inline std::string SpectrumHlsl(bool headedOnly = false) {
-    std::string source = Resources(3, headedOnly ? 2 : 0);
-    source += R"HLSL(
+inline const char *SpectrumSource() {
+    return R"HLSL(
 float2 cmul(float2 a,float2 b) { return float2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x); }
 void spectrum(float4 initial,int2 pixel,float size,out float4 a,out float4 b) {
     float2 k=6.283185307179586*(float2(pixel)-Parameters.xx*0.5)/size;
@@ -251,7 +250,13 @@ void spectrum(float4 initial,int2 pixel,float size,out float4 a,out float4 b) {
     a=float4(dx+cmul(float2(0,1),h),dz+cmul(float2(0,1),dxz));
     b=float4(sx+cmul(float2(0,1),sz),dxx+cmul(float2(0,1),dzz));
 }
-Result main(float4 position:SV_Position) {
+)HLSL";
+}
+
+inline std::string SpectrumHlsl(bool headedOnly = false) {
+    std::string source = Resources(3, headedOnly ? 2 : 0);
+    source += SpectrumSource();
+    source += R"HLSL(Result main(float4 position:SV_Position) {
     int2 pixel=int2(position.xy);float2 uv=(float2(pixel)+0.5)/Parameters.x;Result result;
 )HLSL";
     if (!headedOnly)
@@ -265,14 +270,19 @@ Result main(float4 position:SV_Position) {
     return source;
 }
 
-inline std::string ButterflyHlsl(Configuration configuration = ForResolution(Resolution),
-    bool headedOnly = false) {
-    std::string source = Resources(7, headedOnly ? 2 : 0);
-    source+=R"HLSL(
+inline const char *ButterflySource() {
+    return R"HLSL(
 float4 butterfly(float4 a,float4 b,float2 w) {
     return 0.5*(a+float4(b.x*w.x-b.y*w.y,b.x*w.y+b.y*w.x,b.z*w.x-b.w*w.y,b.z*w.y+b.w*w.x));
 }
-Result main(float4 position:SV_Position) {
+)HLSL";
+}
+
+inline std::string ButterflyHlsl(Configuration configuration = ForResolution(Resolution),
+    bool headedOnly = false) {
+    std::string source = Resources(7, headedOnly ? 2 : 0);
+    source+=ButterflySource();
+    source+=R"HLSL(Result main(float4 position:SV_Position) {
     int2 pixel=int2(position.xy);bool vertical=Parameters.w>0.5;
     float4 entry=T6.SampleLevel(S6,float2((Parameters.z+0.5)/8.0,((vertical?pixel.y:pixel.x)+0.5)/Parameters.x),0);
     float2 a=(vertical?float2(pixel.x,entry.z):float2(entry.z,pixel.y))+0.5;

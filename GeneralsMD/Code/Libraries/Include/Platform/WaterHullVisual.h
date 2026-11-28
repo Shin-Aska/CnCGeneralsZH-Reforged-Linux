@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <string>
 
 namespace WaterHullVisual {
 // One launch-time policy for mesh collection, packet upload and shader generation.
@@ -47,15 +48,28 @@ inline bool Valid(const Packet& p) {
     }
     return true;
 }
-inline bool RefreshRadius(Packet& p) {
+inline bool RefreshBounds(Packet& p) {
+    if(!Integer(p.metadata[0],MaxVertices)) return false;
+    const unsigned count=unsigned(p.metadata[0]);
     double radius2=0;
-    for(unsigned i=0;i<unsigned(p.metadata[0]);++i) {
-        const double x=p.data[i][0],y=p.data[i][1];
-        radius2=(std::max)(radius2,x*x+y*y);
+    float minX=std::numeric_limits<float>::infinity(), minY=minX;
+    float maxX=-minX, maxY=-minX;
+    for(unsigned i=0;i<count;++i) {
+        const float x=p.data[i][0],y=p.data[i][1];
+        if(!Finite(x)||!Finite(y)) return false;
+        radius2=(std::max)(radius2,double(x)*x+double(y)*y);
+        minX=(std::min)(minX,x); minY=(std::min)(minY,y);
+        maxX=(std::max)(maxX,x); maxY=(std::max)(maxY,y);
     }
     const double radius=std::sqrt(radius2);
-    p.metadata[2]=float(radius+(std::max)(1.0e-4,radius*2.0e-6));
-    if(p.metadata[0]==0) p.metadata[2]=0;
+    const double pad=(std::max)(1.0e-4,radius*2.0e-6);
+    p.metadata[2]=count ? float(radius+pad) : 0.0f;
+    // The vertex registers use xyz. Expand their stored bounds for intersection
+    // rounding. Older packets have zero in these four unused components.
+    p.data[0][3]=count ? float(minX-pad) : 0.0f;
+    p.data[1][3]=count ? float(minY-pad) : 0.0f;
+    p.data[2][3]=count ? float(maxX+pad) : 0.0f;
+    p.data[3][3]=count ? float(maxY+pad) : 0.0f;
     return std::isfinite(p.metadata[2]);
 }
 
@@ -100,7 +114,7 @@ public:
         Packet result{};
         if(!valid_) {out=result;return false;}
         result=packet_; result.metadata[0]=float(vertices_);result.metadata[1]=float(triangles_);result.metadata[3]=1;
-        if(!RefreshRadius(result)) {out=Packet{};return false;}
+        if(!RefreshBounds(result)) {out=Packet{};return false;}
         out=result;return true;
     }
 };
@@ -117,7 +131,7 @@ inline bool Reframe(const Packet& origin,float centerX,float centerY,Packet& out
         if(std::fabs(x)>MaxCoordinate||std::fabs(y)>MaxCoordinate) {out=Packet{};return false;}
         p.data[i][0]=float(x);p.data[i][1]=float(y);
     }
-    if(!RefreshRadius(p)) {out=Packet{};return false;}
+    if(!RefreshBounds(p)) {out=Packet{};return false;}
     out=p;return true;
 }
 
@@ -184,13 +198,25 @@ inline Result Query(const Packet& p,Point3 q) {
 
 // The backend declares the three bounded pixel-only arrays and VisualHullMeta.
 // Test harnesses may declare them with the same names before appending Source().
-inline const char* Source() { return R"hlsl(
+inline std::string Source(bool optimiseContact = false) {
+    std::string source = R"hlsl(
 float4 WaterVisualRegister(int index) {
     if(index<256) return VisualHullBlock0[index];
     if(index<512) return VisualHullBlock1[index-256];
     return VisualHullBlock2[index-512];
 }
-struct WaterVisualResult {
+)hlsl";
+    if (optimiseContact) source += R"hlsl(
+bool WaterVisualMayContact(int hull,float2 local) {
+    int base=hull*88;
+    float2 lo=float2(WaterVisualRegister(base).w,WaterVisualRegister(base+1).w);
+    float2 hi=float2(WaterVisualRegister(base+2).w,WaterVisualRegister(base+3).w);
+    // All plane intersections lie inside this box. The full contact query
+    // accepts distances up to 12, including points on the boundary.
+    return !all(lo<hi) || all(local>=lo-12.0 && local<=hi+12.0);
+}
+)hlsl";
+    source += R"hlsl(struct WaterVisualResult {
     float hasSegment, coplanar, distance;
     float2 closest, positive, negative;
     float minY, maxY;
@@ -247,7 +273,11 @@ WaterVisualResult WaterVisualQuery(int hull,float3 q) {
         if(!all(isfinite(v[0])) || !all(isfinite(v[1])) || !all(isfinite(v[2])) ||
             any(abs(v[0])>1e12) || any(abs(v[1])>1e12) || any(abs(v[2])>1e12)) return WaterVisualEmpty();
         if(v[0].z==q.z && v[1].z==q.z && v[2].z==q.z) { r.coplanar=1; continue; }
-        float2 hit[3]; int count=0;
+)hlsl";
+    if (optimiseContact) source += R"hlsl(        float3 height=float3(v[0].z,v[1].z,v[2].z);
+        [branch] if(all(height<q.z) || all(height>q.z)) continue;
+)hlsl";
+    source += R"hlsl(        float2 hit[3]; int count=0;
         [unroll] for(int e=0;e<3;++e) {
             float3 a=v[e],b=v[(e+1)%3]; float az=a.z-q.z,bz=b.z-q.z;
             float2 h=0; bool have=false;
@@ -267,5 +297,7 @@ WaterVisualResult WaterVisualQuery(int hull,float3 q) {
     }
     return r;
 }
-)hlsl"; }
+)hlsl";
+    return source;
+}
 }

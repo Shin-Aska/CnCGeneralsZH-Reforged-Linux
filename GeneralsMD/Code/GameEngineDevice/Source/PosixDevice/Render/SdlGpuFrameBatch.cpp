@@ -22,7 +22,7 @@
 #include "SdlGpuFrame.h"
 #include "sdl3shadercompile.h"
 
-
+#include <algorithm>
 #include <limits>
 #include <cmath>
 #include <exception>
@@ -347,7 +347,13 @@ void SdlGpuFrame::End_Batch()
 	memset(LastConstants,0,sizeof(LastConstants));memset(LastConstantsSize,0,sizeof(LastConstantsSize));
 	Uploads.clear();
 	// The batch that could use these has been submitted: SDL keeps each until the GPU is done with it.
-	for (size_t i = 0; i < DeadTextures.size(); ++i) SDL_ReleaseGPUTexture(GpuDevice, DeadTextures[i]);
+	for (auto *texture : DeadTextures) {
+		if (!WaterTimingMirrors.empty()) {
+			const auto mirror = std::find(WaterTimingMirrors.begin(), WaterTimingMirrors.end(), texture);
+			if (mirror != WaterTimingMirrors.end()) WaterTimingMirrors.erase(mirror);
+		}
+		SDL_ReleaseGPUTexture(GpuDevice, texture);
+	}
 	for (size_t i = 0; i < DeadBuffers.size(); ++i) SDL_ReleaseGPUBuffer(GpuDevice, DeadBuffers[i]);
 	DeadTextures.clear();
 	DeadBuffers.clear();
@@ -553,6 +559,13 @@ void SdlGpuFrame::Record_Blit(SDL_GPUTexture * source, const int32_t source_rect
 	Commands.push_back(command);
 }
 
+void SdlGpuFrame::Mark_Water_Timing_Mirror(SDL_GPUTexture *texture)
+{
+	if (texture && Water_Gpu_Timing_Enabled() &&
+		std::find(WaterTimingMirrors.begin(), WaterTimingMirrors.end(), texture) == WaterTimingMirrors.end())
+		WaterTimingMirrors.push_back(texture);
+}
+
 // The records in order.  A pass covers one target: it is opened by the first draw or clear draw on its
 // target, with a waiting whole-target clear of that target as its load operation, and it ends at a
 // blit, a whole-target clear, a change of target, or the end.  A clear that no draw on its target
@@ -560,8 +573,22 @@ void SdlGpuFrame::Record_Blit(SDL_GPUTexture * source, const int32_t source_rect
 // the frame's, and a draw with no depth surface bound has its depth state off instead.
 bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer * stream)
 {
+	Reset_Water_Timestamps(commands);
 	SDL_GPURenderPass * pass = NULL;
 	uint32_t pass_target = 0;
+	unsigned mirrorTimestamp = NoWaterTimestamp;
+	auto startMirrorTimestamp = [&](uint32_t target) {
+		if (WaterTimerBatch == commands &&
+			std::find(WaterTimingMirrors.begin(), WaterTimingMirrors.end(), Targets[target].Colour) != WaterTimingMirrors.end())
+			mirrorTimestamp = Begin_Water_Timestamps(commands, SdlWaterGpuTiming::Planar);
+	};
+	auto endPass = [&]() {
+		SDL_EndGPURenderPass(pass);
+		if (mirrorTimestamp != NoWaterTimestamp)
+			End_Water_Timestamps(commands, mirrorTimestamp);
+		mirrorTimestamp = NoWaterTimestamp;
+		pass = NULL;
+	};
 	// A whole-target clear waits to be the load operation of the next pass over its own target.
 	bool pending = false, clear_colour = false, clear_depth = false, clear_stencil = false;
 	uint32_t pending_target = 0, argb = 0, stencil_value = 0;
@@ -582,17 +609,16 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 
 		// A pass ends at a blit, at a whole-target clear, at a change of target, and at the end.
 		if (pass != NULL && (end || transfer || whole_clear || command->Target != pass_target)) {
-			SDL_EndGPURenderPass(pass);
-			pass = NULL;
+			endPass();
 		}
 		// A waiting clear whose target is not the next thing drawn into gets a pass of its own.
 		if (pending && (end || transfer || command->Target != pending_target)) {
+			startMirrorTimestamp(pending_target);
 			if (!Begin_Pass(commands, Targets[pending_target], clear_colour, clear_depth, clear_stencil, argb, z,
 				stencil_value, &pass)) {
 				return false;
 			}
-			SDL_EndGPURenderPass(pass);
-			pass = NULL;
+			endPass();
 			pending = clear_colour = clear_depth = clear_stencil = false;
 		}
 		if (end) {
@@ -600,8 +626,10 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 		}
 		if (command->IsDepthSnapshot) {
 			SDL_PushGPUDebugGroup(commands,"Modern water depth capture");
+			const unsigned timestamp = Begin_Water_Timestamps(commands, SdlWaterGpuTiming::SceneDepth);
 			const bool resolved=Resolve_Scene_Depth(commands, command->BlitSource, command->BlitDestination,
 				(unsigned int)command->Rect[2], (unsigned int)command->Rect[3]);
+			End_Water_Timestamps(commands, timestamp);
 			SDL_PopGPUDebugGroup(commands);
 			if(!resolved) return false;
 			continue;
@@ -622,8 +650,13 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			blit.load_op = SDL_GPU_LOADOP_LOAD;
 			blit.filter = command->BlitLinear ? SDL_GPU_FILTER_LINEAR : SDL_GPU_FILTER_NEAREST;
 			if(command->IsWaterColourSnapshot) SDL_PushGPUDebugGroup(commands,"Modern water colour capture");
+			const unsigned timestamp = command->IsWaterColourSnapshot
+				? Begin_Water_Timestamps(commands, SdlWaterGpuTiming::SceneColour) : NoWaterTimestamp;
 			SDL_BlitGPUTexture(commands, &blit);
-			if(command->IsWaterColourSnapshot) SDL_PopGPUDebugGroup(commands);
+			if (command->IsWaterColourSnapshot) {
+				End_Water_Timestamps(commands, timestamp);
+				SDL_PopGPUDebugGroup(commands);
+			}
 			continue;
 		}
 		if (whole_clear) {
@@ -635,6 +668,7 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			continue;
 		}
 		if (pass == NULL) {
+			startMirrorTimestamp(command->Target);
 			if (!Begin_Pass(commands, Targets[command->Target], pending && clear_colour, pending && clear_depth,
 				pending && clear_stencil, argb, z, stencil_value, &pass)) {
 				return false;
@@ -754,8 +788,10 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 				pushed_water_pixel[block]=draw.PixelWaterConstants[block];
 			}
 		}
-		const bool modernWater=draw.PixelWaterConstantsSize[0]>0;
+		const bool modernWater=draw.ModernWaterMaterial;
 		if(modernWater) SDL_PushGPUDebugGroup(commands,"Modern water material");
+		const unsigned timestamp = modernWater
+			? Begin_Water_Timestamps(commands, SdlWaterGpuTiming::Material) : NoWaterTimestamp;
 		if (draw.IndexSize != 0) {
 			SDL_DrawGPUIndexedPrimitives(pass, draw.Count, draw.InstanceCount ? draw.InstanceCount : 1,
 				draw.First, draw.BaseVertex, 0);
@@ -763,7 +799,10 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 		else {
 			SDL_DrawGPUPrimitives(pass, draw.Count, draw.InstanceCount ? draw.InstanceCount : 1, draw.First, 0);
 		}
-		if(modernWater) SDL_PopGPUDebugGroup(commands);
+		if (modernWater) {
+			End_Water_Timestamps(commands, timestamp);
+			SDL_PopGPUDebugGroup(commands);
+		}
 		last = &draw;
 	}
 	return true;

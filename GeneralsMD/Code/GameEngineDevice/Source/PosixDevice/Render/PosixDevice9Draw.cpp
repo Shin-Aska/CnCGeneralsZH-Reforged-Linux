@@ -67,6 +67,20 @@ bool PosixDevice9::Clean_Water_Bind(const WaterCleanPrecompute::Image *depth,con
     CleanWaterActive=depth && rotation && Gpu && Gpu->Prepare_Clean_Water(*depth,*rotation);
     return CleanWaterActive;
 }
+
+void PosixDevice9::Mark_Water_Timing_Mirror()
+{
+	if (!Gpu || !Gpu->Water_Gpu_Timing_Enabled()) return;
+	SdlTarget target;
+	std::string error;
+	if (Resolve_Target(target, error))
+		Gpu->Mark_Water_Timing_Mirror(target.Colour);
+}
+
+void PosixWaterMarkTimingMirror(IDirect3DDevice9 *device)
+{
+	if (device) static_cast<PosixDevice9 *>(device)->Mark_Water_Timing_Mirror();
+}
 void PosixDevice9::Clean_Water_Clear(){CleanWaterActive=false;CleanWaterMain=false;if(Gpu)Gpu->Clear_Clean_Water();}
 bool PosixWaterCleanBind(IDirect3DDevice9 *d,const WaterCleanPrecompute::Image *depth,const WaterCleanPrecompute::Image *rotation,bool mainLevel)
 {return d && static_cast<PosixDevice9*>(d)->Clean_Water_Bind(depth,rotation,mainLevel);}
@@ -2117,6 +2131,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	}
 	phases.Mark("constants");
 	Gpu->Set_Target(target);
+	draw.ModernWaterMaterial = water_draw;
 	draw.StencilReference = RenderStates[D3DRS_STENCILREF] & 0xFF;
 	draw.BlendFactor = RenderStates[D3DRS_BLENDFACTOR];
 	if (additive_glow) {

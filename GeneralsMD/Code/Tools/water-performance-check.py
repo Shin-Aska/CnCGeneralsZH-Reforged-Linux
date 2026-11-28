@@ -29,13 +29,18 @@ def parse_work(log):
     return counts
 
 
-def fft_work(wave, frames):
-    # Current production FFT: one synthesis, two butterfly axes and mip passes,
-    # followed by six layer copies per mip. Direct array output needs no second
-    # copy of every mip, as the older compatibility path did.
+def fft_work(wave, frames, log):
+    output = re.search(r"^FFT output: producer=(raster|compute) storage=(array|legacy)$", log, re.MULTILINE)
+    if not output:
+        raise ValueError("preview did not report the active FFT producer and storage")
+    producer, storage = output.groups()
     phases = {"low": 6, "medium": 7, "high": 8}[wave]
-    return {"fft_updates": frames, "fft_passes": frames * (2 + 3 * phases),
-            "fft_copies": frames * 6 * phases}
+    # Compute runs one horizontal and one vertical pass for each of three map pairs.
+    passes = 6 + phases if producer == "compute" else 2 + 3 * phases
+    copies = 6 * phases
+    if storage == "legacy":
+        copies += 6 * (phases + 1)
+    return {"fft_updates": frames, "fft_passes": frames * passes, "fft_copies": frames * copies}
 
 
 def main():
@@ -64,11 +69,12 @@ def main():
     env["SDL_GPU_DRIVER"] = "vulkan"
     if icd:
         env["VK_ICD_FILENAMES"] = str(icd)
+        env["VK_DRIVER_FILES"] = str(icd)
     report = {"preview": str(preview), "icd": str(icd) if icd else env.get("VK_ICD_FILENAMES"),
               "frames": args.frames, "output": str(output), "results": [], "passed": False}
     failures = []
 
-    def run_case(label, options, checks, expected_log=()):
+    def run_case(label, options, checks, expected_log=(), wave=None):
         cmd = [str(preview), "--offscreen", "--hide-controls", "--mode", "material",
                "--width", "640", "--height", "400", "--time", "18",
                "--frames", str(args.frames), *options]
@@ -100,6 +106,8 @@ def main():
         try:
             counts = parse_work(log)
             row["work"] = counts
+            if wave:
+                checks.update(fft_work(wave, args.frames, log))
             for key, expected in checks.items():
                 actual = counts[key]
                 ok = actual == expected
@@ -142,7 +150,7 @@ def main():
     for reflections in ("on", "off"):
         for wave in ("low", "high"):
             for refraction in ("full", "simple", "off"):
-                expected = dict(fft_work(wave, per_frame), depth_captures=per_frame)
+                expected = {"depth_captures": per_frame}
                 if reflections == "off":
                     expected.update(planar_renders=0, path_prepares=0)
                 else:
@@ -154,7 +162,7 @@ def main():
                     expected["depth_captures"] = per_frame
                 run_case(f"hybrid-{reflections}-{wave}-{refraction}",
                          ["--reflection", "hybrid", "--scene-reflections", reflections,
-                          "--wave-detail", wave, "--refraction", refraction], expected)
+                          "--wave-detail", wave, "--refraction", refraction], expected, wave=wave)
 
     for mode in ("legacy", "ssr", "path"):
         for reflections in ("on", "off"):
@@ -200,10 +208,9 @@ def main():
             run_case(f"reflection-detail-low-{mode}-{wave}",
                      ["--reflection", mode, "--scene-reflections", "on", "--wave-detail", wave,
                       "--reflection-detail", "low", "--refraction", "full"],
-                     {**fft_work(wave, per_frame),
-                      "colour_captures": per_frame, "depth_captures": per_frame,
+                     {"colour_captures": per_frame, "depth_captures": per_frame,
                       "planar_renders": per_frame, "path_prepares": 0},
-                     [f"Synthetic planar target: {target} {size}x{size}."])
+                     [f"Synthetic planar target: {target} {size}x{size}."], wave=wave)
 
     report["passed"] = not failures
     report["failures"] = failures

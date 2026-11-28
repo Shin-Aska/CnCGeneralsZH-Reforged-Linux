@@ -50,6 +50,7 @@ struct SDL_GPUSampler;
 struct SDL_GPUShader;
 struct SDL_GPUTexture;
 struct SDL_Window;
+struct ZHR_SDLGpuTimer;
 namespace WaterCoastalSurf { struct Node; struct Lookup; }
 namespace WaterShoreHistory { struct Mapping; }
 namespace WaterPathTracing { struct Triangle; struct View; struct PrimaryMaterialPacket; }
@@ -117,8 +118,8 @@ struct SdlRecordedDraw
 	uint32_t VertexWaterConstantsSize;
 	uint32_t PixelConstants;
 	uint32_t PixelConstantsSize;
-	uint32_t PixelWaterConstants[WATER_PIXEL_BLOCKS]; ///< immutable modern-water-only PS b1..b3
-	uint32_t PixelWaterConstantsSize[WATER_PIXEL_BLOCKS]; ///< zero for every other draw
+	uint32_t PixelWaterConstants[WATER_PIXEL_BLOCKS]; ///< additional immutable PS blocks b1..b3
+	uint32_t PixelWaterConstantsSize[WATER_PIXEL_BLOCKS];
 	uint32_t SamplerCount;
 	SDL_GPUTexture * Textures[MAXIMUM_SAMPLERS];
 	SDL_GPUSampler * Samplers[MAXIMUM_SAMPLERS];
@@ -132,6 +133,7 @@ struct SdlRecordedDraw
 	uint32_t StencilReference;
 	uint32_t BlendFactor;				///< D3DCOLOR
 	bool FloatBlendFactor = false; ///< HDR additive gain cannot be represented by packed UNORM
+	bool ModernWaterMaterial = false;
 	float BlendConstants[4] = {};
 };
 
@@ -141,6 +143,15 @@ struct SdlNativeDrawPacket
 	SdlRecordedDraw Draw;
 	const SdlNativeUniformBlock *Blocks;
 	unsigned Count;
+};
+
+struct SdlWaterGpuTiming
+{
+	enum Pass { Material, Planar, Fft, SceneColour, SceneDepth, Count };
+	double Milliseconds[Count] = {};
+	unsigned Scopes[Count] = {};
+	unsigned Missing = 0;
+	bool Available = false;
 };
 
 class SdlGpuFrame
@@ -291,12 +302,17 @@ public:
 	/// serialized run is a measurement, not a frame rate).  Take_Timing hands over, and zeroes, what was
 	/// spent since the last call: in mid-frame flushes, the fence waits, and how many flushes there were.
 	void Serialize_Submits(bool serialize) { SerializeSubmits = serialize; }
+	bool Submits_Are_Serialized() const { return SerializeSubmits; }
 	/// Two kinds of Present since the last call that the display did not pace, so their times are not the
 	/// panel's: not_visible, made while SDL called the window hidden, occluded or minimised (macOS hands such a
 	/// window drawables and does not wait for vsync: a -hiddenwindow run, a locked session); not_shown, whose
 	/// swapchain gave no drawable at all, so nothing reached the display.
 	void Take_Timing(double & flush_ms, double & fence_ms, unsigned int & flushes, double & acquire_ms,
 		double & offscreen_ms, unsigned int & not_visible, unsigned int & not_shown);
+	void Enable_Water_Gpu_Timing();
+	SdlWaterGpuTiming Take_Water_Gpu_Timing();
+	bool Water_Gpu_Timing_Enabled() const { return WaterGpuTimer && !WaterGpuTimingFailed; }
+	void Mark_Water_Timing_Mirror(SDL_GPUTexture *texture);
 	/// Every windowed Present so far made to a window that was not visible, and with no drawable.
 	unsigned int Presents_Not_Visible() const { return NotVisibleTotal; }
 	unsigned int Presents_Not_Shown() const { return NotShownTotal; }
@@ -369,6 +385,7 @@ public:
 	/// Deterministic allocation-failure regression hook; never used by ordinary rendering.
 	void Fail_Next_Ocean_Rebuild_For_Test() { FailNextOceanRebuild=true; }
 	void Fail_Next_Ocean_Array_For_Test() { FailNextOceanArray=true; }
+	void Fail_Next_Ocean_Compute_Pass_For_Test();
 	void Fail_Next_Ocean_Headed_For_Test() {
 		FailNextOceanHeaded = true;
 	}
@@ -382,6 +399,7 @@ public:
 	/// In direct-array mode each logical map returns the shared array; samplers must
 	/// use Texture2DArray with the logical index as their layer.
 	bool Ocean_Array_Output() const;
+	bool Ocean_Uses_Compute_Fft() const;
 	SDL_GPUTexture * Ocean_Map(unsigned int index) const;
 	SDL_GPUTexture * Ocean_Array() const;
 	SDL_GPUSampler * Ocean_Sampler() const;
@@ -464,6 +482,11 @@ private:
 	int WaterPathUploadRefusalForTest = -1;
 	/// Submits, and with SerializeSubmits waits for the fence, adding the wait to FenceMs.
 	bool Submit(struct SDL_GPUCommandBuffer * commands);
+	static constexpr unsigned NoWaterTimestamp = UINT32_MAX;
+	void Reset_Water_Timestamps(SDL_GPUCommandBuffer *);
+	unsigned Begin_Water_Timestamps(SDL_GPUCommandBuffer *, SdlWaterGpuTiming::Pass);
+	void End_Water_Timestamps(SDL_GPUCommandBuffer *, unsigned);
+	void Collect_Water_Timestamps(SDL_GPUCommandBuffer *, bool completed);
 	bool SerializeSubmits;
 	double FlushMs;
 	double FenceMs;
@@ -547,6 +570,13 @@ private:
 	std::vector<WaterSnapshot> WaterSnapshots; // at most eight; replaced resources retire with their batch
 	uint64_t SceneFrame = 0, SceneGeneration = 0, DeviceGeneration = 0;
 	uint64_t WaterFrame = 0;
+	bool TriedWaterGpuTiming = false, WaterGpuTimingFailed = false;
+	ZHR_SDLGpuTimer *WaterGpuTimer = nullptr;
+	std::vector<SDL_GPUTexture *> WaterTimingMirrors;
+	SDL_GPUCommandBuffer *WaterTimerBatch = nullptr;
+	SdlWaterGpuTiming WaterGpuTiming;
+	SdlWaterGpuTiming::Pass WaterTimerPasses[64] = {};
+	unsigned WaterTimerCount = 0;
 	uint64_t WaterCaptureSerial = 0;
 	uint64_t WaterColourCaptures = 0, WaterDepthCaptures = 0;
 	bool DepthSampleable = false;

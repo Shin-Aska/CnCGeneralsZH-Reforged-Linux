@@ -219,6 +219,7 @@ public:
 
 	// Render-only explicit metadata: never infers .wak ownership from texture names.
 	bool Clean_Water_Bind(const WaterCleanPrecompute::Image *,const WaterCleanPrecompute::Image *,bool);
+	void Mark_Water_Timing_Mirror();
 	void Clean_Water_Clear();
 	bool Coastal_Bind(uint64_t revision,const WaterCoastalDomain::Domain &domain,
 		const WaterShoreHistory::Mapping &mapping,double level,const std::vector<WaterCoastalSurf::Lookup> &lookup);

@@ -175,11 +175,12 @@ public:
 		if (Vertex) SDL_ReleaseGPUShader(Frame->Device(), Vertex);
 		if (Pixel) SDL_ReleaseGPUShader(Frame->Device(), Pixel);
 	}
-	void Draw(const SdlTarget &target, float depth, SDL_GPUTexture *height = NULL)
+	void Draw(const SdlTarget &target, float depth, SDL_GPUTexture *height = NULL, bool modernWater = false)
 	{
 		if (!Pipeline || (height && !Sampler)) return;
 		Frame->Set_Target(target);
 		SdlRecordedDraw draw = {};
+		draw.ModernWaterMaterial = modernWater;
 		draw.Pipeline = Pipeline;
 		draw.Count = 3;
 		memset(Frame->Stage(36, draw.VertexOffset), 0, 36);
@@ -2621,7 +2622,7 @@ static void check_gpu_water_visual_query(SdlGpuFrame *frame)
 	using namespace WaterHullVisualLayout;
 	const unsigned width=MaxHulls*3,rows=27;
 	const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
-	std::string ps=WaterFftSampling::UniformSource("WaterQuery",0,true)+WaterHullVisual::Source()+R"HLSL(
+	std::string ps=WaterFftSampling::UniformSource("WaterQuery",0,true)+WaterHullVisual::Source(true)+R"HLSL(
 float4 main(float4 position:SV_Position):SV_Target0 {
     int column=(int)position.x,hull=column/3;
     float scale=1.0+0.25*hull;
@@ -2837,10 +2838,11 @@ float2 oceanMeshHullEffects(float3 world,float level,float time,float offshore,
 	const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
 	std::string ps=WaterFftSampling::UniformSource("WaterEffects",0,true)+WaterFftSampling::CommonSource()+
 		production.substr(noiseBegin,noiseEnd-noiseBegin)+WaterHullContactFoam::Source()+
-		contact+WaterHullVisual::Source()+sharedContact+previous+current+R"HLSL(
+		contact+WaterHullVisual::Source(true)+sharedContact+previous+current+R"HLSL(
 float4 main(float4 pixel:SV_Position):SV_Target0 {
     int x=(int)pixel.x,y=(int)pixel.y;
     float2 local=float2((x/2-12)*2,(y%7-3)*2);
+    if(TerrainParameters.w>0.0) local=float2(local.x*0.25,local.y+24.0);
     float2 world=CameraPosition.xy+local.x*CameraPosition.zw+local.y*float2(-CameraPosition.w,CameraPosition.z);
     float3 q=float3(world,WaterParameters.x+TerrainParameters.z);
     int oldCalls=0,newCalls=0;
@@ -2856,7 +2858,7 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 	struct Case {
 		float speed=0,impact=.6f,height=.75f,time=1.25f,offshore=1,footprint=.5f,z=0,axisX=1,axisY=0;
 		unsigned slot=0,mix=0,packet=0,oldCalls=1,newCalls=1;
-		bool expectZero=false,expectPositive=true;
+		bool expectZero=false,expectPositive=true,farFromContour=false,legacyPacket=false;
 	};
 	std::vector<Case> cases;
 	auto add=[&](Case c){cases.push_back(c);return unsigned(cases.size()-1);};
@@ -2892,6 +2894,11 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 	c=Case{};c.z=WaterFftGeometry::MaxVerticalDisplacement+.25f;c.oldCalls=c.newCalls=0;c.expectZero=true;c.expectPositive=false;add(c);
 	for(unsigned mode=1;mode<=6;++mode){c=Case{};c.packet=mode;c.expectZero=true;c.expectPositive=false;
 		c.oldCalls=c.newCalls=mode==3?1:0;add(c);}
+	// Inside the old radial bound and outside the lateral contact strip.
+	// The same samples in a legacy packet still take the original query.
+	c=Case{};c.farFromContour=true;c.axisX=.6f;c.axisY=.8f;
+	c.expectZero=true;c.expectPositive=false;c.newCalls=0;add(c);
+	c.legacyPacket=true;c.newCalls=1;add(c);
 	const unsigned rows=unsigned(cases.size())*samplesY;
 	struct Resources {
 		SDL_GPUDevice *device;SDL_GPUShader *vs=nullptr,*ps=nullptr;SDL_GPUGraphicsPipeline *pipeline=nullptr;SDL_GPUTexture *target=nullptr;
@@ -2919,6 +2926,7 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 		const Case &f=cases[row];SdlWaterVisualPixelConstants water={};float packet[PacketRegisters][4]={};
 		water.Water.WaterParameters[0]=7;water.Water.WaterParameters[1]=f.time;water.Water.WaterParameters[2]=f.offshore;water.Water.WaterParameters[3]=f.footprint;
 		water.Water.TerrainParameters[0]=f.height;water.Water.TerrainParameters[1]=f.impact;water.Water.TerrainParameters[2]=f.z;
+		water.Water.TerrainParameters[3]=f.farFromContour?1.0f:0.0f;
 		water.Water.CameraPosition[0]=47;water.Water.CameraPosition[1]=-29;water.Water.CameraPosition[2]=f.axisX;water.Water.CameraPosition[3]=f.axisY;
 		water.Water.HullParameters[0]=f.mix?8:float(f.slot+1);
 		for(unsigned h=0;h<MaxHulls;++h) {
@@ -2930,6 +2938,7 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 			WaterHullVisual::Packet p={};p.metadata[0]=8;p.metadata[1]=96;p.metadata[2]=21;p.metadata[3]=1;
 			for(unsigned v=0;v<8;++v)for(unsigned d=0;d<3;++d)p.data[v][d]=vertices[v][d];
 			for(unsigned t=0;t<96;++t){const auto &v=faces[t%12];p.data[64+t/4][t%4]=float(v[0]+64*v[1]+4096*v[2]);}
+			if(!f.legacyPacket)CHECK(WaterHullVisual::RefreshBounds(p));
 			float speed=f.speed;
 			if(f.mix==1)speed=h==7?18:0;
 			if(f.mix==2)speed=h==0?18:0;
@@ -5689,7 +5698,7 @@ CageProbe main(uint id:SV_VertexID) {
 	std::string pixelFixture=fixture;pixelFixture.replace(pixelFixture.find("register(b2)"),strlen("register(b2)"),"register(b1)");
 	std::string ps=WaterFftSampling::UniformSource("WaterBlock",0)+pixelFixture+R"HLSL(
 Texture2D Texture2:register(t2);SamplerState Sampler2:register(s2);
-)HLSL"+WaterFftSampling::CommonSource()+WaterWaveCageShader::Source(false)+R"HLSL(
+)HLSL"+WaterFftSampling::CommonSource()+WaterWaveCageShader::Source(false, true)+R"HLSL(
 struct CageProbe {float4 Position:SV_Position;float4 Displacement:TEXCOORD0;};
 struct Result {float4 Vertex:SV_Target0;float4 Pixel:SV_Target1;float4 DX:SV_Target2;float4 DY:SV_Target3;};
 Result main(CageProbe input) {
@@ -7288,7 +7297,8 @@ static void check_gpu_fft_ocean(SdlGpuFrame *frame)
 	CHECK(!frame->Prepare_Ocean(NAN));
 	CHECK(frame->Prepare_Ocean(1.375f));if(!frame->Ocean_Map(0)) return;
 	CHECK(frame->Ocean_Map(6)==NULL && frame->Ocean_Sampler()!=NULL && frame->Ocean_Updates()==1);
-	CHECK(frame->Ocean_Passes()==26 && frame->Ocean_Copies()==(frame->Ocean_Array_Output()?48:102));
+	CHECK(frame->Ocean_Passes()==(frame->Ocean_Uses_Compute_Fft() ? Maps + Phases : 2 + 3 * Phases));
+	CHECK(frame->Ocean_Copies()==(frame->Ocean_Array_Output()?48:102));
 	for(unsigned layer=0;layer<6;++layer)
 		CHECK((frame->Ocean_Map(layer)==frame->Ocean_Array())==frame->Ocean_Array_Output());
 	std::vector<float> field=read_ocean(frame);const std::vector<float> initial=InitialSpectrum();
@@ -8727,7 +8737,7 @@ static void check_gpu_fft_requested_cascades(SdlGpuFrame *frame)
 		const auto generation = frame->Ocean_Generation();
 		CHECK(frame->Prepare_Ocean(4.375f, resolution, HeadedCascades));
 		CHECK(frame->Ocean_Ready_Cascades() == HeadedCascades &&frame->Ocean_Generation() != generation);
-		CHECK(frame->Ocean_Passes() - passes == 2 + 3 * config.phases);
+		CHECK(frame->Ocean_Passes() - passes == (frame->Ocean_Uses_Compute_Fft() ? 4 + config.phases : 2 + 3 * config.phases));
 		CHECK(frame->Ocean_Copies() - copies == 4 * config.phases
 			+ (frame->Ocean_Array_Output() ? 0 : 4 * config.levels));
 		for (unsigned level = 0; level < config.levels; ++level) {
@@ -8803,7 +8813,7 @@ static void check_gpu_fft_requested_cascades(SdlGpuFrame *frame)
 	printf("sdl_gpu_frame_selfcheck: headed FFT64/128/256 omit broad writes/copies; active base/mips match full generation exactly; paused reuse, same-phase completion, failed rebuild readiness and optional producer fallback checked\n");
 }
 
-static void check_gpu_fft_quality_switch(SdlGpuFrame *frame)
+static void check_gpu_fft_quality_switch(SdlGpuFrame *frame, bool requireCompute = false)
 {
     using namespace WaterFftSpectrum;
     for(unsigned resolution:{64u,128u}) {
@@ -8819,9 +8829,11 @@ static void check_gpu_fft_quality_switch(SdlGpuFrame *frame)
         const int32_t rect[4]={0,0,256,256};frame->Record_Blit(old,rect,reader,rect,false);
         const auto passes=frame->Ocean_Passes(),copies=frame->Ocean_Copies();
         CHECK(frame->Prepare_Ocean(2.25f,resolution));
+        CHECK(!requireCompute || frame->Ocean_Uses_Compute_Fft());
         CHECK(frame->Ocean_Configuration().resolution==resolution && frame->Ocean_Configuration().levels==config.levels);
         CHECK(frame->Ocean_Map(0)!=old);
-        CHECK(frame->Ocean_Passes()-passes==2+3*config.phases && frame->Ocean_Copies()-copies==(6*config.phases+(frame->Ocean_Array_Output()?0:6*config.levels)));
+        CHECK(frame->Ocean_Passes()-passes==(frame->Ocean_Uses_Compute_Fft() ? 6 + config.phases : 2+3*config.phases));
+        CHECK(frame->Ocean_Copies()-copies==(6*config.phases+(frame->Ocean_Array_Output()?0:6*config.levels)));
         const auto preserved=read_float_targets(frame,&reader,1,256,256);
         CHECK(preserved.size()==256*256*4 && std::equal(preserved.begin(),preserved.end(),high.begin()));
         SDL_ReleaseGPUTexture(frame->Device(),reader);
@@ -8872,6 +8884,7 @@ static void check_gpu_fft_quality_switch(SdlGpuFrame *frame)
             // The subsequent rebuild restores the array without changing any field value.
             CHECK(frame->Present(NULL));frame->Fail_Next_Ocean_Array_For_Test();
             CHECK(frame->Prepare_Ocean(2.25f,resolution));CHECK(!frame->Ocean_Array_Output());
+            CHECK(!requireCompute || frame->Ocean_Uses_Compute_Fft());
             for(unsigned level=0;level<lowMips.size();++level) CHECK(read_ocean(frame,level)==lowMips[level]);
             CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
             CHECK(frame->Ocean_Array_Output() && read_ocean(frame)==high);
@@ -9910,6 +9923,82 @@ static void check_scene_depth_snapshot(SdlGpuFrame *frame)
 	printf("sdl_gpu_frame_selfcheck: scene/object depth, vertex texture, target/frame/clear invalidation and resize checked\n");
 }
 
+#if defined(__linux__)
+static int check_water_compute_fft(SdlGpuFrame *frame)
+{
+	auto *device = frame->Device();
+	const auto format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+	const auto raster = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	const auto storage = raster | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE;
+	if (strcmp(SDL_GetGPUDeviceDriver(device), "vulkan") != 0 ||
+		!SDL_GPUTextureSupportsFormat(device, format, SDL_GPU_TEXTURETYPE_2D, storage) ||
+		(WaterFftSampling::ArrayOutputEnabled() && SDL_GPUTextureSupportsFormat(device, format, SDL_GPU_TEXTURETYPE_2D_ARRAY, raster) &&
+		 !SDL_GPUTextureSupportsFormat(device, format, SDL_GPU_TEXTURETYPE_2D_ARRAY, storage))) {
+		printf("sdl_water_compute_fft: SKIP - Vulkan FFT storage targets unavailable\n");
+		return 77;
+	}
+	frame->Enable_Water_Gpu_Timing();
+	const bool timingEnabled = frame->Water_Gpu_Timing_Enabled();
+	frame->Serialize_Submits(timingEnabled);
+	check_gpu_fft_ocean(frame);
+	CHECK(frame->Ocean_Uses_Compute_Fft());
+	if (failures) return 1;
+	check_gpu_fft_quality_switch(frame, true);
+	check_gpu_fft_requested_cascades(frame);
+
+	// Abandon a partially recorded vertical transform and reproduce the same
+	// phase with raster in the existing textures, including every mip.
+	CHECK(frame->Present(NULL));
+	CHECK(frame->Prepare_Ocean(7.25f, 64));
+	CHECK(frame->Ocean_Uses_Compute_Fft());
+	std::vector<std::vector<float>> reference(frame->Ocean_Configuration().levels);
+	for (unsigned level = 0; level < reference.size(); ++level) reference[level] = read_ocean(frame, level);
+	CHECK(frame->Prepare_Ocean(8.25f, 64));
+	frame->Fail_Next_Ocean_Compute_Pass_For_Test();
+	CHECK(frame->Prepare_Ocean(7.25f, 64));
+	CHECK(!frame->Ocean_Uses_Compute_Fft());
+	for (unsigned level = 0; level < reference.size(); ++level) {
+		const auto actual = read_ocean(frame, level);
+		CHECK(!actual.empty() && actual.size() == reference[level].size());
+		if (actual.size() != reference[level].size()) return 1;
+		CHECK(std::equal(actual.begin(), actual.end(), reference[level].begin(),
+			[](float a, float b) { return std::abs(a - b) <= 1e-5f * (1.0f + std::abs(b)); }));
+	}
+
+	if (timingEnabled) {
+		const auto fft = frame->Take_Water_Gpu_Timing();
+		CHECK(fft.Available && !fft.Missing && fft.Scopes[SdlWaterGpuTiming::Fft] == frame->Ocean_Updates());
+		CHECK(std::isfinite(fft.Milliseconds[SdlWaterGpuTiming::Fft]) && fft.Milliseconds[SdlWaterGpuTiming::Fft] > 0);
+		// Both targets are queued before one flush. Only the tagged material draw counts.
+		const SdlTarget scene = frame->Back_Buffer_Target();
+		SDL_GPUTextureCreateInfo info = {};
+		info.type = SDL_GPU_TEXTURETYPE_2D;
+		info.format = (SDL_GPUTextureFormat)SdlGpuFrame::Target_Format();
+		info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+		info.width = scene.Width;
+		info.height = scene.Height;
+		info.layer_count_or_depth = info.num_levels = 1;
+		auto *mirror = SDL_CreateGPUTexture(device, &info);
+		CHECK(mirror);
+		if (!mirror) return 1;
+		DepthObject object(frame);
+		frame->Mark_Water_Timing_Mirror(mirror);
+		object.Draw({mirror, scene.Depth, scene.Width, scene.Height}, .25f);
+		frame->Mark_Water_Timing_Mirror(scene.Colour);
+		object.Draw(scene, .25f, nullptr, true);
+		frame->Prepare_Water_Snapshot(scene, true, true);
+		frame->Release_After_Batch(mirror, nullptr);
+		CHECK(frame->Flush());
+		const auto sample = frame->Take_Water_Gpu_Timing();
+		CHECK(sample.Available && !sample.Missing && sample.Scopes[SdlWaterGpuTiming::Planar] == 2);
+		CHECK(sample.Scopes[SdlWaterGpuTiming::Material] == 1 && sample.Scopes[SdlWaterGpuTiming::SceneColour] == 1);
+		CHECK(sample.Scopes[SdlWaterGpuTiming::SceneDepth] == unsigned(frame->Supports_Scene_Depth()));
+		CHECK(!sample.Scopes[SdlWaterGpuTiming::Fft]);
+	}
+	return failures ? 1 : 0;
+}
+#endif
+
 int main(int argc,char **argv)
 {
 	CHECK(Sdl_Choose_Present_Mode(true, false) == SDL_GPU_PRESENTMODE_VSYNC);
@@ -9961,6 +10050,20 @@ int main(int argc,char **argv)
 		return 77;
 	}
 	printf("sdl_gpu_frame_selfcheck: %s\n", SDL_GetGPUDeviceDriver(frame->Device()));
+#if defined(__linux__)
+	if (argc == 2 && strcmp(argv[1], "--water-compute-fft") == 0) {
+		const int result = check_water_compute_fft(frame);
+		delete frame;
+		SDL_Quit();
+		return result;
+	}
+#endif
+	if (argc == 2 && strcmp(argv[1], "--water-fft-only") == 0) {
+		check_gpu_fft_ocean(frame);
+		delete frame;
+		SDL_Quit();
+		return failures ? 1 : 0;
+	}
 	if (argc == 2 && strcmp(argv[1], "--water-movement-only") == 0) {
 		check_gpu_water_movement_v351(frame);
 		delete frame;

@@ -485,6 +485,8 @@ public:
                 capture = false;
             }
             require(device->Present(nullptr,nullptr,nullptr,nullptr),"present");
+            if (options.benchmark && device->Get_Gpu()->Submits_Are_Serialized())
+                throw std::runtime_error("benchmark requires unsynchronized GPU submissions; disable GPU timing synchronization");
             if (options.benchmark && frame >= options.benchmarkWarmup)
                 hostFrames.push_back(double(SDL_GetTicksNS()-drawStart)*1.0e-6);
             ++frame;
@@ -494,6 +496,10 @@ public:
         printWork("Total work",workCounts());
         std::printf("Wave allocation: requested=%u active=%u\n",WaterPerformanceSettings::Applied().requestedFftResolution,
             WaterPerformanceSettings::Applied().activeFftResolution);
+        const auto *gpu = device->Get_Gpu();
+        if (gpu->Ocean_Map(0))
+            std::printf("FFT output: producer=%s storage=%s\n", gpu->Ocean_Uses_Compute_Fft() ? "compute" : "raster",
+                gpu->Ocean_Array_Output() ? "array" : "legacy");
         if(!scene.loaded() && WaterCleanSpectrum::Enabled())
             std::printf("Main water: accepted_draws=%u depth_uploads=%llu rotation_uploads=%llu\n",
                 device->Main_Water_Draws_Recorded(),
@@ -1018,6 +1024,7 @@ private:
         const D3DMATRIX mirrored=multiply(reflect,view);
         require(device->SetRenderTarget(0,target.surface),"set mirror target");
         require(device->SetDepthStencilSurface(target.depth),"set mirror depth");
+        device->Mark_Water_Timing_Mirror();
         const D3DVIEWPORT9 viewport={0,0,target.size,target.size,0,1};
         require(device->SetViewport(&viewport),"set mirror viewport");
         require(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,0x00000000u,1,0),"clear mirror");

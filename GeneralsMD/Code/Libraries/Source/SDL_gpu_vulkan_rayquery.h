@@ -155,6 +155,15 @@ ZHR_SDLRayRetirement ZHR_SDLRayWaitForRetirement(SDL_GPUDevice *);
 void ZHR_SDLRayDestroySceneAfterRetirement(ZHR_SDLRayScene *);
 /* Waits SDL_WaitForGPUIdle; call before destroying device, after submitting commands. */
 void ZHR_SDLRayDestroyScene(ZHR_SDLRayScene *);
+
+/* Private Vulkan timestamps. Reuse the pool only after the covering SDL fence.
+ * Reset is outside passes; stamps can be recorded inside a render pass. */
+typedef struct ZHR_SDLGpuTimer ZHR_SDLGpuTimer;
+ZHR_SDLGpuTimer *ZHR_SDLGpuTimerCreate(SDL_GPUDevice *, Uint32 pairs);
+void ZHR_SDLGpuTimerReset(ZHR_SDLGpuTimer *, SDL_GPUCommandBuffer *);
+void ZHR_SDLGpuTimerStamp(ZHR_SDLGpuTimer *, SDL_GPUCommandBuffer *, Uint32 query);
+bool ZHR_SDLGpuTimerRead(ZHR_SDLGpuTimer *, Uint32 pairs, double *milliseconds);
+void ZHR_SDLGpuTimerDestroy(ZHR_SDLGpuTimer *);
 #ifdef __cplusplus
 }
 #endif
