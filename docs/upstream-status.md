@@ -7,12 +7,37 @@ develops graphics work before offering selected changes to the
 The [4.1.0 upstream submission plan](upstream-submission-plan-4.1.0.md) records the PR order,
 worktree branch names and acceptance checks for that submission.
 
-**Status reviewed 2026-11-21.** All 24 PRs from #241 through #264 merged on November 20–21 UTC.
+**November 20–21, 2026 submission.** All 24 PRs from #241 through #264 merged on November 20–21 UTC.
 Their merge commits and the manual port of #266 are on upstream `main` after the v4.2.0 release.
 [Source snapshot `2fc8ef983`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/2fc8ef983d73049549c6064a02d221e84cccfdb2) ·
 [Changes since upstream v4.2.0](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/compare/v4.2.0...2fc8ef983d73049549c6064a02d221e84cccfdb2)
 
+## Linux 4.3.2
+
+The Linux 4.3.2 update integrates upstream v4.3.2 and later commits through
+`079bc531d`. It carries the Direct Strike updates, Apocalypse survival, Day and Night
+matches, and ranked ELO displays. [Upstream release](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/releases/tag/v4.3.2) ·
+[Integrated source](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/079bc531da9481311df8578b9a688f06b128d89c) ·
+[Linux release notes](releases/v4.3.2.md)
+
+In this release, experimental path-traced water skips hidden captures and reuses scene data.
+The Vulkan path updates moving geometry between acceleration-structure rebuilds. Mapped
+sun shadows batch repeated opaque models into fewer draws. [Linux renderer PR #7](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/pull/7)
+
 ## Accepted
+
+### Included in upstream v4.5.0
+
+Upstream merged these five Linux contributions into `main` on November 28, 2026.
+All five merge commits are in the v4.5.0 release. [Upstream release](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/releases/tag/v4.5.0)
+
+| Change | Upstream merge | Pull request |
+|---|---|---|
+| Reuse completed Vulkan upload buffers during play | `abe36f158` | [#280](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/280) |
+| Keep the Cold Fusion Reactor's upgrade glow in step with its control rods | `c7c25cb28` | [#281](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/281) |
+| Tune the stock polluted-water preset for murkier water, duller reflections and less wind response | `eea2ab078` | [#282](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/282) |
+| Add depth-aware Clean FFT water on Linux, enabled with `CleanFftWater = yes` in `Options.ini` and off by default | `eeace0ce4` | [#283](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/283) |
+| Fix the Linux terrain-skirt colour-mask type and the fracture renderer's case-sensitive include | `6d0b21077` | [#286](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/286) |
 
 ### After upstream v4.2.0
 
@@ -42,7 +67,7 @@ Their merge commits and the manual port of #266 are on upstream `main` after the
 | Reskin startup validation | [#262](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/262) | `b4f882a65`. Partial port. Upstream exempts explicit `RemoveModule` tags and still reports later parent additions missing from the reskin. The fork checks the copy-time baseline. [Maintainer review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/262#issuecomment-7049271501) |
 | Underwater Clarity | [#263](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/263) | `ea3383647`. Linux Water-tab option, off by default. This is the rework requested in #172. |
 | Map-Aware Waves | [#264](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/264) | `9fdc3fa94`. Linux Water-tab option, off by default. Waves follow shorelines, channels and shelter. |
-| Optional toxic-water material controls | [#266](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/266), closed | Hand-ported as [`60ba30689`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/60ba30689b336cb05e4085d4954c0f40128aeac4). Custom rules can set `Turbidity`, `SurfaceRoughness`, `RippleDamping` and `WindResistance`. All four default to zero and the shipped rules leave them unset. The PR closed with Clean FFT still in its branch. |
+| Optional toxic-water material controls | [#266](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/266), closed | Custom rules gained `Turbidity`, `SurfaceRoughness`, `RippleDamping` and `WindResistance`, each defaulting to zero. The original port left the stock rules unset. The tuned preset followed in #282. [Manual port](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/60ba30689b336cb05e4085d4954c0f40128aeac4) |
 
 The maintainer combined Battle Marks, Classic-water splashes and collapse in `b998791fe` and recorded
 the three PR merges above. For the renderer stack, the maintainer ran Windows x64 Release checks.
@@ -72,9 +97,9 @@ relied on this fork's testing.
 | Feature | Upstream disposition / evidence |
 |---|---|
 | Expanded weather | Gusts, intermittent rain, snow and sand layers, land/water contacts, ambience and haze/sky coupling extend the baseline SDL weather port. [Weather guide](linux.md#weather) |
-| Clean FFT water and its shoreline startup guard | The reworked wave pipeline uses a shared JONSWAP spectrum, depth-aware waves, filtered glints and wave-driven foam. #265 was declined. [Implementation report](modern-water-clean-fft-report.md) |
-| Tuned toxic-water material and live production-water preview | The fork ships a tuned `PollutedWater` rule, a matching fallback and the preview's Toxic Look preset. [Material guide](water-preview.md) |
-| Path-traced water reflections | Experimental reflection mode. The pinned upstream source lists Mirror, ScreenSpace, Hybrid and SkyOnly. [Upstream reflection modes](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/2fc8ef983d73049549c6064a02d221e84cccfdb2/GeneralsMD/Code/Libraries/Include/Platform/WaterScreenReflection.h#L8) |
+| Vulkan water optimizations after Linux v4.3.2 | The fork skips work outside shoreline and hull-contact regions, adds an opt-in compute FFT, and records GPU times for individual water passes. [Implementation and measurements](#vulkan-water-update-2026-11-28) |
+| Live water material preview | The standalone Linux preview uses the game renderer to edit material rules and includes a Toxic Look preset. [Material guide](water-preview.md) |
+| Path-traced water reflections | The fork offers an experimental path-traced mode. Upstream v4.5.0 lists Mirror, ScreenSpace, Hybrid and SkyOnly. [Upstream reflection modes](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/v4.5.0/GeneralsMD/Code/Libraries/Include/Platform/WaterScreenReflection.h#L8) |
 | Volumetric Contaminate, toxin impacts and attached puddles | #171 closed without merging. The shared volume for toxin and radiation fields landed in #170. [Upstream recognition policy](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/2fc8ef983d73049549c6064a02d221e84cccfdb2/GeneralsMD/Code/Libraries/Include/Platform/HazardCloudPolicy.h) |
 | Asset Preloading | #169 closed without merging. It covered the encoded-audio cache, which supports ready-to-play briefings, and renderer pipeline warmup. |
 | Submerged trees, fire, smoke and steam | The fork dampens tree sway and combustion effects below the waterline, with steam on a dry-to-wet crossing. See the local validation below. |
@@ -88,7 +113,7 @@ adjacent Steam Generals folder discovery, path cache invalidation and portable h
 |---|---|---|---|
 | Asset Preloading | [#169](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/169) | No measured load-time gain. The audio preload read up to 256 MiB at each map load, and upstream already used a 64 MB streaming cache. | A Linux/macOS pipeline-warmup PR with measurements. |
 | Volumetric Contaminate, toxin impacts and attached puddles | [#171](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/171) | The effects add GPU work when the screen is already busy. The PR had no timings for that case. Upstream had previously removed volumetric smoke over GPU cost. | A smaller PR with SDL GPU frame times from a crowded toxin fight. |
-| Clean FFT water | [#265](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/265) | In the submitted comparison on earlier RTX 4060 Release builds, the carrier scene's p50 Present interval rose from 8.43 to 12.40 ms. The maintainer also flagged shader source text replacements. [Maintainer review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/265#issuecomment-7050110786) | Bring the carrier cost increase near 1 ms or replace the text substitutions with shader branches. |
+| Original Clean FFT proposal | [#265](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/265) | In the submitted comparison on earlier RTX 4060 Release builds, the carrier scene's p50 Present interval rose from 8.43 to 12.40 ms. The maintainer also flagged shader source text replacements. [Maintainer review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/265#issuecomment-7050110786) | The follow-up used explicit shader branches and measured a 0.157 ms median increase in the carrier scene. [Merged PR #283](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/283) |
 
 ## Local upstream integration (2026-11-16)
 
@@ -158,6 +183,21 @@ attempts and unchanged-fixture evidence alongside final affected reruns.
 
 ## Local feature validation
 
+### Vulkan water update (2026-11-28)
+
+Linux `main` keeps the raster FFT as the default. The optional Vulkan compute FFT uses the
+selected wave resolution and recovers through the raster path if a compute update fails.
+At 256 × 256, a full wave update takes 14 passes with compute and 26 with raster.
+[Fork commit `dbe9021e5`](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commit/dbe9021e5e0042b2f64f3664a4a34c77c3ddb4ad) ·
+[Runtime options](linux.md#modern-water-options)
+
+On an RTX 4060 at 1920 × 1080, both paths reproduced every RGB pixel in the frozen carrier
+capture rendered with the v4.3.2 water shader. With the waves animated, median host
+draw-and-present time was 3.55 ms with that shader, 3.44 ms with the updated shader and
+raster FFT, and 3.33 ms with compute. Each figure includes 1,000 measured frames across two
+runs. In a separate 120-frame GPU timing sample, the median FFT update took 0.50 ms with
+raster and 0.28 ms with compute. [Preview benchmark method](water-preview.md#bounded-host-benchmark)
+
 ### SDL GPU upload cleanup on Vulkan (2026-11-22)
 
 The Linux 4.2.1 AppImage and the fork both retained GPU upload memory after panning in USA 2.
@@ -193,7 +233,7 @@ the camera parked. Panning raised the count to 1,029 in five circuits. It held t
 all 897 sampled descriptor allocations were freed at GPU shutdown. The fence fix resolves
 the multi-GiB upload retention reproduced in USA 2. The descriptor pools serve later draws
 at the same load, so the fork keeps SDL's existing cache policy.
-[SDL descriptor cache reuse](../GeneralsMD/Code/Libraries/Source/SDL3/src/gpu/vulkan/SDL_gpu_vulkan.c#L5112-L5158)
+[SDL descriptor cache reuse](https://github.com/libsdl-org/SDL/blob/fa2c02bb6e21974a89ea9824bc53c9932abe5f9c/src/gpu/vulkan/SDL_gpu_vulkan.c#L5112-L5164)
 
 Local evidence is under `build-linux/benchmarks/usa2-memory-9ab3b716a/pan-investigation/`.
 `SCROLLING.md` records the matched fence comparison, `repeated-main-broad-extended-01/REPORT.md`
@@ -411,7 +451,7 @@ port boundaries and validation plan for that snapshot.
 | `dd607c49` resident encoded-audio readiness | The fork's encoded RAM cache supplies this readiness path. The cache proposal #169 closed without merging. |
 | `f7e94b27` fractional camera pose and repeated-frame animation clock | Merged in #260 and #261. The maintainer adapted the tests to use a standalone cinematic camera suite on Windows. [Camera review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/260#issuecomment-7053318166) · [Animation review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/261#issuecomment-7054254321) |
 | `f7e94b27` live-submission eligibility | The November 14 source review found that upstream's static eligibility gate passed at its 30 Hz logic rate. The fork's 60 Hz/44 Hz case remains in the handoff for reference. |
-| `52cbad0c` Clean FFT shoreline distance guard | Included in the declined #265 proposal. It guards the fork's Clean FFT shoreline helper. |
+| `52cbad0c` Clean FFT shoreline distance guard | First proposed in #265. The merged Clean FFT follow-up also checks the sample index before reading shoreline distance. [Upstream guard in v4.5.0](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/v4.5.0/GeneralsMD/Code/Libraries/Include/Platform/WaterCleanShore.h#L132-L137) |
 
 ### Modern-water benchmarks (2026-11-11)
 
@@ -428,8 +468,6 @@ These timings use the earlier builds and settings documented in the benchmark re
 
 ## Ideas for later pull requests
 
-- **Reclaim completed SDL GPU uploads.** Candidate for a standalone renderer PR.
-  [USA 2 memory results and water benchmarks](#sdl-gpu-upload-cleanup-on-vulkan-2026-11-22)
 - **Volumetric toxin effects.** Measure the delta over the shared volume in a crowded toxin fight.
   Use the SDL GPU timer (`ZH_GPU_TIMING` with `ZH_GPU_TIMING_SYNC=1`) and a repeatable battle
   (`-scenario`, files in `Data/Scenarios/`). The devlog's 2026-11-05 benchmark session has a crowded-cloud
